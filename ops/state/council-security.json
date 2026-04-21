@@ -1,0 +1,12 @@
+{
+  "officer": "council-security",
+  "role": "council",
+  "portfolio": "Threat model, input sanitisation, action execution safety, config trust",
+  "branch": null,
+  "status": "unmobilized",
+  "current_task": null,
+  "last_update": null,
+  "blockers": [],
+  "primary_outputs": ["docs/adr/003-threat-model.md"],
+  "notes": "Awaiting Phase 1 activation. Focus on shell-escape surface when executing user-configured actions."
+}

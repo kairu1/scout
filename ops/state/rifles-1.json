@@ -1,0 +1,11 @@
+{
+  "officer": "rifles-1",
+  "role": "line-officer",
+  "sector": "Core/Search",
+  "branch": "sector/search",
+  "status": "unmobilized",
+  "current_task": null,
+  "last_update": null,
+  "blockers": [],
+  "notes": "Awaiting Phase 3 activation. Requires ADR-001 Ranking doctrine before engagement."
+}

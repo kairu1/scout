@@ -1,0 +1,11 @@
+{
+  "officer": "pioneers",
+  "role": "line-officer",
+  "sector": "Packaging/Ops",
+  "branch": "sector/ops",
+  "status": "unmobilized",
+  "current_task": null,
+  "last_update": null,
+  "blockers": [],
+  "notes": "Awaiting Phase 4 activation. Also drafts per-phase runbooks at phase close."
+}

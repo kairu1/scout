@@ -1,0 +1,12 @@
+{
+  "officer": "council-surgeon",
+  "role": "council",
+  "portfolio": "Reliability, panic discipline, crash recovery, partial-state handling",
+  "branch": null,
+  "status": "unmobilized",
+  "current_task": null,
+  "last_update": null,
+  "blockers": [],
+  "primary_outputs": ["Embedded findings in all four ADRs"],
+  "notes": "Awaiting Phase 1 activation. Concerned with: interrupted indexing runs, stale DB entries, SIGINT handling, file-system race conditions."
+}

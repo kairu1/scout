@@ -1,0 +1,12 @@
+{
+  "officer": "council-architect",
+  "role": "council",
+  "portfolio": "System design, data flow, ranking algorithms, action composition model",
+  "branch": null,
+  "status": "unmobilized",
+  "current_task": null,
+  "last_update": null,
+  "blockers": [],
+  "primary_outputs": ["docs/adr/001-ranking-doctrine.md", "docs/adr/004-action-config-schema.md"],
+  "notes": "Awaiting Phase 1 activation."
+}

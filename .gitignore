@@ -1,0 +1,18 @@
+/target
+**/*.rs.bk
+Cargo.lock.old
+
+# Operational runtime
+/ops/logs/*
+!/ops/logs/.gitkeep
+/ops/state/*.lock
+
+# Local DB (never committed)
+*.db
+*.db-shm
+*.db-wal
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

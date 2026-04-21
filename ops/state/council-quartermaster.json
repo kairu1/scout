@@ -1,0 +1,12 @@
+{
+  "officer": "council-quartermaster",
+  "role": "council",
+  "portfolio": "Dependencies, supply lines, decade-longevity scoring",
+  "branch": null,
+  "status": "unmobilized",
+  "current_task": null,
+  "last_update": null,
+  "blockers": [],
+  "primary_outputs": ["docs/adr/002-dependency-roster.md"],
+  "notes": "Awaiting Phase 1 activation. Must apply the six decade-longevity gates from ops/CAMPAIGN.md."
+}

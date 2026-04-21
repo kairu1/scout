@@ -1,0 +1,11 @@
+{
+  "officer": "engineers",
+  "role": "line-officer",
+  "sector": "Actions/Config",
+  "branch": "sector/actions",
+  "status": "unmobilized",
+  "current_task": null,
+  "last_update": null,
+  "blockers": [],
+  "notes": "Awaiting Phase 3 activation. Requires ADR-003 Threat model and ADR-004 Action/config schema before engagement."
+}

@@ -1,0 +1,21 @@
+[package]
+name = "scout"
+version = "0.0.0"
+edition = "2021"
+authors = ["Kairu Wangui <kairusimple@gmail.com>"]
+description = "Fast project finder and action launcher"
+license = "MIT"
+publish = false
+
+# STANDING ORDER: Dependencies are added only after Quartermaster's
+# ADR-002 (dependency roster) is signed by the commander. Until then,
+# this crate must compile with zero external dependencies.
+
+[[bin]]
+name = "scout"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
