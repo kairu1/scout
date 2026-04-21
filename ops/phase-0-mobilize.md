@@ -287,6 +287,8 @@ When every box is checked, return to the Chief of Staff (resume our conversation
 |---|---|---|
 | `podman build` stalls on apt | Network flakiness in the VM | Re-run; layer cache handles it |
 | `podman run` errors `container exists` | Leftover from prior attempt | `podman rm -f scout` and re-run |
+| `useradd: UID 1000 is not unique` during build | Ubuntu 24.04 ships a default `ubuntu` user at UID 1000 | Fixed in Containerfile — `userdel -r ubuntu` runs before `useradd`. Re-run `podman build`; previous layers are cached up to the apt step. |
+| `sqlite3: command not found` in smoke test | `libsqlite3-dev` alone doesn't provide the `sqlite3` CLI | Fixed in Containerfile — `sqlite3` added to apt install list. Rebuild with `podman build -t scout:latest .` — apt layer re-runs (invalidated), later layers re-run too. ~2–3 minutes. |
 | Files inside container appear owned by unexpected UID | UID mismatch host↔VM | Ensure `-v ... :Z` is present; on rootless podman the UID mapping handles this automatically |
 | `git init -b main` flag unknown | Old git (<2.28) | `git init && git branch -m master main` |
 | Claude Code install fails in build | Upstream network hiccup | Re-run the build; if persistent, pin a version in the Containerfile and escalate |

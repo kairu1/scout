@@ -26,13 +26,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential \
       pkg-config \
       libsqlite3-dev \
+      sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Non-root user mapped to host UID 1000 (standard macOS first user);
-# the mount in podman uses :Z relabeling so this user can read/write.
+# Non-root user. Ubuntu 24.04 ships a default `ubuntu` user at UID 1000,
+# so we remove it first (idempotent — `|| true` tolerates future base images
+# that drop the default) before creating our own officer account.
 ARG USER=scout
 ARG UID=1000
-RUN useradd -m -u ${UID} -s /bin/bash ${USER}
+RUN (userdel -r ubuntu 2>/dev/null || true) \
+ && useradd -m -u ${UID} -s /bin/bash ${USER}
 
 USER ${USER}
 WORKDIR /home/${USER}
