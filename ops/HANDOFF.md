@@ -16,6 +16,29 @@
 
 ---
 
+## 2026-04-21 19:30 — FROM chief-of-staff TO commander — Phase 1 orders cut
+
+**Phase 0 CLOSED 2026-04-21.** All checkpoints green; scaffold + fixes committed.
+
+**Phase 1 ISSUED.** See updated `ops/OPORD.md` and the new runbook at `ops/phase-1-council.md`.
+
+Phase 1 is the most important check-in of the campaign — four ADRs set doctrine for every downstream engagement. Four waves, four commander check-ins:
+
+1. **Wave 1 — Position papers.** All five Council officers write a position paper on their portfolio. Parallel or sequential, your call. Output: five files under `docs/adr/positions/`.
+2. **Wave 2 — ADR drafts.** Architect drafts ADR-001 + ADR-004. Quartermaster drafts ADR-002. Security drafts ADR-003.
+3. **Wave 3 — Peer review.** Each ADR reviewed by the four non-authoring officers; authors revise.
+4. **Wave 4 — Commander sign-off.** You read, approve or redirect.
+
+**Before you move:** the runbook's preflight section covers Claude-Code auth inside the container — verify that first. If headless auth fails, the runbook gives two fallbacks (mount `~/.claude` or set `ANTHROPIC_API_KEY`).
+
+**Where your two cents matters most:** Check-in #1 (before launching any officer — edit the prompts if any asks for the wrong thing) and Check-in #3 (ADR drafts before peer review — cheap to demand revisions here).
+
+**Standing interrupt remains:** `stand down`, `redirect`, `promote`, `AAR now`.
+
+Awaiting commander's execution of `ops/phase-1-council.md`.
+
+---
+
 ## 2026-04-21 18:15 — FROM chief-of-staff TO commander — Smoke test triage (sqlite3 missing)
 
 **Incident:** Step 5 smoke test — 6/7 green; `sqlite3 --version` failed with `command not found`.
