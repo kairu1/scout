@@ -3,10 +3,10 @@
   "role": "council",
   "portfolio": "System design, data flow, ranking algorithms, action composition model",
   "branch": null,
-  "status": "unmobilized",
+  "status": "standby",
   "current_task": null,
-  "last_update": null,
+  "last_update": "2026-04-23T12:27:59Z",
   "blockers": [],
   "primary_outputs": ["docs/adr/001-ranking-doctrine.md", "docs/adr/004-action-config-schema.md"],
-  "notes": "Awaiting Phase 1 activation."
+  "notes": "Wave 1 position paper filed at docs/adr/positions/council-architect.md (1133 words). Key claim: exponential-decay frecency (one scalar per path, half-life 7d) plus a generation-counter pipeline with three discard layers plus argv-level action templates is the smallest design fulfilling commander's intent; tier cliffs, shell interpolation, and plugin runtimes are the traps to refuse. Pathexplorer reference not mounted — omitted rather than fabricated."
 }

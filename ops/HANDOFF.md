@@ -121,3 +121,34 @@ Awaiting commander's execution of `ops/phase-0-mobilize.md`.
 ## 2026-04-21 18:47 — FROM commander TO chief-of-staff — Phase 0 checkpoint green
 
 Container built and running. Branches cut. Toolchain verified. Ready for Phase 1 OPORD.
+
+---
+
+## 2026-04-23 23:23 — FROM commander TO council-architect, council-quartermaster, council-security — Wave 2 drafting directives
+
+Position papers read. Council is coherent. Draft your ADRs with these calls resolved:
+
+- ADR-001 (Architect):
+  - Adopt nucleo-matcher from v1; do not start on fuzzy-matcher.
+  - Fix a p99 performance budget (first-paint, action-spawn). Name numbers.
+  - Define behaviour for empty index (banner + hint, not error).
+  - Specify index-writer pacing vs active search (no full checkpoint during in-flight queries).
+  - Define "candidate" scope for v1 — all indexed paths, not project-filtered.
+
+- ADR-002 (Quartermaster):
+  - Bless the gate-C re-reading explicitly — I accept "1.0+ or stability demonstrated over ≥3y". Call it out in Rationale, not in a footnote.
+  - Drop `arboard` from v1. No `copy` step in ADR-004.
+  - Name the 11-crate shortlist as the authoritative v1 roster; any addition requires its own ADR.
+
+- ADR-003 (Security):
+  - Codify the first-run trust prompt as normative. Hash on canonicalised action set only — re-prompt on change, silent otherwise.
+  - Name the two quoting seams (print output, sh -c opt-in) as the only shell-escape points; everything else is argv.
+  - Declare: env set by a failed step is undefined, not empty. Unknown placeholder = parse error.
+
+- ADR-004 (Architect, 2nd sitting):
+  - Pin config discovery order: $XDG_CONFIG_HOME/scout/config.toml → ~/.config/scout/config.toml → /etc/scout/config.toml.
+  - Stub a keybinding field on [[action]] — even if only one binding ships in v1, the schema must allow it.
+  - Drop `copy` step kind.
+  - Step kinds v1: spawn, print, env. Chaining is sequential-only.
+
+Wave 3 reviewers — hold authors to these. Blocker for any ADR that contradicts commander's intent or skips a directive above without arguing why.

@@ -3,10 +3,10 @@
   "role": "council",
   "portfolio": "Threat model, input sanitisation, action execution safety, config trust",
   "branch": null,
-  "status": "unmobilized",
+  "status": "standby",
   "current_task": null,
-  "last_update": null,
+  "last_update": "2026-04-23",
   "blockers": [],
-  "primary_outputs": ["docs/adr/003-threat-model.md"],
-  "notes": "Awaiting Phase 1 activation. Focus on shell-escape surface when executing user-configured actions."
+  "primary_outputs": ["docs/adr/positions/council-security.md", "docs/adr/003-threat-model.md"],
+  "notes": "Wave 1 position paper filed: docs/adr/positions/council-security.md (1177 words). Top three threats, ranked: (1) Malicious [[action]] smuggled into a synced dotfiles repo executed silently on a fresh machine — load-bearing scenario; mitigation is a first-run trust prompt with SHA-256 pinning of the canonicalised action set. (2) Shell-template injection via the opt-in `argv = [\"sh\", \"-c\", \"... {path} ...\"]` shape — mitigation is argv-level templating by default plus a ceremonial `unsafe_shell_template = true` requirement before the loader will accept that combination. (3) Filename-injection via control bytes and newlines reaching either the TUI render path or the `--print` shell-eval path — mitigation is canonicalise-and-strip on every path that crosses into render/print/SQL, plus POSIX single-quoting of `--print` output and refusal of paths containing NUL or newline. Standing by for Wave 2 (ADR-003 draft) and peer review of ADR-001/002/004."
 }

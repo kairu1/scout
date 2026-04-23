@@ -3,10 +3,10 @@
   "role": "council",
   "portfolio": "Dependencies, supply lines, decade-longevity scoring",
   "branch": null,
-  "status": "unmobilized",
+  "status": "standby",
   "current_task": null,
-  "last_update": null,
+  "last_update": "2026-04-23T12:48:08Z",
   "blockers": [],
-  "primary_outputs": ["docs/adr/002-dependency-roster.md"],
-  "notes": "Awaiting Phase 1 activation. Must apply the six decade-longevity gates from ops/CAMPAIGN.md."
+  "primary_outputs": ["docs/adr/002-dependency-roster.md", "docs/adr/positions/council-quartermaster.md"],
+  "notes": "Wave 1 position paper filed at docs/adr/positions/council-quartermaster.md. Shortlist (11 direct deps): rusqlite (bundled), clap, ignore, crossterm, ratatui, nucleo-matcher, serde + serde_json, toml, anyhow, thiserror, tracing + tracing-subscriber, signal-hook. Swaps: fuzzy-matcher -> nucleo-matcher; num_cpus -> std::thread::available_parallelism; directories -> dirs. Rejects (v1): tokio/async runtimes, notify, chrono, lazy_static/once_cell, embedded scripting (Lua/Rhai), reqwest, structopt, tui (archived). Gate-C interpretive liberty (stability-demonstrated vs strict 1.0+) flagged to commander. Standing concerns: licence sweep via cargo-deny, musl + rusqlite-bundled cross-compile smoke test, cargo audit in CI from Phase 4 preflight, MSRV pin at adoption, target <120 transitive crates. Items marked VERIFY in paper require live crates.io/GitHub checks that were not possible in this sandbox (no confirmed network egress)."
 }
