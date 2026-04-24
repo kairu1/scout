@@ -97,16 +97,7 @@ On every config load, SCOUT computes `H = SHA-256(canonicalised_action_set)` —
 2. **Trust store contains `H`** — SCOUT loads silently. This is the steady state.
 3. **Trust store contains some `H'` for this config path but `H ≠ H'`** — the config changed. SCOUT re-enters the trust prompt, showing a diff-style view (added actions, removed actions, action names whose argv changed) before the full listing, and requires fresh `y` confirmation. The prior `H'` is replaced only on confirmation.
 
-**Canonicalised action set — exact definition of the hashed bytes.** Hashing the raw file would re-prompt on every whitespace or comment edit and train the user to rubber-stamp. We hash only the semantic content that affects execution:
-
-1. Parse the TOML into the `Config` type.
-2. Extract the list of `[[action]]` entries. Drop every `description` field, every comment, and every field not in the action schema's "executes something" set (as defined in ADR-004).
-3. Sort actions by `name` (lexicographic, byte-order).
-4. For each action, serialise its fields in a fixed order: `name`, `argv` or step list (in order), `on_failure`, `wait`, `cwd`, `unsafe_shell_template`. Placeholders inside argv strings are preserved literally — `{path}` hashes differently from `{parent}`, which is correct, because those are different actions.
-5. Encode the result as canonical JSON (sorted keys, no trailing whitespace, UTF-8, `\n` separators between actions).
-6. `SHA-256` the resulting byte string; hex-encode for storage.
-
-`description`-only edits do not re-prompt. Comment reordering does not re-prompt. Any change that could alter what SCOUT runs does re-prompt.
+**Canonicalised action set — defined by ADR-004 §9.** The exact byte sequence this ADR hashes is fixed by ADR-004 §9, which is the single source of truth for the canonical-JSON projection. That projection drops cosmetic fields (including `description` and all comments), sorts actions by `name`, serialises each action's execution-relevant fields in fixed order — including `keybinding`, because a keybinding change alters which action runs on Enter and must re-prompt — preserves placeholders literally (so `{path}` hashes differently from `{parent}`), emits canonical JSON under a versioned `scout/trust-hash-v1` header, and SHA-256s the result. Hashing the raw file is deliberately refused: it would re-prompt on every whitespace or comment edit and train the user to rubber-stamp. `description`-only edits do not re-prompt. Any change that could alter what SCOUT runs — or which key dispatches it — does re-prompt.
 
 **What we do not do.** We do not call `git` to ask whether the file is from `dotfiles@main`. We do not verify GPG signatures. We do not compare against a remote allowlist. Provenance is the user's problem; *making the change visible* is ours. Surfacing mtime and path at the prompt lets the user notice that something new appeared; enforcing a cryptographic chain of custody on the user's own dotfiles is not SCOUT's weight class.
 
@@ -126,7 +117,7 @@ The SQLite index contains a record of every indexed path and the frecency histor
 
 **WAL and SHM siblings** (`-wal`, `-shm`) are created by SQLite; on Unix, SQLite inherits the DB file's mode. We do not intervene after creation. Before first open, however, SCOUT creates the WAL and SHM with the DB's `0600` umask-agnostic mode by `open`-then-`fchmod` on startup when the siblings are absent, to guarantee the initial state regardless of the user's umask.
 
-**Windows and macOS.** Windows ACL semantics do not map cleanly to `chmod` and are out of scope for v1. On macOS, the Unix rules apply unchanged (Darwin is POSIX-mode-honouring); the `$XDG_DATA_HOME` fallback resolves to `~/Library/Application Support/scout/` per `dirs` (Quartermaster §2).
+**Windows and macOS.** Windows ACL semantics do not map cleanly to `chmod` and are out of scope for v1. On macOS, the Unix rules apply unchanged (Darwin is POSIX-mode-honouring); the `$XDG_DATA_HOME` fallback resolves to `~/Library/Application Support/scout/` via the hand-rolled XDG resolver at `src/config/paths.rs` (ADR-002 §Dirs resolution, Engineers sector). The `dirs` crate is explicitly **not** on the v1 roster — ADR-002 Decision rejects it in favour of the hand-rolled module; citations here point at the resolver, not the crate.
 
 **No auto-repair.** If permissions drift, SCOUT warns; SCOUT does not `chmod` files it did not just create. A user who has deliberately widened permissions should not have SCOUT silently revert them.
 
@@ -236,3 +227,4 @@ _Appended by peer reviewers._
 
 - 2026-04-24 — drafted by council-security.
 - 2026-04-24 — signed by commander.
+- 2026-04-24 — revised §3 to replace the inline hashed-bytes enumeration with a pointer to ADR-004 §9 (the inline list had omitted `keybinding`, which ADR-004 §9 correctly includes); revised §4 "Windows and macOS" to point the macOS `$XDG_DATA_HOME` citation at the hand-rolled XDG resolver at `src/config/paths.rs` rather than the `dirs` crate that ADR-002 Decision rejects. Status remains Accepted; revisions are doctrinal alignment, not decision changes. Per Wave 3 non-blocking review chorus (Intel, Surgeon, Quartermaster, Architect) and HANDOFF 2026-04-24 12:12 items 2 and 3.

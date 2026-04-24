@@ -60,7 +60,7 @@ A visit is credited when and only when an `[[action]]` is executed against a can
 2. **Feedback loop hygiene.** Crediting on appearance makes the ranker converge on whatever the ranker already showed. The fixed point is degenerate.
 3. **Adversarial cheap-shot denial.** A rogue action that emits thousands of fake "results" cannot poison frecency, because results are not a credit event.
 
-Implementation: the action executor calls `index::record_visit(candidate_id)` after *any* step of the action succeeds (first success wins; later steps within the same action do not re-credit). Action failure with `on_failure = "abort"` credits nothing. `on_failure = "continue"` credits if any step succeeded.
+Implementation: the action executor calls `index::record_visit(candidate_id)` after *any* step of the action succeeds (first success wins; later steps within the same action do not re-credit). Action failure with `on_failure = "abort"` credits nothing when the *first* step fails. `on_failure = "continue"` credits if any step succeeded. Where this wording would otherwise be ambiguous — first step succeeds, later step aborts the chain — **ADR-004 §5 is authoritative: credit granted on the first successful step is not retracted by a later abort; credit is suppressed only when the first step itself fails.**
 
 ### Ranking interaction with fuzzy-match
 
@@ -209,3 +209,4 @@ _Appended by peer reviewers._
 
 - 2026-04-24 — drafted by council-architect.
 - 2026-04-24 — signed by commander.
+- 2026-04-24 — revised §Visit credit to cite ADR-004 §5 as authoritative on the first-success-then-abort case. Status remains Accepted; revision is doctrinal disambiguation, not a decision change. Per Wave 3 non-blocking review chorus (Intel, Surgeon, Quartermaster, Security) and HANDOFF 2026-04-24 12:12 item 2.
