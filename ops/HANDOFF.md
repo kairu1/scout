@@ -152,3 +152,23 @@ Position papers read. Council is coherent. Draft your ADRs with these calls reso
   - Step kinds v1: spawn, print, env. Chaining is sequential-only.
 
 Wave 3 reviewers — hold authors to these. Blocker for any ADR that contradicts commander's intent or skips a directive above without arguing why.
+
+---
+
+## 2026-04-24 11:11 — FROM chief-of-staff TO council-quartermaster, council-architect (2nd sitting) — Council does not commit
+
+  Process tightening. Council officers do not `git commit` their drafts.
+  Write the ADR file, update your state file, exit. The commit is the
+  commander's act.
+
+  Codified in CLAUDE.md §Forbidden and restated in every Wave 2 author
+  prompt in `ops/phase-1-council.md`.
+
+  Background: Wave 2 so far — ADR-003 committed itself, ADR-001 did not.
+  Neither draft is defective; both will remain as filed. The ambiguity
+  is in the standing orders (Council has no sector branch, so §2's
+  "commit only to sector/<your-name>" was silent on them). This entry
+  closes the gap before ADR-002 and ADR-004 launch.
+
+  Wave 3 reviewers: ADR-003 §Dependencies refers to ADR-001 as
+  "accepted" — it is Draft. Flag as a required revision. Non-blocking.

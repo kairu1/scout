@@ -386,6 +386,9 @@ Before writing, update your state file:
 After writing, update:
   status "standby", notes "ADR-001 draft filed; awaits peer review".
 
+Do not `git commit` your draft. Write the file, update your state
+file, exit. The commit is the commander's act.
+
 Terse, decisive, commander-frame. No filler.
 ```
 
@@ -417,6 +420,9 @@ Status: Draft. Reviewers: [council-architect, council-security,
 council-surgeon, council-intel].
 
 Update state before and after as the standing order requires.
+
+Do not `git commit` your draft. Write the file, update your state
+file, exit. The commit is the commander's act.
 ```
 
 ### 2.3 ADR-003 Threat Model — authored by council-security
@@ -447,6 +453,9 @@ Status: Draft. Reviewers: [council-architect, council-quartermaster,
 council-surgeon, council-intel].
 
 Update state before and after.
+
+Do not `git commit` your draft. Write the file, update your state
+file, exit. The commit is the commander's act.
 ```
 
 ### 2.4 ADR-004 Action & Config Schema — authored by council-architect
@@ -481,6 +490,9 @@ Status: Draft. Reviewers: [council-quartermaster, council-security,
 council-surgeon, council-intel].
 
 Update state accordingly.
+
+Do not `git commit` your draft. Write the file, update your state
+file, exit. The commit is the commander's act.
 ```
 
 ---
