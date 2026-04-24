@@ -1,10 +1,10 @@
 # ADR-004 — Action & Config Schema
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Authored:** council-architect (2nd sitting)
 - **Date authored:** 2026-04-24
 - **Reviewers:** council-quartermaster, council-security, council-surgeon, council-intel
-- **Signed by commander:** (pending)
+- **Signed by commander:** 2026-04-24
 
 ## Context
 
@@ -390,6 +390,23 @@ A failure at any stage halts the load and exits non-zero with a message that nam
 
 _Appended by peer reviewers._
 
+> **council-intel, 2026-04-24 — endorsement**
+>
+> Schema fills the empty quadrant Intel mapped in position §2 — broot has verbs but no cross-machine trust model; Raycast has actions but is macOS-only and closed; fzf has keybindings but no persistent config. The `[[action]]` + `steps` array is a strict improvement over broot's single-string `execution`: the list-of-argv split kills the word-splitter-or-shell dilemma Intel named in position §3, and there is no honest third option. Compiled-in defaults with user-wins-by-name merge is the right choice over shipping a default `config.toml` — a shipped file would pre-trust itself via the packager and corrupt the "no config, no prompt" signal, mirroring the fzf-config-in-shell-rc footgun Intel warned against in position §4. Rejection of dynamic placeholders (§Alternatives 10) closes the Raycast-style injection door by construction; the two-step `env` + `spawn` pattern replaces it with something attested and bounded. One non-blocking tidy per HANDOFF 2026-04-24 12:12: §Dependencies cites ADR-001 as "accepted" — it is Draft.
+
+> **council-surgeon, 2026-04-24 — endorsement**
+>
+> Tidying per HANDOFF 2026-04-24 12:12 item 1: §Dependencies cites ADR-001 as "accepted" — it is Draft. Substance endorsed end-to-end. §10's staged loader closes every failure mode position §1d named: file-with-line-and-column parse errors at §10.4 (no more "line 47" without context), `schema_version` refusal at §10.5 (no silent forward-compat drift), unknown-key parse error at §2 (no silent field drop), and first-wins discovery at §8 (no system-vs-user race). §3's `env`-step contract — an undefined `{env.X}` aborts with `action.failed{kind="undefined_env"}` and *none* of the step's would-be bindings land, not partial, not all-but-one — is the clean invariant ADR-003 §5 requires, and it pairs correctly with §5's first-success-wins visit-credit rule to close the ambiguity ADR-001 still carries in its own wording. §3's `print`-step success contract (short write or stdout-closed = failure) correctly propagates to visit credit when the wrapper shell dies mid-eval, preserving the "no credit for workflows that did not reach the user's shell" invariant. §2's 32-step cap is the right anti-footgun — a 33-step action is a shape problem, not a schema gap. No blockers; decade-longevity and commander's intent served.
+
+> **council-quartermaster, 2026-04-24 — endorsement**
+>
+> Tidying per HANDOFF 2026-04-24 12:12 item 1: §Dependencies cites ADR-001 as "accepted" — it is Draft; one-word fix, seconding Intel and Surgeon. Supply-line substance endorsed: the schema parses with `toml` (ADR-002 slot 9) and `serde` (slot 7) and adds no new direct crate — the `copy` step's removal honours the `arboard` drop recorded in ADR-002 Rejected, and §Alternatives 12's rejection of live reload honours the `notify` AVOID. `{repo_root}` resolution via `std::fs::metadata` walking ancestors (§4) is the right call — a `git2`-backed alternative would drag a C library with a churn history through gate C for a feature the stdlib covers in ~30 lines. §Alternatives 10's refusal of dynamic placeholders (`{cmd:…}`, `{shell:…}`) closes the single back door through which an interpreter or shell-as-template-syntax could re-enter the roster after ADR-002 refused them explicitly — the two-step `env` + `spawn` replacement is visible, attested, and bounded. The canonical-JSON projection in §9 with its `scout/trust-hash-v1` header gives ADR-003's trust prompt a stable byte sequence without conscripting any hashing crate beyond what the binary already carries (stdlib + `serde_json` slot 8). No blocker; commander's intent and decade-longevity served.
+
+> **council-security, 2026-04-24 — endorsement**
+>
+> Tidying per HANDOFF 2026-04-24 12:12 item 1: §Dependencies cites ADR-001 as "accepted" — it is Draft; one-word fix, fourthing the review chorus. Every security-load-bearing contract ADR-003 relies on is realised here as the enforcement shape: §4's closed eight-placeholder set exactly matches ADR-003 §5's "unknown placeholder = parse error"; §4's single-slot rule with the explicit metacharacter reject list (`"`, `'`, `` ` ``, `$`, `\`, `|`, `&`, `;`, `<`, `>`, `(`, `)`, `*`, `?`, `~`, `#`) is a stronger reading of ADR-003 §2's seam discipline than ADR-003 spelled out, and I endorse it — it refuses the `"subl --wait {path}"` shape at parse time rather than hoping no shell ever sees it. §3's `env`-step contract — that an undefined `{env.X}` aborts the step *and none of the step's would-be bindings land* — is the clean invariant ADR-003 §5 requires; partial-overlay semantics would have smuggled a silent-failure mode back in, and the all-or-nothing rule closes it. §3's `print`-step POSIX-single-quoting of `{path}`/`{parent}`/`{home}` plus NUL/newline refusal is the exact shape ADR-003 §2 seam 1 specifies; §10 step 9's `unsafe_shell_template` enforcement is ADR-003 §2 seam 2. §7's compiled-in-defaults-with-user-wins-by-name resolves the "pre-trust via packager bypass" hazard ADR-003 §Consequences (Pioneers binding) named — binary-trust flows from install consent, user actions flow through the trust prompt, no TOML file is silently authoritative. §9's canonical-JSON hash including `keybinding` (and excluding `description`) is the correct semantic cut — a keybinding change alters which action runs on Enter and must re-prompt, which ADR-003 §3's inline field list missed and ADR-004 §9 corrects (the HANDOFF item 3 fix lands on my revision of ADR-003). §Alternatives 10's refusal of dynamic placeholders closes the shell-as-template-syntax back door ADR-003 §Alternatives 5 argued against. No blocker; commander's intent (portability, decade-longevity) served.
+
 ## Revision history
 
 - 2026-04-24 — drafted by council-architect (2nd sitting).
+- 2026-04-24 — signed by commander.

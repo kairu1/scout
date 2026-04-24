@@ -1,10 +1,10 @@
 # ADR-003 — Threat Model
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Authored:** council-security
 - **Date authored:** 2026-04-24
 - **Reviewers:** council-architect, council-quartermaster, council-surgeon, council-intel
-- **Signed by commander:** (pending)
+- **Signed by commander:** 2026-04-24
 
 ## Context
 
@@ -216,6 +216,23 @@ The paragraphs above handle the major seams. Three smaller rules complete the mo
 
 _Appended by peer reviewers._
 
+> **council-intel, 2026-04-24 — non-blocking**
+>
+> The first-run trust prompt with hash-pinning on the canonicalised action set closes the exact load-bearing threat Intel named in position §2: synced dotfiles carrying a malicious `[[action]]` onto a fresh machine — a scenario no adjacent tool (broot, Raycast, fzf) addresses because none ship cross-machine state with execution semantics. Argv-default plus ceremonial `sh -c` attestation closes the Raycast-style shell-escape lineage Intel flagged in position §4; the "type the word unsafe to buy the behaviour" framing is the right shape. Three non-blocking tidies per HANDOFF 2026-04-24 12:12 and my own portfolio lens: (1) §Dependencies cites ADR-001 as "accepted" — it is Draft. (2) §3 enumerates canonical-action-set fields (`name`, `argv` or step list, `on_failure`, `wait`, `cwd`, `unsafe_shell_template`) and omits `keybinding`, which ADR-004 §9 correctly includes; this ADR already defers the hash schema to ADR-004, so replace the inline enumeration with a pointer to ADR-004 §9. (3) §4 references `dirs` for the macOS `$XDG_DATA_HOME` fallback, but ADR-002 Decision replaced `dirs` with a hand-rolled XDG resolver in `src/config/paths.rs` — update the citation so Engineers reads one answer. No blockers; posture serves commander's intent and decade-longevity.
+
+> **council-surgeon, 2026-04-24 — non-blocking**
+>
+> Two tidying items per HANDOFF 2026-04-24 12:12, and a surgeon-lens readiness point. (1) §Dependencies cites ADR-001 as "accepted" — it is Draft; one-word fix. (2) §3 enumerates the canonical-action-set hash-input fields (`name`, `argv` or step list, `on_failure`, `wait`, `cwd`, `unsafe_shell_template`) and omits `keybinding`, which ADR-004 §9 correctly includes; this ADR already defers the hash schema to ADR-004, so replace the inline enumeration with a pointer to ADR-004 §9 — otherwise a reviewer comparing the two documents finds a disagreement on what re-prompts, which is the exact class of drift the trust-prompt discipline exists to avoid. Surgeon-lens endorsements: §4 DB permissions (owner-check on open, mode-warn-not-auto-repair, `fchmod` to `0600` on WAL/SHM creation when absent) does not conflict with position §4's "SQLite sidecars after `kill -9` are SQLite's own recovery — do not delete" — the ADR's touch is creation-time on absent siblings, not recovery-time on live ones. §5's undefined-env rule (binding does not land, later reference aborts with `action.failed{kind="undefined_env"}`) closes the `rm ""` hazard from position §1c by construction; this is the specific reliability invariant I pressed for and it survived the drafting intact. Non-blocking readiness point: §3's non-TTY refusal means a first `scout` invocation from cron or CI on a fresh machine fails closed with a non-zero exit — correct behaviour, but the stderr message should explicitly name the interactive-run requirement so operators do not spend a triage cycle debugging it as a crash.
+
+> **council-quartermaster, 2026-04-24 — non-blocking**
+>
+> Three tidying items — items 1 and 3 per HANDOFF 2026-04-24 12:12, item 2 from the quartermaster-lens cross-ADR check. (1) §Dependencies cites ADR-001 as "accepted" — it is Draft; one-word fix, seconding Intel and Surgeon. (2) §4 "Windows and macOS" cites `dirs` for the macOS `$XDG_DATA_HOME` fallback (`~/Library/Application Support/scout/`), but ADR-002 Decision rejects `dirs` in favour of a hand-rolled XDG resolver in `src/config/paths.rs` under the Engineers sector — the citation must point at the resolver, not the crate, so Phase 3 Engineers is not chasing two answers on where `$XDG_DATA_HOME` resolution actually lives. (3) §3's inline enumeration of canonical-action-set fields omits `keybinding`, which ADR-004 §9 correctly includes; replace the enumeration with a pointer to ADR-004 §9, per HANDOFF item 3. Supply-line endorsements: the `rusqlite` with `bundled` requirement (closing the system-`libsqlite3` surface on a compromised machine) aligns with ADR-002 slot 1; §Dependencies' deferral of supply-chain advisory discipline to ADR-002 is now satisfied by ADR-002's `cargo audit` + `cargo-deny` + <120-transitive commitments. No blocker; posture serves commander's intent and decade-longevity.
+
+> **council-architect, 2026-04-24 — non-blocking**
+>
+> This ADR is the enforcement document for which ADR-004 is the shape document, and the two line up on every load-bearing contract: argv-level execution with shell confined to the two named seams (§2 `print` output, §2 `sh -c` attestation) matches ADR-004 §3 and §4 exactly; the closed placeholder set named here (`{path}`, `{name}`, `{parent}`, `{ext}`, `{repo_root}`, `{query}`, `{home}`, plus `{env.FOO}`) is the eight-element set ADR-004 §4 fixes; the undefined-env rule in §5 aligns with ADR-004 §3's all-or-nothing `env`-step landing semantics, which is the non-negotiable invariant that closes Surgeon's `rm ""` hazard. Two tidying items in the Architect portfolio per HANDOFF 2026-04-24 12:12, fourthing the review chorus: (1) §Dependencies cites ADR-001 as "accepted" — it is Draft; one-word fix. (2) §3's inline canonical-action-set field enumeration (`name`, `argv` or step list, `on_failure`, `wait`, `cwd`, `unsafe_shell_template`) omits `keybinding`, which ADR-004 §9 correctly includes — this matters architecturally because a keybinding change alters which action runs on Enter, and the trust prompt must re-fire on that change; per HANDOFF item 3, replace the inline enumeration with a pointer to ADR-004 §9 so a reviewer comparing the two documents does not find a disagreement on what re-prompts. Cross-ADR tidy on §4 "Windows and macOS" citing `dirs` while ADR-002 Decision rejects `dirs` in favour of the hand-rolled resolver: already flagged by Intel, Surgeon, and Quartermaster; align on revision. Substance endorsement: the single-slot refuse-at-parse discipline ADR-004 §4 encodes is a stronger reading of this ADR's §2 seam posture than the prose here spells out — refuse the `"subl --wait {path}"` shape at load rather than hope no shell ever sees it, which is the shape that actually survives a decade. No blocker; commander's intent (portability, decade-longevity) served.
+
 ## Revision history
 
 - 2026-04-24 — drafted by council-security.
+- 2026-04-24 — signed by commander.

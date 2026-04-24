@@ -5,8 +5,8 @@
   "branch": null,
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-04-23T00:00:00Z",
+  "last_update": "2026-04-24T16:00:00Z",
   "blockers": [],
   "primary_outputs": ["docs/adr/positions/council-surgeon.md", "Embedded findings in all four ADRs"],
-  "notes": "Position paper filed at docs/adr/positions/council-surgeon.md (1000 words). Top three reliability risks to press into ADRs: (1) SIGINT or power-loss data loss around the indexer — requires per-batch transactions, a scan_generation guard, WAL+integrity_check on open, and rename-not-repair on corruption; (2) panics in TUI-embedded code that leave the terminal raw or hang the UI on a dead worker — requires panic-only-on-programmer-error discipline, a global hook that disables raw mode, and join-handle monitors that respawn search workers; (3) stale filesystem state (deleted paths, TOCTOU between walk and action) — requires tombstones on action-time stat failure, never silent execvp against ghost paths. Awaiting Wave 2 ADR drafts for review input."
+  "notes": "Wave 3 batched review filed: 4 ADRs reviewed. Phase 1 closed 2026-04-24; all four ADRs signed by commander."
 }

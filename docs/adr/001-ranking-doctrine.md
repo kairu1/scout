@@ -1,10 +1,10 @@
 # ADR-001 — Ranking Doctrine
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Authored:** council-architect
 - **Date authored:** 2026-04-24
 - **Reviewers:** council-intel, council-quartermaster, council-security, council-surgeon
-- **Signed by commander:** (pending)
+- **Signed by commander:** 2026-04-24
 
 ## Context
 
@@ -189,6 +189,23 @@ Miss of any budget at Phase 4 is a blocker, not a warning. `tracing` spans recor
 
 _Appended by peer reviewers._
 
+> **council-intel, 2026-04-24 — non-blocking**
+>
+> Continuous exponential decay is the correct limit of the zoxide/fasd tiered scheme Intel surveyed — the constants in those tools are the artifact, the cliffs were a concession to integer storage. Two intel-lens concerns, both non-blocking: (1) visit-credit semantics under `on_failure = "abort"` contradict ADR-004 §5 — ADR-001 reads "Action failure with `on_failure = "abort"` credits nothing" while ADR-004 says first-success-wins even on abort; per HANDOFF 2026-04-24 12:12 request one-sentence alignment citing ADR-004 §5. (2) `K_match = 100` assumes nucleo's path-typical scores sit 60–200, and the constant is load-bearing for the streaming-stability argument; nucleo's raw score scale varies with query length, so I recommend Phase 2 calibration telemetry (a `tracing` span on raw `m_c` per query) before Phase 3 locks the UX. Neither concern threatens commander's intent or decade-longevity — calibration lives in `ranking::BLEND` as a code-const, not in the schema.
+
+> **council-surgeon, 2026-04-24 — non-blocking**
+>
+> §Visit credit contradicts itself and ADR-004 §5 under `on_failure = "abort"`: the paragraph reads "Action failure with `on_failure = "abort"` credits nothing", yet the next sentence says "first success wins; later steps within the same action do not re-credit". ADR-004 §5 resolves the ambiguous case correctly — credit iff ≥1 step succeeded before the abort; suppressed only when the first step fails — so per HANDOFF 2026-04-24 12:12 item 2 request a one-sentence alignment citing ADR-004 §5. Surgeon-lens endorsements: `scan_generation` as the completion guard plus `tombstoned_at` on action-time stat failure maps position §2 and §4 directly; `PRAGMA wal_autocheckpoint = 0` paired with the `QUERY_ACTIVE` yield closes the "long checkpoint starves search partial" hazard from position §1b without touching `FULL`; carving `record_visit` out of the query-active gate is the right call — the user just pressed Enter and the ≤5 ms budget is non-negotiable. One portfolio nit: the cold-start → first-paint p99 ≤ 100 ms budget should name the exclusion for a startup `PRAGMA integrity_check` on a missing clean-shutdown sentinel (position §4). A full integrity_check on a 100 k-row index is not 100 ms-class work, and leaving the budget mute on that path invites a Phase 4 blocker on what is actually a recovery-only codepath.
+
+> **council-quartermaster, 2026-04-24 — non-blocking**
+>
+> Supply alignment clean: `nucleo-matcher` (ADR-002 slot 6) and `rusqlite` with `bundled` (ADR-002 slot 1) are both on the authoritative roster and survive the gate-C re-reading; ADR-001's assumption of those two is honoured. The `Matcher` trait shape in Consequences preserves gate E (replaceability) — if the Helix team ever stalls, the swap lives at one seam and does not cascade into the index. One alignment item per HANDOFF 2026-04-24 12:12 item 2 and seconding Surgeon: §Visit credit reads self-contradictory under `on_failure = "abort"` — "Action failure with abort credits nothing" vs. "first success wins" — while ADR-004 §5 resolves it correctly (credit iff ≥1 step succeeded before the abort; suppressed only when the first step fails); request one sentence citing ADR-004 §5 so a Phase 3 Rifles implementer reading only ADR-001 cannot get the visit-credit contract wrong. Portfolio nit on the tuning-constant discipline: `ranking::BLEND` with `K_match = 100`, `K_frec = 10`, weights `(0.6, 0.4)` as module-private `const` is the correct shape — constants in code, not schema, so a Phase 3 re-tune is a recompile rather than a migration; this honours the "decade without a DB migration on tuning" invariant the Rationale claims. No blocker; commander's intent (portability, decade-longevity) served.
+
+> **council-security, 2026-04-24 — non-blocking**
+>
+> Security-lens substance clean. §Visit credit operating on `canonical path` (Consequences, "visit credit operates on canonical path") aligns with ADR-003 §1's inode-vs-string asymmetry — the credit event consumes the trusted inode reference, not the display string, which is the correct seam. The 10 s per-`(path, 10s)` rate limit combined with "credit only on action execution, not on result appearance" closes the two adversarial-cheap-shot vectors I would otherwise flag: a noisy action spraying fake results cannot poison frecency, and a key-held repeat cannot compound — both are consistent with ADR-003 §1's posture that a local attacker at the user's UID is out of scope but injection-adjacent feedback loops are not. Tidying item 2 per HANDOFF 2026-04-24 12:12, thirding Intel, Surgeon, and Quartermaster: §Visit credit is self-contradictory under `on_failure = "abort"` ("Action failure with abort credits nothing" vs. "first success wins"); ADR-004 §5 resolves the ambiguous case correctly — request one sentence citing ADR-004 §5 so a Phase 3 Rifles implementer reading only ADR-001 cannot get the visit-credit contract wrong. Portfolio-lens endorsement: the `tanh` streaming-stability choice keeps the rendered top-K stable under partial arrival — this matters to ADR-003 only indirectly, but it denies the "late partial reorders the top row under the cursor and user presses Enter on the wrong candidate" class of ergonomic hazard, which is the shape an adversarial indexed path would want to exploit. No blocker; commander's intent served.
+
 ## Revision history
 
 - 2026-04-24 — drafted by council-architect.
+- 2026-04-24 — signed by commander.

@@ -1,10 +1,10 @@
 # ADR-002 — Dependency Roster
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Authored:** council-quartermaster
 - **Date authored:** 2026-04-24
 - **Reviewers:** council-architect, council-security, council-surgeon, council-intel
-- **Signed by commander:** (pending)
+- **Signed by commander:** 2026-04-24
 
 ## Context
 
@@ -141,12 +141,25 @@ Wiring `cargo-deny` and `cargo audit` later is cheap mechanically but expensive 
 
 ## Reviews
 
-Appended by peer reviewers. Format:
+_Appended by peer reviewers._
 
-> **<reviewer callsign>, YYYY-MM-DD — <blocker | non-blocking | endorsement>**
+> **council-intel, 2026-04-24 — endorsement**
 >
-> Review body.
+> Eleven-slot shortlist matches the ecosystem map Intel filed: `ignore` from ripgrep, `nucleo-matcher` from Helix, `rusqlite`-bundled as the decade-stable SQLite seam, `tracing` and `signal-hook` for Surgeon's observability and signal discipline. The `fuzzy-matcher → nucleo-matcher` swap is the right call — Intel position §3 flagged it and Helix's active maintenance is the strongest bus-factor argument available in the matcher quadrant. Gate-C re-reading is the correct interpretive move; every Rust crate Intel named as a de facto standard runs a perpetual 0.x line and a strict reading would empty the roster. One non-blocking tidy crossing into ADR-003's text, not this ADR's: ADR-003 §4 cites `dirs` for the `$XDG_DATA_HOME` macOS fallback, but this ADR rejects `dirs` in favour of a hand-rolled resolver — Engineers should not be left chasing two answers at Phase 3.
+
+> **council-surgeon, 2026-04-24 — endorsement**
+>
+> Roster serves the surgeon-lens requirements cleanly: `signal-hook` (SIGINT / SIGWINCH / SIGUSR1 counter dump per position §3 and §5), `tracing` + `tracing-subscriber` (structured events and the `$XDG_STATE_HOME/scout/panic-<epoch>.log` sink), and `rusqlite` with `bundled` (one fewer system-library failure mode on the recovery path that renames a corrupt DB and rebuilds). The hand-rolled XDG resolver over `dirs` is fine for surgeon — panic log, `scout.lock`, and the corrupt-DB rename target all resolve through `std::env::var` with documented POSIX fallbacks; the ~200-line rule cuts the right direction and keeps one fewer advisory-risk surface. Gate-C re-reading is load-bearing specifically for `tracing` 0.1 and `signal-hook` 0.3 — both are effectively frozen APIs with decade track records, and a literal reading would strip the observability and signal-handling primitives that the crash-recovery story (position §4) is built on. One non-blocking cross-ADR nit, seconding Intel: ADR-003 §4 still cites `dirs` for the macOS `$XDG_DATA_HOME` fallback — Engineers implementing the panic-log and trust-store paths must not chase two answers. No blockers; commander's intent (portability, decade-longevity) is served.
+
+> **council-security, 2026-04-24 — endorsement**
+>
+> Roster is security-aligned end-to-end. `rusqlite` with `bundled` (slot 1) closes the system-`libsqlite3` supply surface ADR-003 §Dependencies names — an attacker-controlled `libsqlite3.so` on a compromised machine cannot swap into SCOUT's process. The five outright refusals — embedded interpreters (Lua / Rhai / Deno), `reqwest`, `notify` for v1, `arboard`, `chrono` — collectively close the injection, network, live-reload, clipboard, and timezone-parser vectors ADR-003 §1 and §Refused-outright depend on staying shut; specifically, dropping `arboard` removes the clipboard surface at the dep layer and dropping embedded scripting refuses the class of bug ADR-003 §Alternatives 4 argued against at the design layer. §Rationale's `cargo audit` + `cargo-deny` (MIT/Apache/BSD/ISC/Unicode/Zlib licence allow-list) + <120-transitive ceiling + MSRV pinning satisfy the supply-chain discipline that ADR-003 §Dependencies explicitly defers to this ADR — the tripwire is wired before we need it, not after, which is the posture ADR-003 requires. Gate-C re-reading is security-load-bearing: `signal-hook` 0.3 is what ADR-003 §5 and Surgeon's crash recovery depend on, and a literal gate-C would strip it. Two non-blocking cross-ADR tidies, thirding Intel and Surgeon: (1) ADR-003 §4 still cites `dirs` for the macOS `$XDG_DATA_HOME` fallback while this ADR's Decision rejects `dirs` in favour of the hand-rolled resolver at `src/config/paths.rs` — the seam is in my authored ADR-003 and I will align citation to the resolver on revision. (2) ADR-003 §3's inline canonical-action-set enumeration omits `keybinding` (included correctly in ADR-004 §9); same revision cycle, same document. No blocker here; commander's intent (portability, decade-longevity) served.
+
+> **council-architect, 2026-04-24 — non-blocking**
+>
+> Roster honours every primitive the Architect ADRs assume: `nucleo-matcher` (slot 6) and `rusqlite` with `bundled` (slot 1) back ADR-001's ranking blend and frecency store; `toml` (slot 9), `serde` (slot 7), and `serde_json` (slot 8) back ADR-004's parser, typed validation, and canonical-JSON projection (§9) — no ADR-004 contract leans on a crate this ADR rejects. Module DAG in Architect position §4 (`ranking` ← `index` ← `search`; `config` ← `actions`; `ipc` ← `ui, search`) maps cleanly onto the roster: the `Matcher` trait's swap seam is one crate wide (slot 6), the `Store` trait's SQLite impl is one crate wide (slot 1), and no slot crosses the DAG sideways. Gate-C re-reading is load-bearing for my designs: `ratatui` 0.26, `crossterm` 0.27, `rusqlite` 0.31, `nucleo-matcher` 0.3, `toml` 0.8, `tracing-subscriber` 0.3, and `signal-hook` 0.3 all run perpetual 0.x; a literal reading empties the shortlist and the ADR-001 pipeline, the ADR-004 parser, and Surgeon's observability and signal-handling all lose their primitives — blessing the re-reading explicitly in Rationale up front is the correct shape. Non-blocking architectural note on the `crossbeam-channel` deferral (Rejected table): the Architect position §2 pipeline spawns N search workers that compete on a single `query_rx` — that is MPMC, which `std::sync::mpsc` does not support (mpsc is single-consumer). The pre-approval of `crossbeam-channel` as a swap candidate covers this, so this is not a blocker; surfacing now so Phase 3 1st Rifles does not encounter the swap as a surprise when implementing the `ipc` module. Cross-ADR tidy, seconding Intel, Surgeon, and Quartermaster: ADR-003 §4 still cites `dirs` for the macOS `$XDG_DATA_HOME` fallback while this ADR's Decision rejects `dirs` in favour of the hand-rolled resolver at `src/config/paths.rs` — Engineers must read one answer; Security has committed to the fix on revision. No blocker; commander's intent (portability, decade-longevity) served.
 
 ## Revision history
 
 - 2026-04-24 — drafted by council-quartermaster.
+- 2026-04-24 — signed by commander.

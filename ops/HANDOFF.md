@@ -202,3 +202,51 @@ Everything else is non-blocking.
 
 Recommended mode: batched per reviewer — one session covers all four
 ADRs in one pass. Saves tokens; reviewer cross-references naturally.
+
+---
+
+## 2026-04-24 16:00 — FROM commander TO all — Phase 1 signed; ADRs Accepted
+
+**Phase 1 CLOSED 2026-04-24.** All four ADRs Accepted at Check-in #4:
+
+- ADR-001 Ranking doctrine — council-architect
+- ADR-002 Dependency roster — council-quartermaster
+- ADR-003 Threat model — council-security
+- ADR-004 Action & config schema — council-architect (2nd sitting)
+
+Sixteen peer-review blocks filed across the five Council officers. Zero blockers. Four `non-blocking`s plus ten endorsements, with three cross-ADR tidying items surfaced consistently by the reviewers.
+
+### Revisions owed before Phase 3 engages
+
+Non-blocking per the review chorus, but each affects a Phase 3 line officer's reading of signed doctrine. All must land before 1st Rifles / 3rd Rifles / Engineers launch. These are doctrinal corrections, not new decisions — may be executed either as fresh author Claude sessions or as direct commander edits. Either way, log in `## Revision history` of the affected ADR; do not re-sign (status remains `Accepted`).
+
+**council-architect — ADR-001 revision, one sentence:**
+
+§Visit credit currently reads self-contradictory under `on_failure = "abort"` ("Action failure with abort credits nothing" vs. "first success wins"). ADR-004 §5 resolves it correctly: credit granted on the first successful step is not retracted by a later abort; credit is suppressed only when the first step fails. Add one sentence to ADR-001 §Visit credit citing ADR-004 §5 so a Phase 3 1st Rifles or Engineers implementer reading only ADR-001 cannot get the contract wrong.
+
+**council-security — ADR-003 revision, two items:**
+
+1. §4 "Windows and macOS" cites `dirs` for the macOS `$XDG_DATA_HOME` fallback. ADR-002 Decision rejected `dirs` in favour of a hand-rolled XDG resolver at `src/config/paths.rs` under the Engineers sector. Point the citation at the resolver, not the crate, so Phase 3 Engineers reads one answer.
+
+2. §3's inline enumeration of canonical-action-set hash fields (`name`, `argv` or step list, `on_failure`, `wait`, `cwd`, `unsafe_shell_template`) omits `keybinding`, which ADR-004 §9 correctly includes. Replace the inline enumeration with a pointer to ADR-004 §9 so reviewers comparing the two documents find no disagreement on what re-prompts.
+
+### Non-blocking items deferred to AAR or Phase 3 preflight
+
+Real concerns surfaced by reviewers that do not gate Phase 2 or Phase 3 launch, but should not be lost:
+
+- **Surgeon on ADR-001:** cold-start → first-paint p99 ≤ 100 ms budget should name an exclusion for startup `PRAGMA integrity_check` on a missing clean-shutdown sentinel. Revise in ADR-001 at convenience; carry to Phase 4 performance review.
+- **Surgeon on ADR-003:** non-TTY refusal stderr message should explicitly name the interactive-run requirement so operators do not burn a triage cycle.
+- **Intel on ADR-001:** `K_match = 100` calibration is load-bearing; recommend a Phase 2 `tracing` span on raw `m_c` per query to calibrate before Phase 3 locks the UX.
+- **Architect on ADR-002:** Phase 3 `ipc` module with N search workers on one `query_rx` is MPMC and needs `crossbeam-channel` — ADR-002 Rejected table already pre-approves this as a swap candidate, so no new ADR is required, but 1st Rifles should not encounter it as a surprise.
+- **Runbook typo:** `ops/phase-1-council.md` §Verification mentions `status: "standdown"` but CLAUDE.md §3 defines `standby` as the correct stand-down status. Fix in Phase 1 AAR.
+
+### Posture
+
+Council stands down. Line officers remain unmobilized.
+
+Chief of Staff will author Phase 2 OPORD and `ops/phase-2-db.md` (2nd Rifles' runbook for the frecency-capable index) once:
+
+1. The ADR-001 and ADR-003 revisions above have landed.
+2. Chief of Staff has added `/worktrees/` to `.gitignore` at Phase 2 preflight per AGENTS.md § Worktree Discipline.
+
+Standing interrupts remain: `stand down`, `redirect`, `promote`, `AAR now`.

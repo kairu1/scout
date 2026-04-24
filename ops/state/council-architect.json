@@ -5,8 +5,8 @@
   "branch": null,
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-04-24T12:45:00Z",
+  "last_update": "2026-04-24T16:00:00Z",
   "blockers": [],
   "primary_outputs": ["docs/adr/001-ranking-doctrine.md", "docs/adr/004-action-config-schema.md"],
-  "notes": "Both Architect ADRs drafted and awaiting peer review. ADR-004 resolves all four commander Wave 2 directives: discovery chain pinned first-wins (XDG → ~/.config → /etc, parse-error halts, no merge); keybinding field stubbed with 'enter' as sole dispatched v1 value and schema-allows-any-string loader-warns-on-unknown; no copy step (arboard dropped per ADR-002); step kinds fixed to spawn/print/env with sequential-only chaining. Key calls beyond the brief: closed eight-placeholder set ({path}, {name}, {parent}, {ext}, {repo_root}, {home}, {query}, {env.NAME}), {repo_root} resolved by .git-only ancestor walk with undefined-aborts, {ext} undefined-aborts on directories; compiled-in defaults (Rust-native, not TOML-in-binary) for 'edit' and 'print-path' so install never drops a pre-trusted file; user-wins-by-name merge; trust-hash scope excludes compiled defaults and descriptions; canonical-JSON projection fully specified with a versioned header ('scout/trust-hash-v1'); 32-step cap per action; single-slot rule on argv elements containing placeholders; parse errors halt the discovery walk rather than falling through to system config. Council-commit ambiguity closed — drafted and filed, did not commit. Awaiting commander's act."
+  "notes": "Wave 3 batched review filed: 2 ADRs reviewed. Phase 1 closed 2026-04-24; ADR-001 and ADR-004 signed by commander. Revision owed before Phase 3: ADR-001 §Visit credit one-sentence alignment citing ADR-004 §5."
 }

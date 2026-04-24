@@ -5,8 +5,8 @@
   "branch": null,
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-04-23T11:30:09Z",
+  "last_update": "2026-04-24T16:00:00Z",
   "blockers": [],
   "primary_outputs": ["docs/adr/positions/council-intel.md", "Embedded findings in all four ADRs"],
-  "notes": "Position paper filed (991 words). Key claim: SCOUT's defensible ground is the empty quadrant where indexed-path frecency, portable-TOML action composition, and editor/OS-agnostic CLI intersect — a quadrant every adjacent tool brushes against but none occupies."
+  "notes": "Wave 3 batched review filed: 4 ADRs reviewed. Phase 1 closed 2026-04-24; all four ADRs signed by commander."
 }
