@@ -510,42 +510,342 @@ Revisions at this stage are cheap. Demand them if you see anything you'd regret 
 
 ## Wave 3 — Peer Review
 
-Each ADR gets reviewed by the four officers who did not author it. Each reviewer appends to the `## Reviews` section.
+Every ADR is reviewed by every Council officer who did not author it. Reviewers append to the `## Reviews` section; nothing else in the ADR is edited.
 
-**Pattern per reviewer, per ADR:**
+### Execution model — 5 sessions, batched per reviewer, sequential
+
+One session per Council officer. Each session reads all four ADRs, all five position papers, `CAMPAIGN.md`, and `HANDOFF.md` (for the active review directive), then appends a review block to every ADR the officer did not author.
+
+Run sessions **sequentially** — all five sessions write to the same four ADR files; parallel runs race the `## Reviews` section. Eyeball each session's output before launching the next.
+
+| Session | Callsign | Authored | Eligible ADRs to review | Blocks |
+|---|---|---|---|---|
+| 1 | `council-intel` | none | 001, 002, 003, 004 | 4 |
+| 2 | `council-surgeon` | none | 001, 002, 003, 004 | 4 |
+| 3 | `council-quartermaster` | 002 | 001, 003, 004 | 3 |
+| 4 | `council-security` | 003 | 001, 002, 004 | 3 |
+| 5 | `council-architect` | 001, 004 | 002, 003 | 2 |
+
+Order rationale: Intel sets the ecosystem frame → Surgeon lays reliability ground → Quartermaster and Security review with their own doctrine fresh → Architect closes having seen the other four lenses.
+
+### Command shape
 
 ```bash
-podman exec -it scout bash -c 'cd /workspace && claude -p --dangerously-skip-permissions "<REVIEWER PROMPT>"'
+podman exec -it scout bash -c 'cd /workspace && claude -p --dangerously-skip-permissions "<PROMPT>"'
 ```
 
-### Reviewer prompt template
+Or drop into interactive Claude and paste the prompt:
+
+```bash
+podman exec -it scout bash -c "cd /workspace && claude --dangerously-skip-permissions"
+```
+
+### 3.1 Session 1 — council-intel (4 blocks)
+
+**Prompt:**
 
 ```
-You are <reviewer callsign>. Phase 1 Wave 3. Read:
+You are council-intel. Phase 1 Wave 3 — peer review, batched.
 
-  /workspace/docs/adr/positions/<reviewer callsign>.md  (your own paper)
-  /workspace/docs/adr/<NNN-topic>.md                      (the ADR under review)
-  /workspace/ops/CAMPAIGN.md                              (commander's intent)
+Read, in this order:
 
-Append a review block to the `## Reviews` section of that ADR. Format
-per the ADR template:
+  /workspace/CLAUDE.md
+  /workspace/ops/CAMPAIGN.md
+  /workspace/ops/HANDOFF.md
+  /workspace/docs/adr/positions/council-intel.md
+  /workspace/docs/adr/positions/council-architect.md
+  /workspace/docs/adr/positions/council-quartermaster.md
+  /workspace/docs/adr/positions/council-security.md
+  /workspace/docs/adr/positions/council-surgeon.md
+  /workspace/docs/adr/001-ranking-doctrine.md
+  /workspace/docs/adr/002-dependency-roster.md
+  /workspace/docs/adr/003-threat-model.md
+  /workspace/docs/adr/004-action-config-schema.md
 
-  > **<your callsign>, YYYY-MM-DD — <blocker | non-blocking | endorsement>**
+Update /workspace/ops/state/council-intel.json: status "engaging",
+current_task "Wave 3 batched review", last_update now.
+
+Your eligible ADRs for this session: ADR-001, ADR-002, ADR-003, ADR-004.
+
+For each eligible ADR, append a review block to its `## Reviews`
+section, in this exact shape:
+
+  > **council-intel, <today's ISO date, YYYY-MM-DD> — <blocker | non-blocking | endorsement>**
   >
   > <review body — 2 to 6 sentences>
 
-Blocker ONLY if the ADR contradicts commander's intent, breaks a
-downstream ADR, or endangers decade-longevity. Otherwise mark
-non-blocking and note the concern, or endorse.
+Review guidance:
 
-Do not rewrite the ADR. Do not edit the decision text. Append only.
+  - Blocker ONLY if the ADR contradicts commander's intent, breaks a
+    downstream ADR, or endangers decade-longevity. Everything else is
+    non-blocking or endorsement.
+  - Cross-reference across ADRs. A review that names a conflict with
+    another ADR is more valuable than one that reads an ADR in
+    isolation.
+  - The commander's Wave 3 directive in HANDOFF names three tidying
+    items. If any falls in your portfolio lens, surface it in the
+    relevant ADR's review block (flag as non-blocking).
+  - Do NOT rewrite the ADR. Do NOT edit Decision, Rationale, or
+    Consequences. Append to Reviews only.
 
-Update your state file as the standing order requires.
+When every eligible ADR has your review block filed, update your state
+file: status "standby", last_update now, notes "Wave 3 batched review
+filed: 4 ADRs reviewed".
+
+Do not `git commit`. Writing the review blocks and updating your state
+file is the engagement; the commit is the commander's act.
+
+Terse, decisive, commander-frame. No filler.
 ```
 
-**Shorthand:** run 4 reviewers × 4 ADRs = 16 review turns. Or batch in a single agent session by passing "review ADRs 001, 002, 003, 004 in one pass" per reviewer — 4 turns total, cheaper, less granular.
+### 3.2 Session 2 — council-surgeon (4 blocks)
 
-Recommendation: **batched per reviewer**. Four sessions total. Saves tokens and reviewers can cross-reference ADRs naturally in one pass.
+**Prompt:**
+
+```
+You are council-surgeon. Phase 1 Wave 3 — peer review, batched.
+
+Read, in this order:
+
+  /workspace/CLAUDE.md
+  /workspace/ops/CAMPAIGN.md
+  /workspace/ops/HANDOFF.md
+  /workspace/docs/adr/positions/council-surgeon.md
+  /workspace/docs/adr/positions/council-architect.md
+  /workspace/docs/adr/positions/council-quartermaster.md
+  /workspace/docs/adr/positions/council-security.md
+  /workspace/docs/adr/positions/council-intel.md
+  /workspace/docs/adr/001-ranking-doctrine.md
+  /workspace/docs/adr/002-dependency-roster.md
+  /workspace/docs/adr/003-threat-model.md
+  /workspace/docs/adr/004-action-config-schema.md
+
+Update /workspace/ops/state/council-surgeon.json: status "engaging",
+current_task "Wave 3 batched review", last_update now.
+
+Your eligible ADRs for this session: ADR-001, ADR-002, ADR-003, ADR-004.
+
+For each eligible ADR, append a review block to its `## Reviews`
+section, in this exact shape:
+
+  > **council-surgeon, <today's ISO date, YYYY-MM-DD> — <blocker | non-blocking | endorsement>**
+  >
+  > <review body — 2 to 6 sentences>
+
+Review guidance:
+
+  - Blocker ONLY if the ADR contradicts commander's intent, breaks a
+    downstream ADR, or endangers decade-longevity. Everything else is
+    non-blocking or endorsement.
+  - Cross-reference across ADRs. A review that names a conflict with
+    another ADR is more valuable than one that reads an ADR in
+    isolation.
+  - The commander's Wave 3 directive in HANDOFF names three tidying
+    items. If any falls in your portfolio lens, surface it in the
+    relevant ADR's review block (flag as non-blocking).
+  - Do NOT rewrite the ADR. Do NOT edit Decision, Rationale, or
+    Consequences. Append to Reviews only.
+
+When every eligible ADR has your review block filed, update your state
+file: status "standby", last_update now, notes "Wave 3 batched review
+filed: 4 ADRs reviewed".
+
+Do not `git commit`. Writing the review blocks and updating your state
+file is the engagement; the commit is the commander's act.
+
+Terse, decisive, commander-frame. No filler.
+```
+
+### 3.3 Session 3 — council-quartermaster (3 blocks; skips ADR-002)
+
+**Prompt:**
+
+```
+You are council-quartermaster. Phase 1 Wave 3 — peer review, batched.
+
+Read, in this order:
+
+  /workspace/CLAUDE.md
+  /workspace/ops/CAMPAIGN.md
+  /workspace/ops/HANDOFF.md
+  /workspace/docs/adr/positions/council-quartermaster.md
+  /workspace/docs/adr/positions/council-architect.md
+  /workspace/docs/adr/positions/council-security.md
+  /workspace/docs/adr/positions/council-surgeon.md
+  /workspace/docs/adr/positions/council-intel.md
+  /workspace/docs/adr/001-ranking-doctrine.md
+  /workspace/docs/adr/002-dependency-roster.md
+  /workspace/docs/adr/003-threat-model.md
+  /workspace/docs/adr/004-action-config-schema.md
+
+Update /workspace/ops/state/council-quartermaster.json: status
+"engaging", current_task "Wave 3 batched review", last_update now.
+
+Your eligible ADRs for this session: ADR-001, ADR-003, ADR-004
+(you authored ADR-002; do NOT review your own).
+
+For each eligible ADR, append a review block to its `## Reviews`
+section, in this exact shape:
+
+  > **council-quartermaster, <today's ISO date, YYYY-MM-DD> — <blocker | non-blocking | endorsement>**
+  >
+  > <review body — 2 to 6 sentences>
+
+Review guidance:
+
+  - Blocker ONLY if the ADR contradicts commander's intent, breaks a
+    downstream ADR, or endangers decade-longevity. Everything else is
+    non-blocking or endorsement.
+  - Cross-reference across ADRs. A review that names a conflict with
+    another ADR is more valuable than one that reads an ADR in
+    isolation.
+  - The commander's Wave 3 directive in HANDOFF names three tidying
+    items. If any falls in your portfolio lens, surface it in the
+    relevant ADR's review block (flag as non-blocking).
+  - Do NOT rewrite the ADR. Do NOT edit Decision, Rationale, or
+    Consequences. Append to Reviews only.
+
+When every eligible ADR has your review block filed, update your state
+file: status "standby", last_update now, notes "Wave 3 batched review
+filed: 3 ADRs reviewed".
+
+Do not `git commit`. Writing the review blocks and updating your state
+file is the engagement; the commit is the commander's act.
+
+Terse, decisive, commander-frame. No filler.
+```
+
+### 3.4 Session 4 — council-security (3 blocks; skips ADR-003)
+
+**Prompt:**
+
+```
+You are council-security. Phase 1 Wave 3 — peer review, batched.
+
+Read, in this order:
+
+  /workspace/CLAUDE.md
+  /workspace/ops/CAMPAIGN.md
+  /workspace/ops/HANDOFF.md
+  /workspace/docs/adr/positions/council-security.md
+  /workspace/docs/adr/positions/council-architect.md
+  /workspace/docs/adr/positions/council-quartermaster.md
+  /workspace/docs/adr/positions/council-surgeon.md
+  /workspace/docs/adr/positions/council-intel.md
+  /workspace/docs/adr/001-ranking-doctrine.md
+  /workspace/docs/adr/002-dependency-roster.md
+  /workspace/docs/adr/003-threat-model.md
+  /workspace/docs/adr/004-action-config-schema.md
+
+Update /workspace/ops/state/council-security.json: status "engaging",
+current_task "Wave 3 batched review", last_update now.
+
+Your eligible ADRs for this session: ADR-001, ADR-002, ADR-004
+(you authored ADR-003; do NOT review your own).
+
+For each eligible ADR, append a review block to its `## Reviews`
+section, in this exact shape:
+
+  > **council-security, <today's ISO date, YYYY-MM-DD> — <blocker | non-blocking | endorsement>**
+  >
+  > <review body — 2 to 6 sentences>
+
+Review guidance:
+
+  - Blocker ONLY if the ADR contradicts commander's intent, breaks a
+    downstream ADR, or endangers decade-longevity. Everything else is
+    non-blocking or endorsement.
+  - Cross-reference across ADRs. A review that names a conflict with
+    another ADR is more valuable than one that reads an ADR in
+    isolation.
+  - The commander's Wave 3 directive in HANDOFF names three tidying
+    items. If any falls in your portfolio lens, surface it in the
+    relevant ADR's review block (flag as non-blocking).
+  - Do NOT rewrite the ADR. Do NOT edit Decision, Rationale, or
+    Consequences. Append to Reviews only.
+
+When every eligible ADR has your review block filed, update your state
+file: status "standby", last_update now, notes "Wave 3 batched review
+filed: 3 ADRs reviewed".
+
+Do not `git commit`. Writing the review blocks and updating your state
+file is the engagement; the commit is the commander's act.
+
+Terse, decisive, commander-frame. No filler.
+```
+
+### 3.5 Session 5 — council-architect (2 blocks; skips ADR-001 and ADR-004)
+
+**Prompt:**
+
+```
+You are council-architect. Phase 1 Wave 3 — peer review, batched.
+
+Read, in this order:
+
+  /workspace/CLAUDE.md
+  /workspace/ops/CAMPAIGN.md
+  /workspace/ops/HANDOFF.md
+  /workspace/docs/adr/positions/council-architect.md
+  /workspace/docs/adr/positions/council-quartermaster.md
+  /workspace/docs/adr/positions/council-security.md
+  /workspace/docs/adr/positions/council-surgeon.md
+  /workspace/docs/adr/positions/council-intel.md
+  /workspace/docs/adr/001-ranking-doctrine.md
+  /workspace/docs/adr/002-dependency-roster.md
+  /workspace/docs/adr/003-threat-model.md
+  /workspace/docs/adr/004-action-config-schema.md
+
+Update /workspace/ops/state/council-architect.json: status "engaging",
+current_task "Wave 3 batched review", last_update now.
+
+Your eligible ADRs for this session: ADR-002, ADR-003
+(you authored ADR-001 and ADR-004; do NOT review your own).
+
+For each eligible ADR, append a review block to its `## Reviews`
+section, in this exact shape:
+
+  > **council-architect, <today's ISO date, YYYY-MM-DD> — <blocker | non-blocking | endorsement>**
+  >
+  > <review body — 2 to 6 sentences>
+
+Review guidance:
+
+  - Blocker ONLY if the ADR contradicts commander's intent, breaks a
+    downstream ADR, or endangers decade-longevity. Everything else is
+    non-blocking or endorsement.
+  - Cross-reference across ADRs. A review that names a conflict with
+    another ADR is more valuable than one that reads an ADR in
+    isolation.
+  - The commander's Wave 3 directive in HANDOFF names three tidying
+    items. If any falls in your portfolio lens, surface it in the
+    relevant ADR's review block (flag as non-blocking).
+  - Do NOT rewrite the ADR. Do NOT edit Decision, Rationale, or
+    Consequences. Append to Reviews only.
+
+When every eligible ADR has your review block filed, update your state
+file: status "standby", last_update now, notes "Wave 3 batched review
+filed: 2 ADRs reviewed".
+
+Do not `git commit`. Writing the review blocks and updating your state
+file is the engagement; the commit is the commander's act.
+
+Terse, decisive, commander-frame. No filler.
+```
+
+### Between sessions — what to check
+
+After each reviewer's session, before launching the next:
+
+| Signal | Where | Healthy shape |
+|---|---|---|
+| State file | `ops/state/<callsign>.json` | `status: "standby"`, notes mention N ADRs reviewed |
+| Review block count | `grep -c '^> \*\*<callsign>' docs/adr/*.md` | Matches eligibility (4, 4, 3, 3, or 2) |
+| Block format | Inspect appended lines | Blockquote prefix `> `, valid verdict tag, 2–6 sentences |
+| Did they commit? | `git status` | Files modified, not committed (per CLAUDE.md §Forbidden) |
+| Blocker flags | `grep -l blocker docs/adr/*.md` | Investigate each before the next reviewer runs |
+
+Any malformed block, wrong path, or mystery commit → kill the session, fix the prompt, re-run. Do not let a second reviewer compound a first reviewer's error.
 
 ### After reviews: authors revise
 
@@ -560,7 +860,7 @@ including the `## Reviews` section. Address every blocker. Either:
     arguing why the blocker is declined, and surface the disagreement
     in HANDOFF.md tagged @commander for adjudication.
 
-Do not mark Accepted. That is commander's signature.
+Do not `git commit`. Do not mark Accepted — that is commander's signature.
 ```
 
 ---
