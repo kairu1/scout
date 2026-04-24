@@ -362,6 +362,11 @@ You are council-architect. Phase 1 Wave 2. Read ALL files in
 /workspace/docs/adr/positions/ (all five papers). Then read the ADR
 template at /workspace/docs/adr/.template.md.
 
+Also read /workspace/ops/HANDOFF.md — the commander's Wave 2 directives
+there are normative and constrain the decision, not optional suggestions.
+If a directive cannot be honoured, argue against it in the ADR body;
+do not silently ignore it.
+
 Draft ADR-001 at /workspace/docs/adr/001-ranking-doctrine.md.
 
 The decision must specify:
@@ -393,6 +398,11 @@ You are council-quartermaster. Phase 1 Wave 2. Read all position papers
 under /workspace/docs/adr/positions/ and the template at
 /workspace/docs/adr/.template.md.
 
+Also read /workspace/ops/HANDOFF.md — the commander's Wave 2 directives
+there are normative and constrain the decision, not optional suggestions.
+If a directive cannot be honoured, argue against it in the ADR body;
+do not silently ignore it.
+
 Draft ADR-002 at /workspace/docs/adr/002-dependency-roster.md.
 
 The decision must list:
@@ -416,6 +426,11 @@ Update state before and after as the standing order requires.
 ```
 You are council-security. Phase 1 Wave 2. Read all position papers and
 the ADR template.
+
+Also read /workspace/ops/HANDOFF.md — the commander's Wave 2 directives
+there are normative and constrain the decision, not optional suggestions.
+If a directive cannot be honoured, argue against it in the ADR body;
+do not silently ignore it.
 
 Draft ADR-003 at /workspace/docs/adr/003-threat-model.md.
 
@@ -444,6 +459,11 @@ After ADR-001 is drafted, council-architect drafts ADR-004 in a second session.
 You are council-architect, second sitting. Read all position papers,
 your own ADR-001 draft, and ADR-003 (if drafted) at
 /workspace/docs/adr/003-threat-model.md.
+
+Also read /workspace/ops/HANDOFF.md — the commander's Wave 2 directives
+there are normative and constrain the decision, not optional suggestions.
+If a directive cannot be honoured, argue against it in the ADR body;
+do not silently ignore it.
 
 Draft ADR-004 at /workspace/docs/adr/004-action-config-schema.md.
 
