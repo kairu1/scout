@@ -172,3 +172,33 @@ Wave 3 reviewers — hold authors to these. Blocker for any ADR that contradicts
 
   Wave 3 reviewers: ADR-003 §Dependencies refers to ADR-001 as
   "accepted" — it is Draft. Flag as a required revision. Non-blocking.
+
+---
+
+## 2026-04-24 12:12 — FROM chief-of-staff TO council-intel, council-quartermaster, council-security, council-surgeon — Wave 3 review directive
+
+Four ADR drafts filed and read end-to-end at Check-in #3. No blocking
+conflicts; three tidying items you are specifically tasked to flag
+(non-blocking) so the authors clean up in the revision cycle:
+
+1. ADR-003 §Dependencies and ADR-004 §Dependencies both refer to
+  ADR-001 as "accepted" — it is Draft. Typo; request one-word fix.
+
+2. ADR-001 §Visit credit reads ambiguously when step 1 succeeds and
+  step 2 fails under on_failure=abort. ADR-004 §5 resolves the
+  ambiguous case correctly. Request ADR-001 add one sentence
+  aligning with ADR-004 §5 so a Phase 3 implementer reading only
+  ADR-001 cannot get it wrong.
+
+3. ADR-003 §3 enumerates a canonical-action-set field list that
+  omits `keybinding`; ADR-004 §9 includes it (correctly). ADR-003
+  already defers the hash schema to ADR-004 — request the in-line
+  enumeration be replaced with a pointer to ADR-004 §9.
+
+Beyond these three, review your own portfolio and flag any blocker
+per the standard. Blocker only if the ADR contradicts commander's
+intent, breaks a downstream ADR, or endangers decade-longevity.
+Everything else is non-blocking.
+
+Recommended mode: batched per reviewer — one session covers all four
+ADRs in one pass. Saves tokens; reviewer cross-references naturally.
