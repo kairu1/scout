@@ -5,8 +5,8 @@
   "branch": null,
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-04-23T12:27:59Z",
+  "last_update": "2026-04-24T00:15:00Z",
   "blockers": [],
   "primary_outputs": ["docs/adr/001-ranking-doctrine.md", "docs/adr/004-action-config-schema.md"],
-  "notes": "Wave 1 position paper filed at docs/adr/positions/council-architect.md (1133 words). Key claim: exponential-decay frecency (one scalar per path, half-life 7d) plus a generation-counter pipeline with three discard layers plus argv-level action templates is the smallest design fulfilling commander's intent; tier cliffs, shell interpolation, and plugin runtimes are the traps to refuse. Pathexplorer reference not mounted — omitted rather than fabricated."
+  "notes": "ADR-001 draft filed; awaits peer review. Resolves all five commander Wave 2 directives: nucleo-matcher adopted v1; p99 budgets named (first-paint 50ms, action-spawn 30ms); empty index is banner+hint, not error; WAL autocheckpoint disabled, writer yields on QUERY_ACTIVE < 500ms; candidate scope is every non-tombstoned row in current scan_generation. Key calls beyond the brief: visit credit on action execution only (not on search result appearance), tanh soft-normalisation of match and frecency for streaming-stable blending, tie-breakers (visits_total, shorter path, lexicographic, rowid). ADR-004 still to draft."
 }
