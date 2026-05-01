@@ -250,3 +250,43 @@ Chief of Staff will author Phase 2 OPORD and `ops/phase-2-db.md` (2nd Rifles' ru
 2. Chief of Staff has added `/worktrees/` to `.gitignore` at Phase 2 preflight per AGENTS.md § Worktree Discipline.
 
 Standing interrupts remain: `stand down`, `redirect`, `promote`, `AAR now`.
+
+---
+
+## 2026-05-01 09:00 — FROM chief-of-staff TO commander, rifles-2 — Phase 2 orders cut
+
+**Phase 1 CLOSED.** Phase 2 preconditions met: ADR-001 + ADR-003 revisions landed (commit `b1e0e0e`); `/worktrees/` added to `.gitignore`.
+
+**Phase 2 ISSUED.** See updated `ops/OPORD.md` and the new runbook at `ops/phase-2-db.md`. `ops/playbook.md` updated to link the Phase 2 runbook.
+
+Phase 2 is the DB Foundation engagement. **Single line officer (`rifles-2`), four sequential engagements, two commander check-ins.** Scope: schema + migration, WAL + PRAGMA, streaming walker + batched insert, visit path + crash recovery. Binding ADRs are ADR-001 (schema, pacing, visit-credit contract), ADR-002 (admitted deps), ADR-003 (DB permissions, parameter-bound SQL, O_NOFOLLOW).
+
+### Three things commander should scrutinise before sign-off
+
+1. **ADR-002 Phase 2 admission list expansion for `ignore`.** OPORD §Doctrinal note argues that CAMPAIGN.md's "streaming indexer" milestone requires the `ignore` crate (slot 3), which ADR-002 §Consequences §Binds-2nd-Rifles omits from the Phase 2 admission list. The OPORD extends the list to `{rusqlite, tracing, tracing-subscriber, signal-hook, ignore}`. **Sign-off on this OPORD constitutes approval of the expansion.** A one-line revision to ADR-002 Revision history will capture it post-signature. If you disagree, redirect before launching engagement 1.
+
+2. **Surgeon's integrity_check exemption** from ADR-001's 100 ms cold-start budget. OPORD §3 acknowledges the recovery path runs its own budget (≤ 2 s target / 10 s hard fail) and emits a `tracing` span so the budget miss is visible. No re-sign of ADR-001 required; Wave 3 already flagged this as non-blocking.
+
+3. **Worktree discipline activates for the first time this phase.** Chief of Staff runs `git worktree add worktrees/sector-index sector/index` at preflight. `rifles-2` operates only inside `/workspace/worktrees/sector-index/` under `podman exec`. Line officer never runs `git worktree add|remove|move` — those belong to Chief of Staff alone (AGENTS.md §Worktree Discipline). The same discipline will be rehearsed on a single officer here, scaled to three in Phase 3.
+
+### Where your two cents matters most
+
+- **Check-in #1 (after engagement 2)** — inspect the schema on disk against ADR-001 §Consequences. Cheap to redirect here; expensive to migrate out of once engagement 3 inserts rows.
+- **Check-in #2 (after engagement 4)** — commander gut-checks the 100 k-path walk on real data and the crash-recovery path against a `dd`-corrupted fixture. This is the "approve merge to main" gate.
+
+### Preflight commander must execute
+
+The runbook is explicit. Four steps before engagement 1:
+
+1. `podman ps` sanity and `.gitignore` grep confirm.
+2. `git worktree add worktrees/sector-index sector/index` (Chief of Staff act — can be commander too).
+3. Update `ops/state/rifles-2.json` to `"status": "activated"` (already drafted; adjust timestamp).
+4. Claude Code auth sanity inside the worktree via `podman exec`.
+
+Then commit the Phase 2 preflight and launch engagement 1.
+
+### Standing interrupts remain
+
+`stand down`, `redirect`, `promote`, `AAR now`.
+
+Awaiting commander's execution of `ops/phase-2-db.md`.

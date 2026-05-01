@@ -6,7 +6,7 @@ Per-phase runbooks. Execute in order. Commander's check-in required at each phas
 |---|---|---|
 | 0 — Mobilization | [`phase-0-mobilize.md`](phase-0-mobilize.md) | Command post live |
 | 1 — War Council I | [`phase-1-council.md`](phase-1-council.md) | Four ADRs signed |
-| 2 — DB Takes Hill | `phase-2-db.md` *(drafted at Phase 1 close)* | Frecency index operational |
+| 2 — DB Takes Hill | [`phase-2-db.md`](phase-2-db.md) | Frecency index operational |
 | 3 — Main Assault | `phase-3-assault.md` *(drafted at Phase 2 close)* | End-to-end flow |
 | 4 — Consolidation | `phase-4-consolidate.md` *(drafted at Phase 3 close)* | Portable install |
 | 5 — AAR | `phase-5-aar.md` *(drafted at Phase 4 close)* | Lessons captured |
