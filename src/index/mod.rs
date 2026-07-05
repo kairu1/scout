@@ -2,6 +2,7 @@
 //! credit), ADR-002 Phase 2 admission list, ADR-003 §1/§4 (parameter-bound
 //! SQL, DB permissions, refusal boundaries).
 
+pub mod pragma;
 pub mod schema;
 
 use std::fmt;
