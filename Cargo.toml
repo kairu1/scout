@@ -7,9 +7,19 @@ description = "Fast project finder and action launcher"
 license = "MIT"
 publish = false
 
-# STANDING ORDER: Dependencies are added only after Quartermaster's
-# ADR-002 (dependency roster) is signed by the commander. Until then,
-# this crate must compile with zero external dependencies.
+# Dependency roster is fixed by ADR-002. Phase 2 admission list per
+# OPORD 2026-05-01: rusqlite (bundled), tracing, tracing-subscriber,
+# signal-hook, ignore. Any crate beyond the ADR-002 roster requires a
+# successor ADR signed by the commander.
+
+[dependencies]
+rusqlite = { version = "0.31", features = ["bundled", "functions"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[lib]
+name = "scout"
+path = "src/lib.rs"
 
 [[bin]]
 name = "scout"
