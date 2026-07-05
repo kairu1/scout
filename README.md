@@ -45,6 +45,46 @@ Config lives at `$XDG_CONFIG_HOME/scout/config.toml` (see ADR-004 for the schema
 
 Ranking blends fuzzy match quality with frecency (7-day half-life); visits are credited only when an action executes (ADR-001).
 
+## Shell integration
+
+The wrapper below is what makes Enter *do* things in your shell — a
+child process cannot `cd` its parent, so scout prints commands and this
+function evals them, behind an allowlist so nothing unexpected ever
+executes. Canonical copy: [`shell/scout.bash`](shell/scout.bash)
+(source it from your rc, or paste the function directly):
+
+```bash
+# scout shell integration (canonical copy — ships with the product).
+#
+# Why this exists: a child process cannot cd its parent shell, so scout
+# actions PRINT commands on stdout and this function evals them in your
+# shell. The eval is guarded: only allowlisted line shapes run (cd /
+# printf / $EDITOR-$VISUAL invocations); anything else — a bare path, a
+# value-printing action, corrupted output — is shown, never executed.
+#
+# Install: source this file from your shell rc, e.g.
+#   source /path/to/scout/shell/scout.bash
+#
+# Bare `scout` runs the picker; subcommands (index, query, open-db)
+# pass through to the binary untouched.
+scout() {
+  if [ $# -eq 0 ]; then
+    local out line
+    out="$(command scout)" || return $?
+    [ -z "$out" ] && return 0
+    while IFS= read -r line; do
+      case "$line" in
+        'cd '*|'printf '*|'${EDITOR'*|'${VISUAL'*) ;;
+        *) printf 'scout: refusing to eval unexpected output: %s\n' "$line" >&2; return 1 ;;
+      esac
+    done <<< "$out"
+    eval "$out"
+  else
+    command scout "$@"
+  fi
+}
+```
+
 ## Orient
 
 | Document | Purpose |
