@@ -1,0 +1,42 @@
+# Release machinery (Phase 4). Publishing is a commander act: pushing a
+# v* tag is the approval signal; the workflow only builds and attaches
+# the musl artifacts. The installer never ships a config (ADR-003).
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --target ${{ matrix.target }}
+      - name: package
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          name="scout-${version}-${{ matrix.target }}"
+          mkdir "$name"
+          cp target/${{ matrix.target }}/release/scout "$name/"
+          cp README.md shell/scout.bash examples/config.toml "$name/"
+          tar czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            scout-*.tar.gz
+            scout-*.tar.gz.sha256

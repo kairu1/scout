@@ -1,0 +1,28 @@
+# scout reference config (schema: docs/adr/004-action-config-schema.md).
+#
+# Copy to $XDG_CONFIG_HOME/scout/config.toml (usually
+# ~/.config/scout/config.toml) — the installer deliberately never does
+# this for you: the first interactive launch shows a trust prompt for
+# exactly what these actions run, and you consent with `y`.
+#
+# Under the shell wrapper (shell/scout.bash), every action must PRINT a
+# command for your shell to run — that is what makes `cd` stick and
+# lets your editor own the terminal.
+
+schema_version = 1
+
+[[action]]
+name = "go"
+description = "cd into the selection (or its parent, for files)"
+keybinding = "enter"
+steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}" } ]
+
+[[action]]
+name = "edit"
+description = "Open in $EDITOR (runs in your shell, not inside scout)"
+steps = [ { kind = "print", format = "${{EDITOR:-vi}} {path}" } ]
+
+[[action]]
+name = "print-path"
+description = "Print the selection's absolute path"
+steps = [ { kind = "print", format = "printf '%s\\n' {path}" } ]

@@ -31,11 +31,11 @@ fn temp_dir(tag: &str) -> PathBuf {
     dir
 }
 
-fn open_db(dir: &PathBuf) -> Connection {
+fn open_db(dir: &std::path::Path) -> Connection {
     pragma::open(&dir.join("index.db")).unwrap()
 }
 
-fn make_files(root: &PathBuf, count: usize) {
+fn make_files(root: &std::path::Path, count: usize) {
     for i in 0..count {
         fs::write(root.join(format!("file-{i:05}.txt")), b"x").unwrap();
     }

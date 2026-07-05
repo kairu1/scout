@@ -108,6 +108,7 @@ pub fn open(path: &Path) -> Result<Connection> {
             fs::OpenOptions::new()
                 .write(true)
                 .create(true)
+                .truncate(false)
                 .mode(0o600)
                 .open(&sibling)?;
             fs::set_permissions(&sibling, fs::Permissions::from_mode(0o600))?;
@@ -168,7 +169,7 @@ fn sibling_path(path: &Path, suffix: &str) -> std::path::PathBuf {
 
 fn probe_uid(dir: &Path) -> Result<u32> {
     let probe = dir.join(format!(".scout-uid-probe-{}", std::process::id()));
-    fs::OpenOptions::new().write(true).create(true).mode(0o600).open(&probe)?;
+    fs::OpenOptions::new().write(true).create(true).truncate(false).mode(0o600).open(&probe)?;
     let uid = fs::metadata(&probe)?.uid();
     let _ = fs::remove_file(&probe);
     Ok(uid)

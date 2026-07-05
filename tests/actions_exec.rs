@@ -47,7 +47,7 @@ fn ctx(path: PathBuf) -> ActionCtx {
     ActionCtx { path, query: String::new(), home: std::env::var("HOME").unwrap() }
 }
 
-fn seeded_db(dir: &PathBuf) -> (Connection, i64) {
+fn seeded_db(dir: &std::path::Path) -> (Connection, i64) {
     // The real open path registers exp() when the bundled SQLite lacks
     // math built-ins; visit credit depends on it.
     let conn = scout::index::pragma::open(&dir.join("index.db")).unwrap();
