@@ -313,3 +313,21 @@ Ready for Phase 3 OPORD.
 Commander authorisation: standing goal directive 2026-07-05 ("get scout working") covers phase check-ins and merge authorisations; evidence above stands in for the interactive gut-check. sector/index merged to main --no-ff.
 
 Phase 3 OPORD issued in ops/OPORD.md: 1st Rifles (search), 3rd Rifles (TUI), Engineers (actions/config) engage. Milestone: type -> ranked results -> pick -> action -> side effect.
+
+## 2026-07-05 18:20 — FROM chief-of-staff TO commander — Phase 3 green
+
+Three sectors shipped and merged --no-ff (search, actions, tui). Success criteria:
+
+- cargo test: 45 tests green on merged main; 100k smoke gate 2.2 s release.
+- End-to-end, PTY-driven with the real binary: index a fixture tree; trust prompt fires on first config load and accepts on `y`; typed query ranks; Enter dispatches the user print action; stdout emits POSIX-quoted `cd '<path>'` (eval contract holds because the TUI draws on stderr); visit credit lands (S=1.0, visits_total=1); second launch loads silently (hash match); zero-query then ranks the visited path first (frecency observable); corrupt DB renamed .corrupt-<epoch> and rebuilt at the CLI level.
+- Config on disk drives behaviour: user `go` action took Enter from the compiled `edit` default; compiled defaults survive by name.
+- Empty index renders banner+hint, exit 0 (drilled pre-config).
+
+Deviations for the record, none blocking:
+1. Search ships synchronous in-memory ranking, not the multi-worker streaming pipeline of Architect §2 — budgets hold at 100k with wide margin; the QUERY_ACTIVE/GEN seam is preserved. Revisit if index scale demands partials.
+2. Trust-change view shows the full action listing, not an added/removed diff — the store keeps only hashes. A stored projection alongside the hash is the Phase 4+ fix if wanted.
+3. Detached spawns (wait=false) use process_group(0)+null stdio as the setsid approximation; true setsid needs libc, which is off the roster. ADR-003's hazard (terminal steal/wedge) is covered.
+4. index::unix_now visibility widened to pub by 3rd Rifles for CLI wiring — one-line cross-sector touch, flagged here per ROE §1.
+5. `scout query` subcommand added beyond the OPORD list — composability surface for scripts and the non-TTY path named in the trust-refusal message.
+
+Phase 4 (packaging, install, CI tripwires per ADR-002) remains commander-gated. Standing down.

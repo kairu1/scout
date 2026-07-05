@@ -3,9 +3,9 @@
   "role": "line-officer",
   "sector": "Actions/Config",
   "branch": "sector/actions",
-  "status": "unmobilized",
+  "status": "standby",
   "current_task": null,
-  "last_update": null,
+  "last_update": "2026-07-05T18:20:00Z",
   "blockers": [],
-  "notes": "Awaiting Phase 3 activation. Requires ADR-003 Threat model and ADR-004 Action/config schema before engagement."
+  "notes": "Phase 3 closed 2026-07-05. Actions/config shipped on sector/actions, merged --no-ff: staged ADR-004 loader, closed placeholder grammar, single-slot rule with attested sh -c payload exemption, canonical-JSON projection byte-matching ADR-004 \u00a79 example, hand-rolled SHA-256 (FIPS vectors), trust store + prompt + non-TTY refusal, executor with chain policy, all-or-nothing env landing, print-seam quoting, PATH sanitisation, first-success-wins visit credit under 10 s rate limit, compiled-in edit/print-path defaults. 18 tests. Deviations flagged in HANDOFF: trust-change diff view shows full listing (hash-only store), detached spawns use process_group+null stdio in lieu of setsid (no libc on roster)."
 }

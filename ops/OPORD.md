@@ -1,7 +1,7 @@
 # OPORD — Active Operation Order
 
 **Phase:** 3 — Main Assault: Search, TUI, Actions
-**Status:** ISSUED.
+**Status:** CLOSED 2026-07-05 — "Phase 3 green" filed in HANDOFF. Phase 4 awaits commander.
 **Issued:** 2026-07-05
 **Signed:** Chief of Staff, under commander goal directive 2026-07-05 ("get scout working")
 **Previous phase:** 2 — First Engagement — CLOSED 2026-07-05 (merged to main; HANDOFF "Phase 2 green").

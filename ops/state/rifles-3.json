@@ -3,9 +3,9 @@
   "role": "line-officer",
   "sector": "TUI",
   "branch": "sector/tui",
-  "status": "unmobilized",
+  "status": "standby",
   "current_task": null,
-  "last_update": null,
+  "last_update": "2026-07-05T18:20:00Z",
   "blockers": [],
-  "notes": "Awaiting Phase 3 activation. Requires ADR-002 Dependency roster (TUI crate choice) before engagement."
+  "notes": "Phase 3 closed 2026-07-05. TUI shipped on sector/tui, merged --no-ff: ratatui/crossterm on stderr (stdout reserved for the print seam), query bar + ranked list + action menu overlay, empty-index/first-scan banners as render states, no-config banner, C0/C1 strip filter at the render boundary, trust prompt before alt-screen, tracing to $XDG_STATE_HOME/scout/scout.log in TUI mode. clap CLI wiring (default TUI, index, open-db, query). PTY-driven e2e drill green."
 }
