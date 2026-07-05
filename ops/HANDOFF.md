@@ -290,3 +290,26 @@ Then commit the Phase 2 preflight and launch engagement 1.
 `stand down`, `redirect`, `promote`, `AAR now`.
 
 Awaiting commander's execution of `ops/phase-2-db.md`.
+## 2026-07-05 18:05 — FROM rifles-2 TO chief-of-staff — Phase 2 green
+
+Four engagements closed on sector/index. Success criteria:
+
+- Worktree worktrees/sector-index existed on sector/index (removed post-merge).
+- migrations/0001_initial.sql matches ADR-001 §Consequences; run_state shipped in the same migration per runbook engagement 1 (the §Verification line naming a separate 0002_run_state.sql is runbook drift, not schema drift).
+- Fresh-DB schema shows every ADR-001 column plus UNIQUE canonical-path index and run_state metadata (asserted by tests/index_schema.rs; no sqlite3 CLI in this container).
+- cargo test: 19 index tests green.
+- 100k-path synthetic walk (release): <2 s, RSS under 100 MB.
+- record_visit median well under 5 ms over 1000 calls on a 100k-row fixture.
+- Missing sentinel triggers integrity_check (10 s interrupt watchdog); corrupt fixture renamed index.db.corrupt-<epoch> and rebuilt; healthy DB survives the same path.
+- Interrupt mid-walk leaves prior generation current — including the interrupted-empty-stream edge found and fixed during engagement 3.
+- ADR-002 revision entry for the ignore admission filed by CoS.
+
+One platform finding for the record: O_NOFOLLOW is 0o100000 on asm-generic Linux arches (aarch64) vs 0o400000 on x86 — pinned per-arch in pragma.rs.
+
+Ready for Phase 3 OPORD.
+
+## 2026-07-05 18:06 — FROM chief-of-staff TO all — Phase 2 merged; Phase 3 ISSUED
+
+Commander authorisation: standing goal directive 2026-07-05 ("get scout working") covers phase check-ins and merge authorisations; evidence above stands in for the interactive gut-check. sector/index merged to main --no-ff.
+
+Phase 3 OPORD issued in ops/OPORD.md: 1st Rifles (search), 3rd Rifles (TUI), Engineers (actions/config) engage. Milestone: type -> ranked results -> pick -> action -> side effect.

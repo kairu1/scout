@@ -4,9 +4,9 @@
   "sector": "Index/DB",
   "branch": "sector/index",
   "worktree": "worktrees/sector-index",
-  "status": "activated",
+  "status": "standby",
   "current_task": null,
-  "last_update": "2026-05-01T09:00:00Z",
+  "last_update": "2026-07-05T18:05:00Z",
   "blockers": [],
-  "notes": "Phase 2 activated 2026-05-01. Binding ADRs: ADR-001 Ranking (schema, WAL pacing, visit credit), ADR-002 Dependency roster (admitted deps: rusqlite+bundled, tracing, tracing-subscriber, signal-hook, ignore — the last per OPORD 2026-05-01 §Doctrinal note), ADR-003 Threat model (§4 DB permissions, parameter-bound SQL, O_NOFOLLOW). Worktree to be created at worktrees/sector-index pinned to sector/index at preflight step 1. Awaiting engagement 1 launch via phase-2-db.md."
+  "notes": "Phase 2 closed 2026-07-05. Engagements 1-4 complete: schema+migration (ADR-001 exact), WAL/PRAGMA/O_NOFOLLOW open path, streaming walker + batched insert (ignore crate, BEGIN IMMEDIATE x1000, generation guard incl. interrupted-empty-stream edge), visit path + recovery (sentinel, integrity watchdog, corrupt rename+rebuild). 19 tests green; 100k smoke gate <2s release, RSS under budget. Merged to main --no-ff under commander goal directive; worktree removed."
 }

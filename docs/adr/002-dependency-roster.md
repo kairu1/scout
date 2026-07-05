@@ -163,3 +163,4 @@ _Appended by peer reviewers._
 
 - 2026-04-24 — drafted by council-quartermaster.
 - 2026-04-24 — signed by commander.
+- 2026-07-05 — §Consequences §Binds-2nd-Rifles Phase 2 admission list expanded to include `ignore` (slot 3), per OPORD Phase 2 §Doctrinal note; commander's OPORD signature constitutes approval. Filed by Chief of Staff after OPORD sign-off. Status remains Accepted.
