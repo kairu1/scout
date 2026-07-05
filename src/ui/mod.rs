@@ -9,6 +9,7 @@
 //! in the accent, and a per-row frecency signal meter — ranking made
 //! visible, not decorated.
 
+pub mod preview;
 pub mod render;
 pub mod strip;
 
@@ -58,6 +59,8 @@ struct App<'a> {
     /// One-shot banner shown when no config file was found (ADR-004 §7);
     /// dismissed on the first keystroke.
     no_config_banner: bool,
+    /// Preview cache for the current selection, keyed by candidate id.
+    preview: Option<(i64, preview::Preview)>,
 }
 
 impl App<'_> {
@@ -71,6 +74,19 @@ impl App<'_> {
 
     fn selected_result(&self) -> Option<&Ranked> {
         self.results.get(self.selected)
+    }
+
+    /// Build (or reuse) the preview for the current selection. Called
+    /// once per event-loop turn, before drawing.
+    fn ensure_preview(&mut self) {
+        let Some(current) = self.results.get(self.selected) else {
+            self.preview = None;
+            return;
+        };
+        if self.preview.as_ref().map(|(id, _)| *id) != Some(current.id) {
+            self.preview =
+                Some((current.id, preview::build(std::path::Path::new(&current.path))));
+        }
     }
 
     fn dispatch(&self, action_name: &str) -> Option<DispatchRequest> {
@@ -101,6 +117,7 @@ pub fn run(
         selected: 0,
         menu: None,
         no_config_banner: config.source.is_none(),
+        preview: None,
     };
     app.refresh();
 
@@ -122,6 +139,7 @@ fn event_loop(
     app: &mut App<'_>,
 ) -> std::io::Result<Option<DispatchRequest>> {
     loop {
+        app.ensure_preview();
         terminal.draw(|frame| draw(frame, app))?;
         let Event::Key(key) = event::read()? else { continue };
         if key.kind != KeyEventKind::Press {
@@ -218,7 +236,18 @@ fn draw(frame: &mut ratatui::Frame, app: &App<'_>) {
         next += 1;
     }
 
-    draw_results(frame, app, chunks[next]);
+    // Preview pane only when there is real width to spend on it.
+    let body = chunks[next];
+    if body.width >= 70 && app.preview.is_some() {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+            .split(body);
+        draw_results(frame, app, cols[0]);
+        draw_preview(frame, app, cols[1]);
+    } else {
+        draw_results(frame, app, body);
+    }
     draw_footer(frame, app, chunks[next + 1]);
 
     if let Some(menu_index) = app.menu {
@@ -336,6 +365,69 @@ fn style_for(kind: CellKind, dir: Style, base: Style, matched: Style) -> Style {
         CellKind::Base => base,
         CellKind::Match => matched,
     }
+}
+
+fn draw_preview(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
+    let Some((_, content)) = &app.preview else { return };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(CHROME))
+        .title(Span::styled(
+            format!(" {} ", strip::clean(&content.summary())),
+            Style::default().fg(CHROME),
+        ));
+    let inner_height = area.height.saturating_sub(2) as usize;
+
+    let lines: Vec<Line> = match content {
+        preview::Preview::Dir { entries, truncated, .. } => {
+            let mut lines: Vec<Line> = entries
+                .iter()
+                .take(inner_height)
+                .map(|(name, is_dir)| {
+                    if *is_dir {
+                        Line::from(Span::styled(
+                            format!("{}/", strip::clean(name)),
+                            Style::default().add_modifier(Modifier::BOLD),
+                        ))
+                    } else {
+                        Line::from(Span::raw(strip::clean(name)))
+                    }
+                })
+                .collect();
+            if *truncated || entries.len() > inner_height {
+                lines.truncate(inner_height.saturating_sub(1));
+                lines.push(Line::from(Span::styled("\u{2026}", Style::default().fg(CHROME))));
+            }
+            lines
+        }
+        preview::Preview::TextFile { lines: file_lines, truncated, .. } => {
+            let mut lines: Vec<Line> = file_lines
+                .iter()
+                .take(inner_height)
+                .map(|l| Line::from(Span::raw(strip::clean(l))))
+                .collect();
+            if *truncated || file_lines.len() > inner_height {
+                lines.truncate(inner_height.saturating_sub(1));
+                lines.push(Line::from(Span::styled("\u{2026}", Style::default().fg(CHROME))));
+            }
+            lines
+        }
+        preview::Preview::Binary { .. } => {
+            vec![Line::from(Span::styled(
+                "binary \u{2014} no preview",
+                Style::default().fg(CHROME),
+            ))]
+        }
+        preview::Preview::Unreadable(err) => {
+            vec![Line::from(Span::styled(
+                format!("unreadable: {}", strip::clean(err)),
+                Style::default().fg(CHROME),
+            ))]
+        }
+    };
+
+    frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 fn draw_footer(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
