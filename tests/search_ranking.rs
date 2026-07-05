@@ -148,3 +148,20 @@ fn limit_truncates() {
     assert_eq!(ranked.len(), 7);
     assert_eq!(ranked[0].path, "/p/49", "highest S first");
 }
+
+#[test]
+fn match_indices_cover_query_chars() {
+    let conn = db_with_rows(&[("/home/user/projects/scout", 0.0, NOW, 0, 1, None)]);
+    let candidates = load_candidates(&conn).unwrap();
+    let mut matcher = NucleoMatcher::new();
+    let ranked = search(&mut matcher, &candidates, "scout", NOW, 10);
+    let hit = &ranked[0];
+    assert_eq!(hit.match_indices.len(), 5, "five query chars, five highlight positions");
+    let chars: Vec<char> = hit.path.chars().collect();
+    let highlighted: String =
+        hit.match_indices.iter().map(|&i| chars[i as usize]).collect();
+    assert_eq!(highlighted, "scout");
+    // Zero-query results carry no highlights.
+    let ranked = search(&mut matcher, &candidates, "", NOW, 10);
+    assert!(ranked[0].match_indices.is_empty());
+}

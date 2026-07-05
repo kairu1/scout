@@ -31,6 +31,9 @@ pub struct Ranked {
     pub rank: f64,
     pub s_now: f64,
     pub visits_total: i64,
+    /// Char indices the matcher matched (empty on zero-query), for
+    /// render-side highlighting.
+    pub match_indices: Vec<u32>,
 }
 
 /// Index degradation state for first-class banner rendering (ADR-001
@@ -125,6 +128,7 @@ pub fn search(
                     rank: s,
                     s_now: s,
                     visits_total: c.visits_total,
+                    match_indices: Vec::new(),
                 }
             })
             .collect()
@@ -133,7 +137,7 @@ pub fn search(
         candidates
             .iter()
             .filter_map(|c| {
-                scorer.score(&c.path).map(|m| {
+                scorer.score_with_indices(&c.path).map(|(m, match_indices)| {
                     // Calibration telemetry ADR-001 review chorus asked
                     // for: raw m_c per query, pre-normalisation.
                     tracing::trace!(raw_match = m, path = %c.path, "match score");
@@ -144,6 +148,7 @@ pub fn search(
                         rank: ranking::blend(m, s),
                         s_now: s,
                         visits_total: c.visits_total,
+                        match_indices,
                     }
                 })
             })
