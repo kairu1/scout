@@ -4,8 +4,10 @@
 
 pub mod insert;
 pub mod pragma;
+pub mod recovery;
 pub mod schema;
 pub mod signals;
+pub mod visit;
 pub mod walk;
 
 use std::fmt;

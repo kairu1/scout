@@ -35,6 +35,18 @@ pub fn open(path: &Path) -> Result<Connection> {
         fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
     }
 
+    // Refuse a symlinked final component before recovery ever touches it.
+    if path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+        return Err(IndexError::Refused(format!(
+            "db path is a symlink (O_NOFOLLOW): {}",
+            path.display()
+        )));
+    }
+
+    // Crash recovery: sentinel consumption, integrity check on a
+    // suspicious open, rename-and-rebuild on corruption (Surgeon §4).
+    super::recovery::startup_check(path)?;
+
     // O_NOFOLLOW pre-check on the final component; explicit 0600 at first
     // creation, umask-agnostic via set_permissions.
     let existed = path.symlink_metadata().is_ok();
