@@ -5,7 +5,10 @@ use scout::index::schema::apply_migrations;
 use scout::search::matcher::NucleoMatcher;
 use scout::search::{index_state, load_candidates, search, IndexState};
 
-fn db_with_rows(rows: &[(&str, f64, i64, i64, i64, Option<i64>)]) -> Connection {
+// (path, S, last_update, visits_total, scan_generation, tombstoned_at)
+type FixtureRow<'a> = (&'a str, f64, i64, i64, i64, Option<i64>);
+
+fn db_with_rows(rows: &[FixtureRow]) -> Connection {
     // (path, S, last_update, visits_total, scan_generation, tombstoned_at)
     let conn = Connection::open_in_memory().unwrap();
     apply_migrations(&conn).unwrap();

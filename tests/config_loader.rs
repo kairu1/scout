@@ -37,7 +37,7 @@ steps = [ { kind = "spawn", argv = ["alacritty", "--working-directory", "{path}"
 /// Load a config file, pre-trusting it by round-tripping the hash the
 /// non-TTY refusal reports (tests never have a TTY; ADR-003 §3 requires
 /// exactly this refuse-then-verify workflow for automation).
-fn load_pretrusted(dir: &PathBuf, config_toml: &str) -> Result<scout::config::Config, LoadError> {
+fn load_pretrusted(dir: &std::path::Path, config_toml: &str) -> Result<scout::config::Config, LoadError> {
     let config_path = dir.join("config.toml");
     fs::write(&config_path, config_toml).unwrap();
     let store = dir.join("trusted-config.sha256");
