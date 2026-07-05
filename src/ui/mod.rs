@@ -1,8 +1,15 @@
 //! TUI sector (3rd Rifles). ratatui + crossterm on STDERR — stdout is
 //! reserved for the print seam so `eval "$(scout)"` works (ADR-003 §2).
 //! Banners are first-class render states, never popups (ADR-001
-//! §Degradation). Every rendered string passes the strip filter.
+//! §Degradation). Every rendered string passes the strip filter (the
+//! path cells strip inline; chrome strings pass strip::clean).
+//!
+//! Visual grammar (see render.rs for the testable core): one amber
+//! accent, dim directory / bold basename path typography, matcher hits
+//! in the accent, and a per-row frecency signal meter — ranking made
+//! visible, not decorated.
 
+pub mod render;
 pub mod strip;
 
 use std::io::Stderr;
@@ -12,16 +19,21 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Terminal;
 
 use crate::config::Config;
 use crate::search::matcher::NucleoMatcher;
 use crate::search::{search, CandidateRow, IndexState, Ranked};
 
+use render::{path_cells, signal_level, truncate_left, CellKind, SIGNAL_GLYPHS};
+
 const RESULT_LIMIT: usize = 200;
+
+const ACCENT: Color = Color::Yellow;
+const CHROME: Color = Color::DarkGray;
 
 /// What the user chose; the caller executes it after terminal teardown.
 #[derive(Debug)]
@@ -36,6 +48,7 @@ struct App<'a> {
     config: &'a Config,
     candidates: &'a [CandidateRow],
     index_state: &'a IndexState,
+    home: String,
     matcher: NucleoMatcher,
     query: String,
     results: Vec<Ranked>,
@@ -81,6 +94,7 @@ pub fn run(
         config,
         candidates,
         index_state,
+        home: std::env::var("HOME").unwrap_or_default(),
         matcher: NucleoMatcher::new(),
         query: String::new(),
         results: Vec::new(),
@@ -172,81 +186,197 @@ fn event_loop(
 }
 
 fn draw(frame: &mut ratatui::Frame, app: &App<'_>) {
+    let banner = banner_text(app);
+    let mut constraints = vec![Constraint::Length(1), Constraint::Length(1)];
+    if banner.is_some() {
+        constraints.push(Constraint::Length(1));
+    }
+    constraints.push(Constraint::Min(1));
+    constraints.push(Constraint::Length(1));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // query bar
-            Constraint::Length(1), // banner
-            Constraint::Min(1),    // results
-            Constraint::Length(1), // footer
-        ])
+        .constraints(constraints)
         .split(frame.size());
 
-    let query_line = Line::from(vec![
-        Span::styled("> ", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(strip::clean(&app.query)),
-    ]);
-    frame.render_widget(Paragraph::new(query_line), chunks[0]);
+    draw_query_row(frame, app, chunks[0]);
 
-    if let Some(banner) = banner_text(app) {
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                strip::clean(&banner),
-                Style::default().add_modifier(Modifier::REVERSED),
-            )),
-            chunks[1],
-        );
-    }
-
-    let items: Vec<ListItem> = app
-        .results
-        .iter()
-        .map(|r| ListItem::new(strip::clean(&r.path)))
-        .collect();
-    let mut list_state = ListState::default();
-    if !app.results.is_empty() {
-        list_state.select(Some(app.selected));
-    }
-    let list = List::new(items)
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD))
-        .highlight_symbol("> ");
-    frame.render_stateful_widget(list, chunks[2], &mut list_state);
-
-    let enter_hint = app
-        .config
-        .enter_action()
-        .map(|a| format!("enter:{}", a.name))
-        .unwrap_or_else(|| "enter:-".into());
-    let footer = format!(
-        "{} candidate(s)  {}  tab:actions  esc:quit",
-        app.results.len(),
-        enter_hint
-    );
+    // Hairline separator: quiet structure instead of boxed chrome.
     frame.render_widget(
-        Paragraph::new(Span::styled(strip::clean(&footer), Style::default().add_modifier(Modifier::DIM))),
-        chunks[3],
+        Paragraph::new(Span::styled(
+            "\u{2500}".repeat(chunks[1].width as usize),
+            Style::default().fg(CHROME),
+        )),
+        chunks[1],
     );
+
+    let mut next = 2;
+    if let Some((text, style)) = banner {
+        frame.render_widget(
+            Paragraph::new(Span::styled(strip::clean(&text), style)),
+            chunks[next],
+        );
+        next += 1;
+    }
+
+    draw_results(frame, app, chunks[next]);
+    draw_footer(frame, app, chunks[next + 1]);
 
     if let Some(menu_index) = app.menu {
         draw_action_menu(frame, app, menu_index);
     }
 }
 
-fn banner_text(app: &App<'_>) -> Option<String> {
-    match app.index_state {
-        IndexState::Empty => {
-            Some("no paths indexed — run 'scout index <path>' to populate".into())
+fn draw_query_row(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
+    let counter = format!("{}/{}", app.results.len(), app.candidates.len());
+    let row = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(1), Constraint::Length(counter.len() as u16 + 1)])
+        .split(area);
+
+    let query_line = Line::from(vec![
+        Span::styled("\u{276f} ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+        Span::raw(strip::clean(&app.query)),
+        Span::styled("\u{2588}", Style::default().fg(ACCENT)),
+    ]);
+    frame.render_widget(Paragraph::new(query_line), row[0]);
+    frame.render_widget(
+        Paragraph::new(Span::styled(counter, Style::default().fg(CHROME)))
+            .alignment(ratatui::layout::Alignment::Right),
+        row[1],
+    );
+}
+
+fn draw_results(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
+    if app.results.is_empty() {
+        if !app.query.is_empty() {
+            frame.render_widget(
+                Paragraph::new(Span::styled("  no matches", Style::default().fg(CHROME))),
+                area,
+            );
         }
-        IndexState::FirstScanInProgress { rows_so_far } => Some(format!(
-            "indexing in progress ({rows_so_far} paths so far) — results will appear when the first scan completes"
+        return;
+    }
+
+    // pointer(2) + path + gap(1) + meter(3) + gap(1) + visits(4)
+    let meta_width = 9usize;
+    let path_width = (area.width as usize).saturating_sub(2 + meta_width);
+
+    let items: Vec<ListItem> = app
+        .results
+        .iter()
+        .enumerate()
+        .map(|(i, r)| ListItem::new(result_line(app, r, i == app.selected, path_width)))
+        .collect();
+
+    let mut state = ListState::default();
+    state.select(Some(app.selected));
+    // Selection is styled inside result_line (rows light up from gray to
+    // full); the List only supplies scroll-follow behaviour.
+    frame.render_stateful_widget(List::new(items), area, &mut state);
+}
+
+fn result_line<'a>(app: &App<'_>, r: &Ranked, selected: bool, path_width: usize) -> Line<'a> {
+    let mut cells = path_cells(&r.path, &app.home, &r.match_indices);
+    truncate_left(&mut cells, path_width);
+
+    let dir_style = if selected {
+        Style::default().add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(CHROME)
+    };
+    let base_style = if selected {
+        Style::default().add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    let match_style = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
+
+    let mut spans: Vec<Span<'a>> = Vec::with_capacity(8);
+    spans.push(if selected {
+        Span::styled("\u{258c} ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
+    } else {
+        Span::raw("  ")
+    });
+
+    // Group consecutive same-kind cells into spans.
+    let mut run = String::new();
+    let mut run_kind: Option<CellKind> = None;
+    let filled = cells.len();
+    for (c, kind) in cells {
+        if run_kind != Some(kind) {
+            if let Some(prev) = run_kind {
+                spans.push(Span::styled(
+                    std::mem::take(&mut run),
+                    style_for(prev, dir_style, base_style, match_style),
+                ));
+            }
+            run_kind = Some(kind);
+        }
+        run.push(c);
+    }
+    if let Some(prev) = run_kind {
+        spans.push(Span::styled(run, style_for(prev, dir_style, base_style, match_style)));
+    }
+
+    // Pad to the meta column, then the signal meter + visit count.
+    spans.push(Span::raw(" ".repeat(path_width.saturating_sub(filled) + 1)));
+    spans.push(Span::styled(
+        SIGNAL_GLYPHS[signal_level(r.s_now)],
+        Style::default().fg(ACCENT).add_modifier(Modifier::DIM),
+    ));
+    let visits = if r.visits_total > 0 { format!(" {:>4}", r.visits_total) } else { "     ".into() };
+    spans.push(Span::styled(visits, Style::default().fg(CHROME)));
+
+    Line::from(spans)
+}
+
+fn style_for(kind: CellKind, dir: Style, base: Style, matched: Style) -> Style {
+    match kind {
+        CellKind::Dir => dir,
+        CellKind::Base => base,
+        CellKind::Match => matched,
+    }
+}
+
+fn draw_footer(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
+    let key = Style::default().fg(ACCENT);
+    let label = Style::default().fg(CHROME);
+    let mut spans = vec![Span::raw(" ")];
+    if let Some(action) = app.config.enter_action() {
+        spans.push(Span::styled("enter", key));
+        spans.push(Span::styled(format!(" {}", strip::clean(&action.name)), label));
+        spans.push(Span::styled("  \u{00b7}  ", label));
+    }
+    spans.push(Span::styled("tab", key));
+    spans.push(Span::styled(" actions", label));
+    spans.push(Span::styled("  \u{00b7}  ", label));
+    spans.push(Span::styled("esc", key));
+    spans.push(Span::styled(" quit", label));
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn banner_text(app: &App<'_>) -> Option<(String, Style)> {
+    let warn = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
+    let info = Style::default().fg(CHROME);
+    match app.index_state {
+        IndexState::Empty => Some((
+            "no paths indexed \u{2014} run 'scout index <path>' to populate".into(),
+            warn,
+        )),
+        IndexState::FirstScanInProgress { rows_so_far } => Some((
+            format!(
+                "indexing in progress ({rows_so_far} paths so far) \u{2014} results will appear when the first scan completes"
+            ),
+            warn,
         )),
         IndexState::Ready { .. } => {
             if app.no_config_banner {
-                Some(
-                    "no config loaded — using built-in defaults; write \
+                Some((
+                    "no config loaded \u{2014} using built-in defaults; write \
                      $XDG_CONFIG_HOME/scout/config.toml to customise"
                         .into(),
-                )
+                    info,
+                ))
             } else {
                 None
             }
@@ -255,25 +385,52 @@ fn banner_text(app: &App<'_>) -> Option<String> {
 }
 
 fn draw_action_menu(frame: &mut ratatui::Frame, app: &App<'_>, menu_index: usize) {
-    let area = centered(frame.size(), 50, (app.config.actions.len() as u16 + 2).min(12));
+    let width = 56u16;
+    let height = (app.config.actions.len() as u16 + 2).min(12);
+    let area = centered(frame.size(), width, height);
+
     let items: Vec<ListItem> = app
         .config
         .actions
         .iter()
-        .map(|a| {
-            let label = if a.description.is_empty() {
-                a.name.clone()
+        .enumerate()
+        .map(|(i, a)| {
+            let selected = i == menu_index;
+            let mut spans = vec![if selected {
+                Span::styled("\u{258c} ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
             } else {
-                format!("{} — {}", a.name, a.description)
-            };
-            ListItem::new(strip::clean(&label))
+                Span::raw("  ")
+            }];
+            spans.push(Span::styled(
+                strip::clean(&a.name),
+                if selected {
+                    Style::default().add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                },
+            ));
+            if a.keybinding.as_deref() == Some("enter") {
+                spans.push(Span::styled("  enter", Style::default().fg(ACCENT).add_modifier(Modifier::DIM)));
+            }
+            if !a.description.is_empty() {
+                spans.push(Span::styled(
+                    format!("  {}", strip::clean(&a.description)),
+                    Style::default().fg(CHROME),
+                ));
+            }
+            ListItem::new(Line::from(spans))
         })
         .collect();
+
     let mut state = ListState::default();
     state.select(Some(menu_index));
-    let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("actions"))
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD));
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(CHROME))
+            .title(Span::styled(" actions ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))),
+    );
     frame.render_widget(Clear, area);
     frame.render_stateful_widget(list, area, &mut state);
 }
