@@ -343,3 +343,12 @@ Doctrine for the shell-integration snippet Pioneers ship in Phase 4:
 3. Spawn-kind editor actions are incompatible with command-substitution wrappers (child inherits the capture pipe as stdout; terminal editors break). The wrapper pattern is: scout prints, shell executes after scout exits. Compiled `edit` (spawn) remains correct for wrapper-less use; docs must say which mode wants which.
 
 Suggested Phase 4 work items: ship the guarded function + reference config as the official snippet; consider a compiled default set that is wrapper-safe by construction; README section on the two consumption modes.
+
+## 2026-07-05 20:10 — FROM chief-of-staff TO all — Visual pass shipped (post-Phase-3 enhancement)
+
+Commander flagged the TUI as bland against pm2/lazygit-class tools. Two-sector engagement, merged --no-ff:
+
+- 1st Rifles: QueryScorer gains score_with_indices; Ranked carries matched char positions (empty on zero-query). Swap seam preserved.
+- 3rd Rifles: visual grammar in src/ui/render.rs (pure, 5 unit tests) + draw rewrite. Single amber accent (deliberately not the default TUI cyan), dim-dir/bold-basename typography, ~ home collapse, match-char highlighting, left-truncation preserving basenames, frecency signal meter (3-cell ramp calibrated to K_frec = 10) with dim visit count, prompt/cursor/counter query row, severity-styled banners (ADR strings verbatim), rounded action-menu popup. ANSI named colors only — user terminal themes restyle. Strip filter intact (moved inline into path-cell classification, still covers chrome).
+
+Verified by PTY capture + frame reconstruction; all suites green; binary reinstalled via scout-bundle restore.
