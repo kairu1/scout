@@ -331,3 +331,15 @@ Deviations for the record, none blocking:
 5. `scout query` subcommand added beyond the OPORD list — composability surface for scripts and the non-TTY path named in the trust-refusal message.
 
 Phase 4 (packaging, install, CI tripwires per ADR-002) remains commander-gated. Standing down.
+
+## 2026-07-05 19:05 — FROM chief-of-staff TO all — Field report: eval-seam hardening (Phase 4 input)
+
+Live finding from the commander's first day driving the tool. The naive shell wrapper `eval "$(scout)"` executes WHATEVER lands on stdout; the compiled `print-path` default emits a bare quoted VALUE, so dispatching it under the wrapper made bash try to execute the selected file ("Permission denied" on a .json; an executable would have RUN). Surprising execution — exactly the class ADR-003 exists to refuse — introduced at the seam between two individually-correct pieces.
+
+Doctrine for the shell-integration snippet Pioneers ship in Phase 4:
+
+1. Under an eval wrapper, every dispatched action must PRINT A COMMAND, never a value. Reference config now field-tested: go = "cd {path} 2>/dev/null || cd {parent}"; edit = "${{EDITOR:-micro}} {path}" (brace-escaped; shell-side default closes the unset-EDITOR abort without weakening the strict undefined-env grammar — the fallback lives in the one seam a shell already owns); print-path override = "printf '%s\n' {path}".
+2. The wrapper must allowlist eval-able line shapes (cd/printf/${EDITOR prefixes, per line, refuse-and-report otherwise) — defense in depth so a value-emitting action, a future default, or corrupted output degrades to a printed line, never an execution. Guard verified against: bare quoted path, executable path, rm smuggle, hostile second line after a valid cd. 8/8.
+3. Spawn-kind editor actions are incompatible with command-substitution wrappers (child inherits the capture pipe as stdout; terminal editors break). The wrapper pattern is: scout prints, shell executes after scout exits. Compiled `edit` (spawn) remains correct for wrapper-less use; docs must say which mode wants which.
+
+Suggested Phase 4 work items: ship the guarded function + reference config as the official snippet; consider a compiled default set that is wrapper-safe by construction; README section on the two consumption modes.
