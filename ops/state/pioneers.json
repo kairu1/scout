@@ -3,9 +3,9 @@
   "role": "line-officer",
   "sector": "Packaging/Ops",
   "branch": "sector/ops",
-  "status": "unmobilized",
-  "current_task": null,
-  "last_update": null,
+  "status": "engaging",
+  "current_task": "Phase 4 \u2014 packaging + portability",
+  "last_update": "2026-07-05T20:40:00Z",
   "blockers": [],
-  "notes": "Awaiting Phase 4 activation. Also drafts per-phase runbooks at phase close."
+  "notes": "Phase 4 engaged 2026-07-05 under commander goal directive. Deliverables per OPORD: MSRV pin, CI tripwires (audit/deny/ceiling/musl), release workflow, install.sh, shell/scout.bash canonical wrapper, examples/config.toml, Containerfile refresh, README."
 }
