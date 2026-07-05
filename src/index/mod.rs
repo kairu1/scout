@@ -59,7 +59,8 @@ impl From<std::io::Error> for IndexError {
 pub type Result<T> = std::result::Result<T, IndexError>;
 
 /// Unix seconds now. SystemTime per ADR-002 (`chrono` refused).
-pub(crate) fn unix_now() -> i64 {
+/// Public: search ranking and the CLI both take a now-instant.
+pub fn unix_now() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
