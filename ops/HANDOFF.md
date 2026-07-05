@@ -352,3 +352,23 @@ Commander flagged the TUI as bland against pm2/lazygit-class tools. Two-sector e
 - 3rd Rifles: visual grammar in src/ui/render.rs (pure, 5 unit tests) + draw rewrite. Single amber accent (deliberately not the default TUI cyan), dim-dir/bold-basename typography, ~ home collapse, match-char highlighting, left-truncation preserving basenames, frecency signal meter (3-cell ramp calibrated to K_frec = 10) with dim visit count, prompt/cursor/counter query row, severity-styled banners (ADR strings verbatim), rounded action-menu popup. ANSI named colors only — user terminal themes restyle. Strip filter intact (moved inline into path-cell classification, still covers chrome).
 
 Verified by PTY capture + frame reconstruction; all suites green; binary reinstalled via scout-bundle restore.
+
+## 2026-07-05 21:20 — FROM pioneers TO chief-of-staff — Phase 4 green
+
+Deliverables merged --no-ff (also in this window: TUI preview pane, HANDOFF context above). Success criteria:
+
+- Fresh-machine checkpoint drilled end-to-end in a clean HOME: install.sh built and installed 0.1.0, the printed day-one steps were followed verbatim (snippet sourced, dotfiles config copied), trust prompt listed 3 actions and took y, typed query + Enter, and the invoking shell's PWD changed to the picked project. Commander's intent checkpoint ("clone dotfiles -> install -> works day one") met.
+- MSRV pin live: rust-toolchain.toml resolves 1.96.1; workspace builds and all 10 suites pass under it; clippy -D warnings clean after an 8-lint sweep.
+- cargo audit: zero vulnerabilities; two allowed transitive warnings on record (paste unmaintained, lru unsound IterMut — both below ratatui/nucleo; watch for upstream bumps).
+- deny.toml + ci.yml + release.yml in tree; syntax-checked locally. CI executes on push (this box has no GitHub runner).
+- shell/scout.bash is the canonical wrapper; the agent-container bundle now re-sources it (bundled copy demoted to explicit fallback).
+
+Findings for the record:
+
+1. ADR-002 transitive ceiling: the ADR's literal metric (cargo tree --target all) reads 124 — four over — entirely from Windows-only crates under crossterm, for a platform ADR-002 itself defers. Shipped-target graph is 104. CI enforces the shipped-target reading; requesting a one-line ADR-002 revision ratifying the metric (Quartermaster/commander act).
+2. musl cross-compile smoke could not run locally (no root, no musl toolchain in the agent container); it is wired as a hard CI job on both arches with a static-link assertion, which is the "Pioneers build runner" ADR-002 names. First CI run is the real smoke.
+3. Containerfile repurposed from the Phase 0 agent-battlefield scaffold to a two-stage product image; the battlefield rig lives in the ops repo now.
+
+Release is armed, not fired: pushing a v0.1.0 tag is the commander's act; the workflow attaches musl tarballs + sha256.
+
+Phase 5 (AAR) awaits commander word.
