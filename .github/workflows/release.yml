@@ -25,7 +25,13 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - run: cargo build --release --target ${{ matrix.target }}
+      - name: tag matches Cargo.toml version
+        run: |
+          crate_version="$(cargo metadata --no-deps --format-version 1 \
+            | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)"
+          echo "tag=${GITHUB_REF_NAME} crate=v${crate_version}"
+          test "${GITHUB_REF_NAME}" = "v${crate_version}"
+      - run: cargo build --locked --release --target ${{ matrix.target }}
       - name: package
         run: |
           version="${GITHUB_REF_NAME#v}"

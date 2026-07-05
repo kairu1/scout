@@ -3,3 +3,7 @@
 [toolchain]
 channel = "1.96.1"
 components = ["rustfmt", "clippy"]
+# musl targets belong to the PINNED toolchain, not to whatever `stable`
+# a CI step happens to install — cargo reads this file and auto-adds
+# them, so the release/musl builds get a std that exists for the target.
+targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]

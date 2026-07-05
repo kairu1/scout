@@ -12,6 +12,12 @@ struct Blend {
 
 const BLEND: Blend = Blend { k_match: 100.0, k_frec: 10.0, w_match: 0.6, w_frec: 0.4 };
 
+/// Frecency saturation constant (ADR-001 §K_frec ~ two weeks of daily
+/// visits). Exported as the single source so downstream calibration —
+/// e.g. the TUI signal meter — derives from it instead of re-hardcoding
+/// the literal.
+pub const K_FREC: f64 = BLEND.k_frec;
+
 /// Blended rank score for a non-empty query. Both norms bounded [0, 1),
 /// monotonic; a late-arriving higher score never reshuffles rendered
 /// rows below it.

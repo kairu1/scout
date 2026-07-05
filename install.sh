@@ -18,7 +18,7 @@ command -v cargo >/dev/null 2>&1 || {
 }
 
 echo "building scout (release)..."
-(cd "$here" && cargo build --release)
+(cd "$here" && cargo build --locked --release)
 
 mkdir -p "$bindir"
 install -m755 "$here/target/release/scout" "$bindir/scout"

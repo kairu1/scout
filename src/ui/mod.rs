@@ -139,7 +139,15 @@ fn event_loop(
     app: &mut App<'_>,
 ) -> std::io::Result<Option<DispatchRequest>> {
     loop {
-        app.ensure_preview();
+        // Only pay the preview read when the pane will actually render;
+        // on a narrow terminal the disk I/O is wasted (and needlessly
+        // touches the selected candidate).
+        let wide_enough = terminal.size().map(|s| s.width >= 70).unwrap_or(true);
+        if wide_enough {
+            app.ensure_preview();
+        } else {
+            app.preview = None;
+        }
         terminal.draw(|frame| draw(frame, app))?;
         let Event::Key(key) = event::read()? else { continue };
         if key.kind != KeyEventKind::Press {
@@ -418,6 +426,9 @@ fn draw_preview(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
                 "binary \u{2014} no preview",
                 Style::default().fg(CHROME),
             ))]
+        }
+        preview::Preview::Special { kind } => {
+            vec![Line::from(Span::styled(*kind, Style::default().fg(CHROME)))]
         }
         preview::Preview::Unreadable(err) => {
             vec![Line::from(Span::styled(

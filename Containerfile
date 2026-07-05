@@ -10,7 +10,7 @@
 FROM rust:1.96 AS build
 WORKDIR /src
 COPY . .
-RUN cargo build --release
+RUN cargo build --locked --release
 
 FROM debian:bookworm-slim
 RUN useradd -m -s /bin/bash scout

@@ -30,6 +30,12 @@ pub enum Preview {
     Binary {
         size: u64,
     },
+    /// FIFO, socket, block/char device, or anything not a regular file
+    /// or directory. Never opened — a read on a FIFO with no writer
+    /// blocks forever, and this runs synchronously in the event loop.
+    Special {
+        kind: &'static str,
+    },
     Unreadable(String),
 }
 
@@ -44,6 +50,7 @@ impl Preview {
             }
             Preview::TextFile { size, .. } => format!("file \u{00b7} {}", human_size(*size)),
             Preview::Binary { size } => format!("binary \u{00b7} {}", human_size(*size)),
+            Preview::Special { kind } => (*kind).to_string(),
             Preview::Unreadable(_) => "unreadable".into(),
         }
     }
@@ -71,8 +78,28 @@ pub fn build(path: &Path) -> Preview {
     };
     if meta.is_dir() {
         build_dir(path)
-    } else {
+    } else if meta.is_file() {
         build_file(path, meta.len())
+    } else {
+        // FIFO / socket / device / symlink-to-nowhere: never open it.
+        // A read on a writer-less FIFO blocks the event loop forever.
+        Preview::Special { kind: special_kind(&meta) }
+    }
+}
+
+fn special_kind(meta: &std::fs::Metadata) -> &'static str {
+    use std::os::unix::fs::FileTypeExt;
+    let ft = meta.file_type();
+    if ft.is_fifo() {
+        "named pipe \u{2014} no preview"
+    } else if ft.is_socket() {
+        "socket \u{2014} no preview"
+    } else if ft.is_block_device() {
+        "block device \u{2014} no preview"
+    } else if ft.is_char_device() {
+        "character device \u{2014} no preview"
+    } else {
+        "special file \u{2014} no preview"
     }
 }
 
@@ -193,6 +220,18 @@ mod tests {
         let file = dir.join("blob");
         fs::write(&file, [0x7f, 0x45, 0x4c, 0x46, 0x00, 0x01]).unwrap();
         assert!(matches!(build(&file), Preview::Binary { size: 6 }));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn fifo_is_special_never_opened() {
+        // A read on this FIFO would block forever; build() must not open it.
+        let dir = temp_dir("fifo");
+        let fifo = dir.join("pipe");
+        let status = std::process::Command::new("mkfifo").arg(&fifo).status();
+        if status.map(|s| s.success()).unwrap_or(false) {
+            assert!(matches!(build(&fifo), Preview::Special { .. }));
+        }
         fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -41,7 +41,7 @@ editor, and anything unexpected is shown, never run. Start from
 copies it for you: your first config always goes through the trust
 prompt).
 
-Config lives at `$XDG_CONFIG_HOME/scout/config.toml` (see ADR-004 for the schema; ADR-003 for the first-run trust prompt). Without a config, compiled-in defaults apply: Enter opens the selection in `$EDITOR`.
+Config lives at `$XDG_CONFIG_HOME/scout/config.toml` (see ADR-004 for the schema; ADR-003 for the first-run trust prompt). Without a config, compiled-in defaults apply: Enter opens the selection in `$EDITOR` **when you run the binary directly** (`command scout`). Under the shell wrapper — the recommended setup — use a print-based config like [`examples/config.toml`](examples/config.toml) instead: an editor spawned inside the wrapper's command substitution can't own the terminal, so the wrapped `edit` opens your editor by printing an `$EDITOR` command your shell runs.
 
 Ranking blends fuzzy match quality with frecency (7-day half-life); visits are credited only when an action executes (ADR-001).
 

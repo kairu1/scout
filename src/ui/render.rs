@@ -65,15 +65,17 @@ pub fn truncate_left(cells: &mut Vec<(char, CellKind)>, width: usize) {
     }
 }
 
-/// Frecency signal meter: 0-3 strength levels calibrated against
-/// ADR-001's K_frec = 10 (level 3 ~ a daily driver, level 1 ~ touched
-/// this week).
+/// Frecency signal meter: 0-3 strength levels derived from ranking's
+/// `K_FREC` (level 3 = saturation ~ a daily driver, level 2 ~ 0.3·K,
+/// level 1 ~ 0.05·K ~ touched this week). Deriving from the exported
+/// constant keeps the meter in step with any ranking re-tune.
 pub fn signal_level(s_now: f64) -> usize {
-    if s_now >= 10.0 {
+    let k = crate::search::ranking::K_FREC;
+    if s_now >= k {
         3
-    } else if s_now >= 3.0 {
+    } else if s_now >= 0.3 * k {
         2
-    } else if s_now >= 0.5 {
+    } else if s_now >= 0.05 * k {
         1
     } else {
         0
@@ -134,11 +136,25 @@ mod tests {
     }
 
     #[test]
-    fn signal_levels_calibrated_to_k_frec() {
+    fn signal_levels_derive_from_k_frec() {
+        let k = crate::search::ranking::K_FREC;
+        // Saturation is exactly K_FREC, so a ranking re-tune moves both
+        // the blend and the meter together (drift guard).
+        assert_eq!(signal_level(k), 3);
+        assert_eq!(signal_level(k - 0.01), 2);
         assert_eq!(signal_level(0.0), 0);
-        assert_eq!(signal_level(0.6), 1);
-        assert_eq!(signal_level(5.0), 2);
-        assert_eq!(signal_level(25.0), 3);
+        assert_eq!(signal_level(0.06 * k), 1);
         assert_eq!(SIGNAL_GLYPHS.len(), 4);
+    }
+
+    #[test]
+    fn path_cells_strip_matches_strip_clean() {
+        // The inline C0/C1 strip in path_cells must stay equivalent to
+        // the canonical strip::clean over a control-char corpus
+        // (ADR-003 §6 lives in one place, guarded here).
+        let corpus = "plain\tpath\x00\x1b\x07\u{85}\u{9f}end/base\u{1b}]0;x\u{7}z";
+        let rendered: String =
+            path_cells(corpus, "", &[]).iter().map(|(c, _)| *c).collect();
+        assert_eq!(rendered, crate::ui::strip::clean(corpus));
     }
 }
