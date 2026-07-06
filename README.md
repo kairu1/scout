@@ -1,8 +1,6 @@
 # SCOUT
 
-Fast project finder and action launcher. Heir to `pathexplorer` — same commander's intent, proper force structure.
-
-> **Commander's intent:** Make finding and acting on my projects fast, composable, and portable across my machines.
+Fast project finder and action launcher. Heir to `pathexplorer`.
 
 ## Status
 
