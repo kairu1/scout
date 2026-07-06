@@ -10,11 +10,11 @@
 
 ## 1. Situation
 
-The tool works end-to-end and is daily-drivable. Nothing about it is yet portable by the commander's checkpoint: no install artifact, no shell-integration snippet shipped by the product (the guarded wrapper lives only in the agent-container bootstrap), no CI tripwires, no MSRV pin, stale Phase 0 Containerfile.
+The tool works end-to-end and is daily-drivable. Nothing about it is yet portable by the commander's checkpoint: no install artifact, no shell-integration snippet shipped by the product (the guarded wrapper lives only in the agent-container bootstrap), no CI tripwires, no MSRV pin.
 
 ## 2. Mission
 
-Pioneers engages. Sector: `Containerfile`, `.github/**`, `install.sh`, `ops/**`, plus new `shell/**` and `examples/**` (assigned to Pioneers by this OPORD).
+Pioneers engages. Sector: `.github/**`, `install.sh`, `ops/**`, plus new `shell/**` and `examples/**` (assigned to Pioneers by this OPORD).
 
 Deliverables, bound by ADR-002 §Consequences and ADR-003/004 packaging bindings:
 
@@ -24,13 +24,13 @@ Deliverables, bound by ADR-002 §Consequences and ADR-003/004 packaging bindings
 4. **install.sh** — clone-and-run installer: builds release, installs to `~/.local/bin`, points at the shell snippet. MUST NOT drop a config into any discovery-chain location (ADR-003/004 binding: a shipped config would pre-trust itself).
 5. **shell/scout.bash** — the guarded eval wrapper becomes a product artifact (canonical home; the agent-container bundle re-sources from here). Doctrine per HANDOFF 2026-07-05 19:05: actions print commands; wrapper allowlists line shapes.
 6. **examples/config.toml** — reference config under `examples/` (allowed by ADR-003 §Consequences; never copied on install).
-7. **Containerfile** — refreshed from the Phase 0 scaffold to a two-stage build+runtime image for the scout binary itself.
+7. **Distribution** — install.sh plus the musl release tarballs cover portability; no container image ships.
 8. **README** — install, shell integration, status.
 
 ## 3. Constraints
 
 - No new runtime dependency (ADR-002 roster is closed). Dev-tooling (cargo-audit/cargo-deny) runs in CI, not in the dependency graph.
-- Environment note: this container has no root and no musl cross toolchain — the musl smoke runs in CI (its designed home, "the Pioneers build runner"); a local pass is not achievable and its absence is recorded, not hidden.
+- Environment note: this dev environment has no root and no musl cross toolchain — the musl smoke runs in CI (its designed home, "the Pioneers build runner"); a local pass is not achievable and its absence is recorded, not hidden.
 - Release itself (tag push, publishing) remains a commander act; Phase 4 ships the machinery.
 
 ## 4. Success criteria

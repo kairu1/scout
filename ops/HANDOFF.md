@@ -29,74 +29,13 @@ Phase 1 is the most important check-in of the campaign — four ADRs set doctrin
 3. **Wave 3 — Peer review.** Each ADR reviewed by the four non-authoring officers; authors revise.
 4. **Wave 4 — Commander sign-off.** You read, approve or redirect.
 
-**Before you move:** the runbook's preflight section covers Claude-Code auth inside the container — verify that first. If headless auth fails, the runbook gives two fallbacks (mount `~/.claude` or set `ANTHROPIC_API_KEY`).
+**Before you move:** the runbook's preflight section covers Claude-Code auth — verify that first. If headless auth fails, the runbook gives the `ANTHROPIC_API_KEY` fallback.
 
 **Where your two cents matters most:** Check-in #1 (before launching any officer — edit the prompts if any asks for the wrong thing) and Check-in #3 (ADR drafts before peer review — cheap to demand revisions here).
 
 **Standing interrupt remains:** `stand down`, `redirect`, `promote`, `AAR now`.
 
 Awaiting commander's execution of `ops/phase-1-council.md`.
-
----
-
-## 2026-04-21 18:15 — FROM chief-of-staff TO commander — Smoke test triage (sqlite3 missing)
-
-**Incident:** Step 5 smoke test — 6/7 green; `sqlite3 --version` failed with `command not found`.
-
-**Root cause:** Containerfile installed `libsqlite3-dev` (compile headers) but not `sqlite3` (CLI package). They are separate apt packages; the dev package doesn't pull the CLI.
-
-**Pattern noted — second miss of the same species this phase.** Both the `useradd` UID collision and this were failures to verify the Containerfile against its direct consumers. Carrying this into the Phase 0 AAR:
-- **Standing rule for Pioneers sector (effective from Phase 4):** before shipping any Containerfile change, cross-reference the installed binaries against every command in the phase runbooks that the image supports. Treat the smoke test as authoritative.
-- Chief of Staff will apply the same rule to any image artifact authored on the host.
-
-**Fix applied:** `sqlite3` added to apt install list in Containerfile. Runbook troubleshooting table updated.
-
-**Next action (commander):**
-
-1. Exit the container (if still inside): `exit`
-2. Rebuild the image:
-   ```bash
-   cd ~/projects/scout
-   podman build -t scout:latest -f Containerfile .
-   ```
-   Note: the apt layer is invalidated by adding a package, so it and every layer after it rebuilds. ~2–3 minutes (Rust install, Claude Code install re-run).
-3. Replace the old container:
-   ```bash
-   podman rm -f scout
-   podman run -d --name scout --hostname scout \
-     -v ~/projects/scout:/workspace:Z \
-     -w /workspace \
-     scout:latest sleep infinity
-   ```
-4. Re-run the smoke test from step 5 of the runbook — all seven tools should now pass.
-
-Expected output on `sqlite3 --version`: something like `3.45.1 2024-01-30 ...`
-
----
-
-## 2026-04-21 17:30 — FROM chief-of-staff TO commander — Containerfile triage (step 3 build failure)
-
-**Incident:** `podman build` failed at `RUN useradd` with `UID 1000 is not unique`.
-
-**Root cause (5 whys applied):** Ubuntu 24.04 base image ships a pre-existing `ubuntu` user at UID 1000. My original Containerfile tried to create `scout` at UID 1000 → collision. I skipped verifying the base image's default users before authoring — a breach of the "no assumptions" doctrine. Owning it.
-
-**Fix applied:** Containerfile now removes the pre-existing `ubuntu` user before creating `scout`:
-```dockerfile
-RUN (userdel -r ubuntu 2>/dev/null || true) \
- && useradd -m -u ${UID} -s /bin/bash ${USER}
-```
-Idempotent — `|| true` keeps us safe if a future Ubuntu image drops the default.
-
-**Runbook also updated:** phase-0-mobilize.md troubleshooting table includes this failure mode.
-
-**Next action (commander):** re-run step 3:
-```bash
-cd ~/projects/scout
-podman build -t scout:latest -f Containerfile .
-```
-Cached layers mean the apt step won't re-run; the build should resume near the (now-fixed) user-creation step and finish.
-
-If step 3 still fails, capture the bottom ~30 lines of output (screenshot or paste) and drop it back here — I'll triage the next one faster.
 
 ---
 
@@ -110,9 +49,9 @@ Host-side scaffold complete. Structure in place:
 - `ops/playbook.md` — runbook index
 - `ops/phase-0-mobilize.md` — first runbook (commander executes)
 - `ops/state/*.json` — one file per officer, all `unmobilized`
-- `Containerfile`, `Cargo.toml`, `src/main.rs` — placeholders
+- `Cargo.toml`, `src/main.rs` — placeholders
 
-No agents are online. Phase 0 brings up the container only. Phase 1 convenes the War Council.
+No agents are online. Phase 0 stands up the command post only. Phase 1 convenes the War Council.
 
 Awaiting commander's execution of `ops/phase-0-mobilize.md`.
 
@@ -120,7 +59,7 @@ Awaiting commander's execution of `ops/phase-0-mobilize.md`.
 
 ## 2026-04-21 18:47 — FROM commander TO chief-of-staff — Phase 0 checkpoint green
 
-Container built and running. Branches cut. Toolchain verified. Ready for Phase 1 OPORD.
+Command post live. Branches cut. Toolchain verified. Ready for Phase 1 OPORD.
 
 ---
 
@@ -267,7 +206,7 @@ Phase 2 is the DB Foundation engagement. **Single line officer (`rifles-2`), fou
 
 2. **Surgeon's integrity_check exemption** from ADR-001's 100 ms cold-start budget. OPORD §3 acknowledges the recovery path runs its own budget (≤ 2 s target / 10 s hard fail) and emits a `tracing` span so the budget miss is visible. No re-sign of ADR-001 required; Wave 3 already flagged this as non-blocking.
 
-3. **Worktree discipline activates for the first time this phase.** Chief of Staff runs `git worktree add worktrees/sector-index sector/index` at preflight. `rifles-2` operates only inside `/workspace/worktrees/sector-index/` under `podman exec`. Line officer never runs `git worktree add|remove|move` — those belong to Chief of Staff alone (AGENTS.md §Worktree Discipline). The same discipline will be rehearsed on a single officer here, scaled to three in Phase 3.
+3. **Worktree discipline activates for the first time this phase.** Chief of Staff runs `git worktree add worktrees/sector-index sector/index` at preflight. `rifles-2` operates only inside `~/projects/scout/worktrees/sector-index/`. Line officer never runs `git worktree add|remove|move` — those belong to Chief of Staff alone (AGENTS.md §Worktree Discipline). The same discipline will be rehearsed on a single officer here, scaled to three in Phase 3.
 
 ### Where your two cents matters most
 
@@ -278,10 +217,10 @@ Phase 2 is the DB Foundation engagement. **Single line officer (`rifles-2`), fou
 
 The runbook is explicit. Four steps before engagement 1:
 
-1. `podman ps` sanity and `.gitignore` grep confirm.
+1. Command-post and `.gitignore` grep confirm.
 2. `git worktree add worktrees/sector-index sector/index` (Chief of Staff act — can be commander too).
 3. Update `ops/state/rifles-2.json` to `"status": "activated"` (already drafted; adjust timestamp).
-4. Claude Code auth sanity inside the worktree via `podman exec`.
+4. Claude Code auth sanity inside the worktree.
 
 Then commit the Phase 2 preflight and launch engagement 1.
 
@@ -296,7 +235,7 @@ Four engagements closed on sector/index. Success criteria:
 
 - Worktree worktrees/sector-index existed on sector/index (removed post-merge).
 - migrations/0001_initial.sql matches ADR-001 §Consequences; run_state shipped in the same migration per runbook engagement 1 (the §Verification line naming a separate 0002_run_state.sql is runbook drift, not schema drift).
-- Fresh-DB schema shows every ADR-001 column plus UNIQUE canonical-path index and run_state metadata (asserted by tests/index_schema.rs; no sqlite3 CLI in this container).
+- Fresh-DB schema shows every ADR-001 column plus UNIQUE canonical-path index and run_state metadata (asserted by tests/index_schema.rs; no sqlite3 CLI in this environment).
 - cargo test: 19 index tests green.
 - 100k-path synthetic walk (release): <2 s, RSS under 100 MB.
 - record_visit median well under 5 ms over 1000 calls on a 100k-row fixture.
@@ -367,7 +306,7 @@ Findings for the record:
 
 1. ADR-002 transitive ceiling: the ADR's literal metric (cargo tree --target all) reads 124 — four over — entirely from Windows-only crates under crossterm, for a platform ADR-002 itself defers. Shipped-target graph is 104. CI enforces the shipped-target reading; requesting a one-line ADR-002 revision ratifying the metric (Quartermaster/commander act).
 2. musl cross-compile smoke could not run locally (no root, no musl toolchain in the agent container); it is wired as a hard CI job on both arches with a static-link assertion, which is the "Pioneers build runner" ADR-002 names. First CI run is the real smoke.
-3. Containerfile repurposed from the Phase 0 agent-battlefield scaffold to a two-stage product image; the battlefield rig lives in the ops repo now.
+3. Distribution is install.sh + the musl release tarballs; no container image ships.
 
 Release is armed, not fired: pushing a v0.1.0 tag is the commander's act; the workflow attaches musl tarballs + sha256.
 

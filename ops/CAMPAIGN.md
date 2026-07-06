@@ -14,7 +14,7 @@ Every decision below is subordinate to the intent above. When a proposal conflic
   - Config is portable TOML, intended to be committed to dotfiles.
   - Rust is the language of the realm.
   - The predecessor `pathexplorer` is read-only reference terrain.
-- **Ground we hold:** working fuzzy search, basic TUI, first-pass indexer, tmux/podman multi-agent experience from the agentic_vm_guide.
+- **Ground we hold:** working fuzzy search, basic TUI, first-pass indexer, tmux multi-agent experience from the agentic_vm_guide.
 - **Enemy positions (risks):** ranking correctness, stale-query races, dependency rot across a decade, agent merge conflicts, scope creep away from the intent.
 
 ---
@@ -47,7 +47,7 @@ Each owns a sector. Commits land only on their branch.
 | 2nd Rifles | Index/DB | `sector/index` | `src/index/**`, `migrations/**` |
 | 3rd Rifles | TUI | `sector/tui` | `src/ui/**` |
 | Engineers | Actions/Config | `sector/actions` | `src/actions/**`, `src/config/**` |
-| Pioneers | Packaging/Ops | `sector/ops` | `Containerfile`, `.github/**`, `install.sh`, `ops/**` |
+| Pioneers | Packaging/Ops | `sector/ops` | `.github/**`, `install.sh`, `ops/**` |
 
 ### Staff
 
@@ -93,8 +93,8 @@ No dependency joins the force without passing these gates. The Quartermaster app
 Every phase carries milestone / checkpoint / connection. Commander's check-in at every phase boundary.
 
 ### Phase 0 — Mobilization
-- **Milestone:** Podman + tmux environment stood up. `ops/` scaffolded. Sector branches cut. Agents not yet launched.
-- **Checkpoint:** `podman ps` shows the container; `git branch` shows all sector branches; a smoke HANDOFF message round-trips.
+- **Milestone:** tmux working environment stood up. `ops/` scaffolded. Sector branches cut. Agents not yet launched.
+- **Checkpoint:** the toolchain is present; `git branch` shows all sector branches; a smoke HANDOFF message round-trips.
 - **Connection:** The battlefield exists. War Council can convene in Phase 1.
 - **🪖 Commander's check-in:** Approve force structure, branch names, HANDOFF protocol. *(Already given — 2026-04-21.)*
 
@@ -124,7 +124,7 @@ Every phase carries milestone / checkpoint / connection. Commander's check-in at
 - **🪖 Commander's check-in:** Daily-drive for a week before Phase 4.
 
 ### Phase 4 — Consolidation: Portability
-- **Milestone:** Pioneers ship Containerfile, install script, shell integration snippets, release workflow.
+- **Milestone:** Pioneers ship the install script, shell integration snippets, release workflow.
 - **Checkpoint:** Fresh machine → clone dotfiles → install → scout works day one.
 - **Connection:** Intent ("portable across machines") fulfilled.
 - **🪖 Commander's check-in:** Approve release.

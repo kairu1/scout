@@ -7,5 +7,5 @@
   "current_task": null,
   "last_update": "2026-07-05T21:20:00Z",
   "blockers": [],
-  "notes": "Phase 4 closed 2026-07-05. Shipped: MSRV pin 1.96.1, v0.1.0, deny.toml + ci.yml (test/clippy/audit/deny/ceiling/musl-smoke) + release.yml (v* tag -> musl tarballs), install.sh (never writes a config \u2014 ADR-003), shell/scout.bash canonical wrapper, examples/config.toml, two-stage product Containerfile, README. Fresh-HOME day-one drill green (shell PWD moved via wrapper). Open items in HANDOFF: ceiling metric ratification (124 --target all vs 104 shipped), musl smoke runs on first CI push."
+  "notes": "Phase 4 closed 2026-07-05. Shipped: MSRV pin 1.96.1, v0.1.0, deny.toml + ci.yml (test/clippy/audit/deny/ceiling/musl-smoke) + release.yml (v* tag -> musl tarballs), install.sh (never writes a config \u2014 ADR-003), shell/scout.bash canonical wrapper, examples/config.toml, README. Fresh-HOME day-one drill green (shell PWD moved via wrapper). Open items in HANDOFF: ceiling metric ratification (124 --target all vs 104 shipped), musl smoke runs on first CI push."
 }

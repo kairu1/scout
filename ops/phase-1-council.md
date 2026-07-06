@@ -22,47 +22,30 @@ This is the most important phase of the campaign. Four decisions made here — r
 
 ## Preflight
 
-### 0. Confirm container and workspace
+### 0. Confirm the command post
 
-On the Mac:
 ```bash
-podman ps
-# Expected: scout container Up
+cd ~/projects/scout
+git status
+# Expected: on main, working tree as left at Phase 0 close
 ```
 
-If the container was stopped since Phase 0:
-```bash
-podman start scout
-```
+### 1. Verify Claude Code auth
 
-### 1. Verify Claude Code auth inside the container
-
-Each Council officer runs as a Claude Code agent inside the container. The `claude` binary is installed but may need first-run auth on a fresh container.
+Each Council officer runs as a Claude Code agent. The `claude` binary is installed but may need first-run auth on a fresh machine.
 
 ```bash
-podman exec -it scout bash -c "cd /workspace && claude"
+cd ~/projects/scout && claude
 ```
 
 You'll be dropped into interactive Claude Code. If it prompts for login, complete the flow, then exit with `/quit`.
 
-**If auth cannot complete inside the container (headless browser issue):**
-
-Option A — mount your host `~/.claude` into the container (tear down and rerun):
+**If auth cannot complete interactively (headless machine):** export an API key into your shell rc before launching officers:
 ```bash
-podman rm -f scout
-podman run -d --name scout --hostname scout \
-  -v ~/projects/scout:/workspace:Z \
-  -v ~/.claude:/home/scout/.claude:Z \
-  -w /workspace \
-  scout:latest sleep infinity
+echo 'export ANTHROPIC_API_KEY=<key>' >> ~/.bashrc && source ~/.bashrc
 ```
 
-Option B — export an API key into the container (if you have one):
-```bash
-podman exec scout bash -c "echo 'export ANTHROPIC_API_KEY=<key>' >> ~/.bashrc"
-```
-
-**Milestone:** `claude -p "say hello"` inside the container returns a reply.
+**Milestone:** `claude -p "say hello"` returns a reply.
 **Checkpoint:** no auth prompt; output is sensible.
 **Connection:** Council officers can be launched.
 
@@ -96,12 +79,12 @@ Each Council officer writes a position paper on their portfolio, without committ
 **Pattern per officer:**
 
 ```bash
-podman exec -it scout bash -c 'cd /workspace && claude -p --dangerously-skip-permissions "<PROMPT>"'
+cd ~/projects/scout && claude -p --dangerously-skip-permissions "<PROMPT>"
 ```
 
 Or, for richer interaction, drop into interactive Claude and paste the prompt:
 ```bash
-podman exec -it scout bash -c "cd /workspace && claude --dangerously-skip-permissions"
+cd ~/projects/scout && claude --dangerously-skip-permissions
 # then paste the prompt at the Claude prompt
 ```
 
@@ -119,16 +102,16 @@ Output per officer: `docs/adr/positions/<callsign>.md`, 400–1200 words.
 You are council-intel, the Intelligence officer in Operation SCOUT's War
 Council. Read these in order before writing anything:
 
-  /workspace/CLAUDE.md
-  /workspace/ops/CAMPAIGN.md
-  /workspace/ops/AGENTS.md
+  ~/projects/scout/CLAUDE.md
+  ~/projects/scout/ops/CAMPAIGN.md
+  ~/projects/scout/ops/AGENTS.md
 
-Update your state file at /workspace/ops/state/council-intel.json:
+Update your state file at ~/projects/scout/ops/state/council-intel.json:
 set status to "engaging", current_task to "Position paper — ecosystem
 recon", last_update to the current ISO-8601 timestamp.
 
 Your job: survey the terrain. Write a position paper to
-/workspace/docs/adr/positions/council-intel.md covering:
+~/projects/scout/docs/adr/positions/council-intel.md covering:
 
   1. What each of these tools does well and where each falls short:
      fzf, skim, zoxide, autojump, broot, yazi, fd, ripgrep, telescope
@@ -160,16 +143,16 @@ notes with one-sentence summary of your paper's key claim.
 ```
 You are council-architect in Operation SCOUT's War Council. Read:
 
-  /workspace/CLAUDE.md
-  /workspace/ops/CAMPAIGN.md
-  /workspace/ops/AGENTS.md
-  /workspace/ops/OPORD.md
+  ~/projects/scout/CLAUDE.md
+  ~/projects/scout/ops/CAMPAIGN.md
+  ~/projects/scout/ops/AGENTS.md
+  ~/projects/scout/ops/OPORD.md
 
-Update /workspace/ops/state/council-architect.json: status "engaging",
+Update ~/projects/scout/ops/state/council-architect.json: status "engaging",
 current_task "Position paper — design options", last_update now.
 
 Your portfolio is system design. Write a position paper to
-/workspace/docs/adr/positions/council-architect.md covering, in order:
+~/projects/scout/docs/adr/positions/council-architect.md covering, in order:
 
   1. Ranking: candidate frecency formulas — zoxide-style
      (frequency * decay), pure recency, hit-count + rank blending, etc.
@@ -185,9 +168,8 @@ Your portfolio is system design. Write a position paper to
 You may reference ~/projects/pathexplorer AS READ-ONLY
 REFERENCE — do not edit it. That project is our predecessor; study
 what it got right and what it got wrong (its search, index, and TUI
-modules). But note that its file paths are HOST paths, visible only
-if /home/tc is mounted into the container. If they are not visible,
-omit that citation rather than fabricate.
+modules). If it is not present on this machine, omit that citation
+rather than fabricate.
 
 No code beyond illustrative pseudo-code. 800-1400 words. Terse.
 
@@ -198,7 +180,7 @@ Close by updating state file — status "standby", notes with key claim.
 **Checkpoint:** It contains a specific ranking formula proposal with rationale.
 **Connection:** Feeds ADR-001 and ADR-004.
 
-> **Note on reference access:** the pathexplorer project is not mounted into the scout container. If the Architect wants to cite it, you can either (a) copy the files you want cited into `docs/reference/pathexplorer/` on the host (commander's discretion), or (b) have the Architect reason from what's described in `ops/CAMPAIGN.md` alone. Default: (b) unless you see value in (a).
+> **Note on reference access:** if the pathexplorer project is not present on this machine and the Architect wants to cite it, you can either (a) copy the files you want cited into `docs/reference/pathexplorer/` (commander's discretion), or (b) have the Architect reason from what's described in `ops/CAMPAIGN.md` alone. Default: (b) unless you see value in (a).
 
 ---
 
@@ -209,18 +191,18 @@ Close by updating state file — status "standby", notes with key claim.
 ```
 You are council-quartermaster in Operation SCOUT's War Council. Read:
 
-  /workspace/CLAUDE.md
-  /workspace/ops/CAMPAIGN.md
-  /workspace/ops/AGENTS.md
+  ~/projects/scout/CLAUDE.md
+  ~/projects/scout/ops/CAMPAIGN.md
+  ~/projects/scout/ops/AGENTS.md
 
-Update /workspace/ops/state/council-quartermaster.json: status
+Update ~/projects/scout/ops/state/council-quartermaster.json: status
 "engaging", current_task "Position paper — supply audit", last_update now.
 
 Your portfolio is dependencies. Apply the six decade-longevity gates
 from ops/CAMPAIGN.md to every crate we might plausibly pull in.
 
 Write a position paper to
-/workspace/docs/adr/positions/council-quartermaster.md containing:
+~/projects/scout/docs/adr/positions/council-quartermaster.md containing:
 
   1. A scored table. Columns: crate, version considered, age, bus
      factor, semver maturity, RustSec history, replaceability,
@@ -233,7 +215,7 @@ Write a position paper to
   4. Risks the table does not capture (abandoned maintainers, license
      concerns, native-dep hell, cross-compile issues).
 
-Note: you may not have internet access inside this container. State
+Note: you may not have internet access on this machine. State
 explicitly where your facts are from (training data vs. external lookup).
 If a claim requires a live crates.io or GitHub check that you cannot
 perform, mark it as "VERIFY" rather than fabricating specifics.
@@ -256,14 +238,14 @@ Close: update state file — status "standby", notes with shortlist summary.
 ```
 You are council-security in Operation SCOUT's War Council. Read:
 
-  /workspace/CLAUDE.md
-  /workspace/ops/CAMPAIGN.md
-  /workspace/ops/AGENTS.md
+  ~/projects/scout/CLAUDE.md
+  ~/projects/scout/ops/CAMPAIGN.md
+  ~/projects/scout/ops/AGENTS.md
 
-Update /workspace/ops/state/council-security.json accordingly.
+Update ~/projects/scout/ops/state/council-security.json accordingly.
 
 Your portfolio is the threat model. Write
-/workspace/docs/adr/positions/council-security.md covering:
+~/projects/scout/docs/adr/positions/council-security.md covering:
 
   1. Attack surface enumeration for a tool that:
      - Reads user-authored TOML config
@@ -300,14 +282,14 @@ Close: state file — "standby", notes with top three threats ranked.
 ```
 You are council-surgeon in Operation SCOUT's War Council. Read:
 
-  /workspace/CLAUDE.md
-  /workspace/ops/CAMPAIGN.md
-  /workspace/ops/AGENTS.md
+  ~/projects/scout/CLAUDE.md
+  ~/projects/scout/ops/CAMPAIGN.md
+  ~/projects/scout/ops/AGENTS.md
 
-Update /workspace/ops/state/council-surgeon.json.
+Update ~/projects/scout/ops/state/council-surgeon.json.
 
 Your portfolio is reliability, triage, crash recovery. Write
-/workspace/docs/adr/positions/council-surgeon.md covering:
+~/projects/scout/docs/adr/positions/council-surgeon.md covering:
 
   1. Failure modes across the lifecycle: what can fail during
      indexing, searching, action execution, configuration loading.
@@ -359,15 +341,15 @@ Three officers author ADRs. Each reads all five position papers before drafting.
 
 ```
 You are council-architect. Phase 1 Wave 2. Read ALL files in
-/workspace/docs/adr/positions/ (all five papers). Then read the ADR
-template at /workspace/docs/adr/.template.md.
+~/projects/scout/docs/adr/positions/ (all five papers). Then read the ADR
+template at ~/projects/scout/docs/adr/.template.md.
 
-Also read /workspace/ops/HANDOFF.md — the commander's Wave 2 directives
+Also read ~/projects/scout/ops/HANDOFF.md — the commander's Wave 2 directives
 there are normative and constrain the decision, not optional suggestions.
 If a directive cannot be honoured, argue against it in the ADR body;
 do not silently ignore it.
 
-Draft ADR-001 at /workspace/docs/adr/001-ranking-doctrine.md.
+Draft ADR-001 at ~/projects/scout/docs/adr/001-ranking-doctrine.md.
 
 The decision must specify:
   - The exact frecency formula (numerator, denominator, decay curve).
@@ -398,15 +380,15 @@ Terse, decisive, commander-frame. No filler.
 
 ```
 You are council-quartermaster. Phase 1 Wave 2. Read all position papers
-under /workspace/docs/adr/positions/ and the template at
-/workspace/docs/adr/.template.md.
+under ~/projects/scout/docs/adr/positions/ and the template at
+~/projects/scout/docs/adr/.template.md.
 
-Also read /workspace/ops/HANDOFF.md — the commander's Wave 2 directives
+Also read ~/projects/scout/ops/HANDOFF.md — the commander's Wave 2 directives
 there are normative and constrain the decision, not optional suggestions.
 If a directive cannot be honoured, argue against it in the ADR body;
 do not silently ignore it.
 
-Draft ADR-002 at /workspace/docs/adr/002-dependency-roster.md.
+Draft ADR-002 at ~/projects/scout/docs/adr/002-dependency-roster.md.
 
 The decision must list:
   - The exact set of crates SCOUT will depend on at v1.
@@ -433,12 +415,12 @@ file, exit. The commit is the commander's act.
 You are council-security. Phase 1 Wave 2. Read all position papers and
 the ADR template.
 
-Also read /workspace/ops/HANDOFF.md — the commander's Wave 2 directives
+Also read ~/projects/scout/ops/HANDOFF.md — the commander's Wave 2 directives
 there are normative and constrain the decision, not optional suggestions.
 If a directive cannot be honoured, argue against it in the ADR body;
 do not silently ignore it.
 
-Draft ADR-003 at /workspace/docs/adr/003-threat-model.md.
+Draft ADR-003 at ~/projects/scout/docs/adr/003-threat-model.md.
 
 The decision must specify:
   - Trust boundaries: what is trusted, what is sanitised, what is refused.
@@ -467,14 +449,14 @@ After ADR-001 is drafted, council-architect drafts ADR-004 in a second session.
 ```
 You are council-architect, second sitting. Read all position papers,
 your own ADR-001 draft, and ADR-003 (if drafted) at
-/workspace/docs/adr/003-threat-model.md.
+~/projects/scout/docs/adr/003-threat-model.md.
 
-Also read /workspace/ops/HANDOFF.md — the commander's Wave 2 directives
+Also read ~/projects/scout/ops/HANDOFF.md — the commander's Wave 2 directives
 there are normative and constrain the decision, not optional suggestions.
 If a directive cannot be honoured, argue against it in the ADR body;
 do not silently ignore it.
 
-Draft ADR-004 at /workspace/docs/adr/004-action-config-schema.md.
+Draft ADR-004 at ~/projects/scout/docs/adr/004-action-config-schema.md.
 
 The decision must specify:
   - TOML shape: sections, key names, types.
@@ -531,13 +513,13 @@ Order rationale: Intel sets the ecosystem frame → Surgeon lays reliability gro
 ### Command shape
 
 ```bash
-podman exec -it scout bash -c 'cd /workspace && claude -p --dangerously-skip-permissions "<PROMPT>"'
+cd ~/projects/scout && claude -p --dangerously-skip-permissions "<PROMPT>"
 ```
 
 Or drop into interactive Claude and paste the prompt:
 
 ```bash
-podman exec -it scout bash -c "cd /workspace && claude --dangerously-skip-permissions"
+cd ~/projects/scout && claude --dangerously-skip-permissions
 ```
 
 ### 3.1 Session 1 — council-intel (4 blocks)
@@ -549,20 +531,20 @@ You are council-intel. Phase 1 Wave 3 — peer review, batched.
 
 Read, in this order:
 
-  /workspace/CLAUDE.md
-  /workspace/ops/CAMPAIGN.md
-  /workspace/ops/HANDOFF.md
-  /workspace/docs/adr/positions/council-intel.md
-  /workspace/docs/adr/positions/council-architect.md
-  /workspace/docs/adr/positions/council-quartermaster.md
-  /workspace/docs/adr/positions/council-security.md
-  /workspace/docs/adr/positions/council-surgeon.md
-  /workspace/docs/adr/001-ranking-doctrine.md
-  /workspace/docs/adr/002-dependency-roster.md
-  /workspace/docs/adr/003-threat-model.md
-  /workspace/docs/adr/004-action-config-schema.md
+  ~/projects/scout/CLAUDE.md
+  ~/projects/scout/ops/CAMPAIGN.md
+  ~/projects/scout/ops/HANDOFF.md
+  ~/projects/scout/docs/adr/positions/council-intel.md
+  ~/projects/scout/docs/adr/positions/council-architect.md
+  ~/projects/scout/docs/adr/positions/council-quartermaster.md
+  ~/projects/scout/docs/adr/positions/council-security.md
+  ~/projects/scout/docs/adr/positions/council-surgeon.md
+  ~/projects/scout/docs/adr/001-ranking-doctrine.md
+  ~/projects/scout/docs/adr/002-dependency-roster.md
+  ~/projects/scout/docs/adr/003-threat-model.md
+  ~/projects/scout/docs/adr/004-action-config-schema.md
 
-Update /workspace/ops/state/council-intel.json: status "engaging",
+Update ~/projects/scout/ops/state/council-intel.json: status "engaging",
 current_task "Wave 3 batched review", last_update now.
 
 Your eligible ADRs for this session: ADR-001, ADR-002, ADR-003, ADR-004.
@@ -607,20 +589,20 @@ You are council-surgeon. Phase 1 Wave 3 — peer review, batched.
 
 Read, in this order:
 
-  /workspace/CLAUDE.md
-  /workspace/ops/CAMPAIGN.md
-  /workspace/ops/HANDOFF.md
-  /workspace/docs/adr/positions/council-surgeon.md
-  /workspace/docs/adr/positions/council-architect.md
-  /workspace/docs/adr/positions/council-quartermaster.md
-  /workspace/docs/adr/positions/council-security.md
-  /workspace/docs/adr/positions/council-intel.md
-  /workspace/docs/adr/001-ranking-doctrine.md
-  /workspace/docs/adr/002-dependency-roster.md
-  /workspace/docs/adr/003-threat-model.md
-  /workspace/docs/adr/004-action-config-schema.md
+  ~/projects/scout/CLAUDE.md
+  ~/projects/scout/ops/CAMPAIGN.md
+  ~/projects/scout/ops/HANDOFF.md
+  ~/projects/scout/docs/adr/positions/council-surgeon.md
+  ~/projects/scout/docs/adr/positions/council-architect.md
+  ~/projects/scout/docs/adr/positions/council-quartermaster.md
+  ~/projects/scout/docs/adr/positions/council-security.md
+  ~/projects/scout/docs/adr/positions/council-intel.md
+  ~/projects/scout/docs/adr/001-ranking-doctrine.md
+  ~/projects/scout/docs/adr/002-dependency-roster.md
+  ~/projects/scout/docs/adr/003-threat-model.md
+  ~/projects/scout/docs/adr/004-action-config-schema.md
 
-Update /workspace/ops/state/council-surgeon.json: status "engaging",
+Update ~/projects/scout/ops/state/council-surgeon.json: status "engaging",
 current_task "Wave 3 batched review", last_update now.
 
 Your eligible ADRs for this session: ADR-001, ADR-002, ADR-003, ADR-004.
@@ -665,20 +647,20 @@ You are council-quartermaster. Phase 1 Wave 3 — peer review, batched.
 
 Read, in this order:
 
-  /workspace/CLAUDE.md
-  /workspace/ops/CAMPAIGN.md
-  /workspace/ops/HANDOFF.md
-  /workspace/docs/adr/positions/council-quartermaster.md
-  /workspace/docs/adr/positions/council-architect.md
-  /workspace/docs/adr/positions/council-security.md
-  /workspace/docs/adr/positions/council-surgeon.md
-  /workspace/docs/adr/positions/council-intel.md
-  /workspace/docs/adr/001-ranking-doctrine.md
-  /workspace/docs/adr/002-dependency-roster.md
-  /workspace/docs/adr/003-threat-model.md
-  /workspace/docs/adr/004-action-config-schema.md
+  ~/projects/scout/CLAUDE.md
+  ~/projects/scout/ops/CAMPAIGN.md
+  ~/projects/scout/ops/HANDOFF.md
+  ~/projects/scout/docs/adr/positions/council-quartermaster.md
+  ~/projects/scout/docs/adr/positions/council-architect.md
+  ~/projects/scout/docs/adr/positions/council-security.md
+  ~/projects/scout/docs/adr/positions/council-surgeon.md
+  ~/projects/scout/docs/adr/positions/council-intel.md
+  ~/projects/scout/docs/adr/001-ranking-doctrine.md
+  ~/projects/scout/docs/adr/002-dependency-roster.md
+  ~/projects/scout/docs/adr/003-threat-model.md
+  ~/projects/scout/docs/adr/004-action-config-schema.md
 
-Update /workspace/ops/state/council-quartermaster.json: status
+Update ~/projects/scout/ops/state/council-quartermaster.json: status
 "engaging", current_task "Wave 3 batched review", last_update now.
 
 Your eligible ADRs for this session: ADR-001, ADR-003, ADR-004
@@ -724,20 +706,20 @@ You are council-security. Phase 1 Wave 3 — peer review, batched.
 
 Read, in this order:
 
-  /workspace/CLAUDE.md
-  /workspace/ops/CAMPAIGN.md
-  /workspace/ops/HANDOFF.md
-  /workspace/docs/adr/positions/council-security.md
-  /workspace/docs/adr/positions/council-architect.md
-  /workspace/docs/adr/positions/council-quartermaster.md
-  /workspace/docs/adr/positions/council-surgeon.md
-  /workspace/docs/adr/positions/council-intel.md
-  /workspace/docs/adr/001-ranking-doctrine.md
-  /workspace/docs/adr/002-dependency-roster.md
-  /workspace/docs/adr/003-threat-model.md
-  /workspace/docs/adr/004-action-config-schema.md
+  ~/projects/scout/CLAUDE.md
+  ~/projects/scout/ops/CAMPAIGN.md
+  ~/projects/scout/ops/HANDOFF.md
+  ~/projects/scout/docs/adr/positions/council-security.md
+  ~/projects/scout/docs/adr/positions/council-architect.md
+  ~/projects/scout/docs/adr/positions/council-quartermaster.md
+  ~/projects/scout/docs/adr/positions/council-surgeon.md
+  ~/projects/scout/docs/adr/positions/council-intel.md
+  ~/projects/scout/docs/adr/001-ranking-doctrine.md
+  ~/projects/scout/docs/adr/002-dependency-roster.md
+  ~/projects/scout/docs/adr/003-threat-model.md
+  ~/projects/scout/docs/adr/004-action-config-schema.md
 
-Update /workspace/ops/state/council-security.json: status "engaging",
+Update ~/projects/scout/ops/state/council-security.json: status "engaging",
 current_task "Wave 3 batched review", last_update now.
 
 Your eligible ADRs for this session: ADR-001, ADR-002, ADR-004
@@ -783,20 +765,20 @@ You are council-architect. Phase 1 Wave 3 — peer review, batched.
 
 Read, in this order:
 
-  /workspace/CLAUDE.md
-  /workspace/ops/CAMPAIGN.md
-  /workspace/ops/HANDOFF.md
-  /workspace/docs/adr/positions/council-architect.md
-  /workspace/docs/adr/positions/council-quartermaster.md
-  /workspace/docs/adr/positions/council-security.md
-  /workspace/docs/adr/positions/council-surgeon.md
-  /workspace/docs/adr/positions/council-intel.md
-  /workspace/docs/adr/001-ranking-doctrine.md
-  /workspace/docs/adr/002-dependency-roster.md
-  /workspace/docs/adr/003-threat-model.md
-  /workspace/docs/adr/004-action-config-schema.md
+  ~/projects/scout/CLAUDE.md
+  ~/projects/scout/ops/CAMPAIGN.md
+  ~/projects/scout/ops/HANDOFF.md
+  ~/projects/scout/docs/adr/positions/council-architect.md
+  ~/projects/scout/docs/adr/positions/council-quartermaster.md
+  ~/projects/scout/docs/adr/positions/council-security.md
+  ~/projects/scout/docs/adr/positions/council-surgeon.md
+  ~/projects/scout/docs/adr/positions/council-intel.md
+  ~/projects/scout/docs/adr/001-ranking-doctrine.md
+  ~/projects/scout/docs/adr/002-dependency-roster.md
+  ~/projects/scout/docs/adr/003-threat-model.md
+  ~/projects/scout/docs/adr/004-action-config-schema.md
 
-Update /workspace/ops/state/council-architect.json: status "engaging",
+Update ~/projects/scout/ops/state/council-architect.json: status "engaging",
 current_task "Wave 3 batched review", last_update now.
 
 Your eligible ADRs for this session: ADR-002, ADR-003
@@ -852,7 +834,7 @@ Any malformed block, wrong path, or mystery commit → kill the session, fix the
 If any reviewer marked a blocker, the author opens a new session:
 
 ```
-You are <author callsign>. Read your ADR at /workspace/docs/adr/<file>.md
+You are <author callsign>. Read your ADR at ~/projects/scout/docs/adr/<file>.md
 including the `## Reviews` section. Address every blocker. Either:
   - Revise the decision/rationale/consequences sections and note the
     revision in `## Revision history`, OR
@@ -908,7 +890,7 @@ When all green, return to the Chief of Staff with **"Phase 1 green"**. I will:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `claude` inside container asks for login with no way to complete | Headless browser flow | Use API-key env var or mount `~/.claude` from host (see Preflight §1). |
+| `claude` asks for login with no way to complete | Headless browser flow | Use the `ANTHROPIC_API_KEY` env var (see Preflight §1). |
 | Officer writes its paper to the wrong path | Agent misread prompt | Delete the stray file, tighten the prompt, re-run. |
 | Position paper cites nonexistent crates or fabricated stats | Agent hallucinated on offline gaps | Note in HANDOFF; Wave 3 reviewer will flag it; revise in author response cycle. |
 | Two ADRs mutually contradict | Insufficient cross-reading | Re-run the later author with "read both ADRs; resolve the contradiction or surface it to commander." |

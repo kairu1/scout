@@ -28,7 +28,7 @@ Each owns one sector and one branch. Commits cross neither.
 | 2nd Rifles | `rifles-2` | Index/DB | `sector/index` | `src/index/**`, `migrations/**` |
 | 3rd Rifles | `rifles-3` | TUI | `sector/tui` | `src/ui/**` |
 | Engineers | `engineers` | Actions/Config | `sector/actions` | `src/actions/**`, `src/config/**` |
-| Pioneers | `pioneers` | Packaging/Ops | `sector/ops` | `Containerfile`, `install.sh`, `.github/**`, release scripts, `ops/playbook.md`, phase runbooks |
+| Pioneers | `pioneers` | Packaging/Ops | `sector/ops` | `install.sh`, `.github/**`, release scripts, `ops/playbook.md`, phase runbooks |
 
 ---
 
@@ -51,7 +51,7 @@ Each owns one sector and one branch. Commits cross neither.
 
 | Role | Location | Function |
 |---|---|---|
-| Chief of Staff | Host (Mac, outside containers) | Orchestration, OPORD authorship, HANDOFF routing, escalation to commander |
+| Chief of Staff | Host (dev machine) | Orchestration, OPORD authorship, HANDOFF routing, escalation to commander |
 | Commander | Host (you) | Intent, approvals, promotions, standing interrupt |
 | Adjutant | Rotating line officer | README, developer docs (assigned per phase in OPORD) |
 | Medic | All officers | Tests. CI belongs to Pioneers. |
@@ -83,7 +83,7 @@ The host mounts one project directory to `/workspace`. One working tree holds on
 
 ### The map — exact paths, no alternatives
 
-Every sector branch has exactly one worktree path. Officers do not invent alternatives. All paths are relative to the repo root (`/workspace/` inside the container).
+Every sector branch has exactly one worktree path. Officers do not invent alternatives. All paths are relative to the repo root (`~/projects/scout/`).
 
 | Officer | Sector branch | Worktree path |
 |---|---|---|

@@ -24,25 +24,18 @@ Single line officer (`rifles-2`) engages. Four sequential engagements. Two comma
 
 These steps are commander (and Chief of Staff) acts. Execute in order; none are reversible-by-accident but each has a clean restart path.
 
-### 0. Confirm container and `.gitignore`
-
-On the Mac:
+### 0. Confirm the command post and `.gitignore`
 
 ```bash
-podman ps
-# Expected: scout container Up
+cd ~/projects/scout
+git status
+# Expected: on main, clean working tree
 
 grep -q '^/worktrees/' ~/projects/scout/.gitignore && echo "gitignore OK" || echo "FIX"
 # Expected: gitignore OK
 ```
 
-If the container was stopped since Phase 1:
-
-```bash
-podman start scout
-```
-
-**Milestone:** container live, `.gitignore` prepared for worktrees.
+**Milestone:** command post ready, `.gitignore` prepared for worktrees.
 **Checkpoint:** both commands return expected output.
 **Connection:** the battlefield is set; worktree creation will not accidentally pollute the main working tree.
 
@@ -101,13 +94,13 @@ Edit `ops/state/rifles-2.json` to:
 **Checkpoint:** `cat ops/state/rifles-2.json | jq .status` returns `"activated"`.
 **Connection:** the silence-is-going-dark rule now applies to 2nd Rifles; any engagement launch updates `status` to `engaging`.
 
-### 3. Confirm Claude Code auth inside the container
+### 3. Confirm Claude Code auth
 
 ```bash
-podman exec -it scout bash -c 'cd /workspace/worktrees/sector-index && claude -p "say hello"'
+cd ~/projects/scout/worktrees/sector-index && claude -p "say hello"
 ```
 
-Expected: a sensible reply. If auth prompts, complete it. If the container cannot complete the flow, fall back to the `~/.claude` host-mount or `ANTHROPIC_API_KEY` patterns documented in `ops/phase-1-council.md` §Preflight.
+Expected: a sensible reply. If auth prompts, complete it. If auth cannot complete, fall back to the `ANTHROPIC_API_KEY` pattern documented in `ops/phase-1-council.md` §Preflight.
 
 **Milestone:** Claude Code responds from inside the worktree.
 **Checkpoint:** no auth prompt; a real reply prints.
@@ -146,13 +139,13 @@ If any engagement prompt below asks for the wrong thing, edit it before launchin
 **Pattern:**
 
 ```bash
-podman exec -it scout bash -c 'cd /workspace/worktrees/sector-index && claude -p --dangerously-skip-permissions "<PROMPT>"'
+cd ~/projects/scout/worktrees/sector-index && claude -p --dangerously-skip-permissions "<PROMPT>"
 ```
 
 Or drop into interactive Claude:
 
 ```bash
-podman exec -it scout bash -c 'cd /workspace/worktrees/sector-index && claude --dangerously-skip-permissions'
+cd ~/projects/scout/worktrees/sector-index && claude --dangerously-skip-permissions
 ```
 
 **Prompt:**
@@ -162,14 +155,14 @@ You are rifles-2. Phase 2 Engagement 1 — Schema + forward migration.
 
 Read, in this order:
 
-  /workspace/worktrees/sector-index/CLAUDE.md
-  /workspace/worktrees/sector-index/ops/OPORD.md
-  /workspace/worktrees/sector-index/docs/adr/001-ranking-doctrine.md
-  /workspace/worktrees/sector-index/docs/adr/002-dependency-roster.md
-  /workspace/worktrees/sector-index/docs/adr/003-threat-model.md
-  /workspace/worktrees/sector-index/docs/adr/positions/council-surgeon.md
+  ~/projects/scout/worktrees/sector-index/CLAUDE.md
+  ~/projects/scout/worktrees/sector-index/ops/OPORD.md
+  ~/projects/scout/worktrees/sector-index/docs/adr/001-ranking-doctrine.md
+  ~/projects/scout/worktrees/sector-index/docs/adr/002-dependency-roster.md
+  ~/projects/scout/worktrees/sector-index/docs/adr/003-threat-model.md
+  ~/projects/scout/worktrees/sector-index/docs/adr/positions/council-surgeon.md
 
-Update /workspace/ops/state/rifles-2.json: status "engaging",
+Update ~/projects/scout/ops/state/rifles-2.json: status "engaging",
 current_task "Engagement 1 — Schema + migration", last_update now.
 
 Your engagement:
@@ -262,10 +255,10 @@ Terse, decisive, commander-frame. No filler.
 ```
 You are rifles-2. Phase 2 Engagement 2 — WAL + PRAGMA.
 
-Confirm you are in /workspace/worktrees/sector-index and on branch
+Confirm you are in ~/projects/scout/worktrees/sector-index and on branch
 sector/index. If not, halt and escalate via HANDOFF @cos.
 
-Re-read ADR-001 §Index-writer pacing. Update /workspace/ops/state/
+Re-read ADR-001 §Index-writer pacing. Update ~/projects/scout/ops/state/
 rifles-2.json: status "engaging", current_task "Engagement 2 — WAL +
 PRAGMA", last_update now.
 
@@ -359,11 +352,11 @@ You are rifles-2. Phase 2 Engagement 3 — Walker + batched insert.
 
 Confirm worktree + branch as before. Re-read:
 
-  /workspace/worktrees/sector-index/docs/adr/001-ranking-doctrine.md
-  /workspace/worktrees/sector-index/docs/adr/003-threat-model.md (§1 paths,
+  ~/projects/scout/worktrees/sector-index/docs/adr/001-ranking-doctrine.md
+  ~/projects/scout/worktrees/sector-index/docs/adr/003-threat-model.md (§1 paths,
     §3 config trust is NOT relevant here — we are indexing paths, not
     loading configs)
-  /workspace/worktrees/sector-index/docs/adr/positions/council-surgeon.md
+  ~/projects/scout/worktrees/sector-index/docs/adr/positions/council-surgeon.md
     §1a, §1b, §2 (walker failure modes, batched transactions, partial
     state)
 
@@ -462,10 +455,10 @@ You are rifles-2. Phase 2 Engagement 4 — Visit path + recovery.
 
 Confirm worktree + branch. Re-read:
 
-  /workspace/worktrees/sector-index/docs/adr/001-ranking-doctrine.md
+  ~/projects/scout/worktrees/sector-index/docs/adr/001-ranking-doctrine.md
     §Visit credit, §Index-writer pacing
-  /workspace/worktrees/sector-index/docs/adr/003-threat-model.md §4
-  /workspace/worktrees/sector-index/docs/adr/positions/council-surgeon.md
+  ~/projects/scout/worktrees/sector-index/docs/adr/003-threat-model.md §4
+  ~/projects/scout/worktrees/sector-index/docs/adr/positions/council-surgeon.md
     §3, §4
 
 Update state: status "engaging", current_task "Engagement 4 — Visit
@@ -627,7 +620,7 @@ All of these must be green before declaring Phase 2 closed. They mirror `ops/OPO
 - [ ] `migrations/0001_initial.sql` and `migrations/0002_run_state.sql` exist; match ADR-001 §Consequences schema.
 - [ ] `sqlite3 <freshDB> .schema` shows every column ADR-001 names plus the `UNIQUE` index on path and the `run_state` metadata.
 - [ ] `cargo test -p scout` passes every index test.
-- [ ] 100 k-path synthetic walk completes in < 30 s with RSS < 100 MB on the scout container.
+- [ ] 100 k-path synthetic walk completes in < 30 s with RSS < 100 MB on the dev machine.
 - [ ] `record_visit` median ≤ 5 ms over 1 000 repeats on a 100 k-row fixture.
 - [ ] Missing sentinel → `integrity_check` runs; corrupt fixture → rename + rebuild.
 - [ ] SIGINT mid-walk rolls back the in-flight batch; prior generation intact.

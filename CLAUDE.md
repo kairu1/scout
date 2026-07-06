@@ -44,7 +44,7 @@ Every decision you make must serve this. Work that drifts from it is wrong work 
 - Adding dependencies to `Cargo.toml`.
 - Deleting or rewriting another officer's files or HANDOFF entries.
 - Bypassing hooks (`--no-verify`) or force-pushing.
-- Running destructive podman/git commands (`rm -rf`, `git reset --hard`, `podman volume prune`).
+- Running destructive git or filesystem commands (`rm -rf`, `git reset --hard`).
 - Leaving your assigned worktree, or running any of `git checkout <branch>`, `git switch`, `git worktree add|remove|move`. These belong to Chief of Staff alone. See `ops/AGENTS.md` § Worktree Discipline.
 - Council officers do not `git commit`. Writing the ADR or position paper and updating your state file is the engagement; the commit is the commander's act. Line officers commit only inside their worktree to their sector branch, per §2.
 

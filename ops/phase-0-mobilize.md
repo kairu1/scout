@@ -1,41 +1,30 @@
 # Phase 0 Runbook — Mobilization
 
-> **Milestone:** Command post live. Container image built. Container running with host volume mounted. Main branch initialised. Sector branches cut. Smoke HANDOFF entry round-trips.
+> **Milestone:** Command post live. Main branch initialised. Sector branches cut. Smoke HANDOFF entry round-trips.
 >
 > **Checkpoint:** Every item in § Verification below is green.
 >
-> **Connection:** Phase 1 unlocks — War Council convenes inside the container with the five deliberators.
+> **Connection:** Phase 1 unlocks — War Council convenes with the five deliberators.
 
 ---
 
 ## 0. Prerequisites
 
-Run these checks on your Mac before touching anything else.
+The dev machine has the toolchain scout needs. Confirm before touching anything else.
 
 ```bash
-# You have podman installed
-podman --version
-# Expected: podman version 4.x or newer
-
-# The podman machine is running
-podman machine list
-# Expected: at least one machine with CURRENT VM marked * and STATE: running
+rustc --version    # Expected: rustc 1.x
+cargo --version    # Expected: cargo 1.x
+claude --version   # Expected: Claude Code CLI version string
+tmux -V            # Expected: tmux 3.x
+git --version      # Expected: git 2.28 or newer (for `git init -b`)
 ```
 
-If the machine is stopped:
-```bash
-podman machine start
-```
+Any missing tool → install it before proceeding.
 
-If you don't have a machine yet (first-time install):
-```bash
-podman machine init --cpus 4 --memory 8192 --disk-size 60
-podman machine start
-```
-
-**Milestone:** podman machine running.
-**Checkpoint:** `podman info` prints without error.
-**Connection:** The VM exists; we can build images.
+**Milestone:** Toolchain present.
+**Checkpoint:** Every version command prints without error.
+**Connection:** The workbench exists; we can build and run.
 
 ---
 
@@ -46,14 +35,14 @@ cd ~/projects/scout
 pwd
 # Expected: ~/projects/scout
 ls
-# Expected: Cargo.toml  CLAUDE.md  Containerfile  README.md  docs  ops  src  tests
+# Expected: Cargo.toml  CLAUDE.md  README.md  docs  ops  src  tests
 ```
 
 If the listing is wrong, **stand down and escalate** — the scaffold was incomplete.
 
 ---
 
-## 2. Initialise the host-side git repository
+## 2. Initialise the git repository
 
 The scaffold files exist on disk but are not yet under version control. Bring them in, then cut sector branches.
 
@@ -71,9 +60,7 @@ git commit -m "Phase 0: scaffold SCOUT command post
 
 Operation SCOUT scaffolded per commander's approved campaign plan.
 No implementation code; no dependencies; agents not yet launched.
-Reference terrain (pathexplorer) left untouched.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+Reference terrain (pathexplorer) left untouched."
 ```
 
 **Milestone:** Scaffold under version control.
@@ -104,95 +91,25 @@ git branch
 
 ---
 
-## 3. Build the container image
-
-```bash
-cd ~/projects/scout
-podman build -t scout:latest -f Containerfile .
-```
-
-This takes ~3–5 minutes on first run (apt layers, Rust install, Claude Code install). Subsequent builds are cached.
-
-**Milestone:** Image built.
-**Checkpoint:**
-```bash
-podman images | grep scout
-# Expected: localhost/scout   latest   <hash>   <time>   ~1-2 GB
-```
-
-**Troubleshooting:** if the Claude Code install step fails, it's almost always a network hiccup inside the VM. Re-run the build; layer cache will skip completed steps.
-
----
-
-## 4. Start the container
-
-One long-lived container. We'll attach tmux later for multi-pane work.
-
-```bash
-podman run -d \
-  --name scout \
-  --hostname scout \
-  -v ~/projects/scout:/workspace:Z \
-  -w /workspace \
-  scout:latest \
-  sleep infinity
-```
-
-Flags explained:
-- `-d` — detached; container runs in background.
-- `--name scout` — stable name for future `podman exec` calls.
-- `-v <host>:/workspace:Z` — mount the project read-write; `:Z` relabels for SELinux compatibility.
-- `-w /workspace` — start in the mounted dir.
-- `sleep infinity` — keeps the container alive; we'll enter with `podman exec`.
-
-**Milestone:** Container running.
-**Checkpoint:**
-```bash
-podman ps
-# Expected: one line showing scout container, STATUS: Up
-```
-
----
-
-## 5. Enter the container and smoke-test the toolchain
-
-```bash
-podman exec -it scout bash
-```
-
-Inside the container (prompt should read `scout@scout:/workspace$`):
-
-```bash
-whoami      # Expected: scout
-pwd         # Expected: /workspace
-ls          # Expected: the project files, mounted from host
-rustc --version   # Expected: rustc 1.x
-cargo --version   # Expected: cargo 1.x
-claude --version  # Expected: claude code CLI version string
-tmux -V     # Expected: tmux 3.x
-sqlite3 --version # Expected: sqlite version
-```
-
-Any missing tool → **exit, destroy the container (`podman rm -f scout`), investigate the Containerfile**.
-
-### Compile smoke test
+## 3. Smoke-test the toolchain
 
 With zero dependencies declared, the placeholder main should build cleanly.
 
 ```bash
+cd ~/projects/scout
 cargo check
 # Expected: Compiling scout v0.0.0 ... Finished
 ```
 
-**Milestone:** Toolchain verified inside the sandbox.
-**Checkpoint:** All version commands produced output; `cargo check` succeeded.
-**Connection:** The container is a fit battlefield for deployed agents.
+**Milestone:** Toolchain verified against the scaffold.
+**Checkpoint:** `cargo check` succeeded.
+**Connection:** The workbench is fit for deployed agents.
 
 ---
 
-## 6. tmux smoke test
+## 4. tmux smoke test
 
-Still inside the container:
+tmux gives each officer its own pane during multi-agent phases.
 
 ```bash
 tmux new-session -d -s scout -n cos
@@ -204,8 +121,7 @@ Attach briefly to confirm it renders:
 
 ```bash
 tmux attach -t scout
-# You're now in tmux. Prefix is Ctrl-b by default.
-# Detach with: Ctrl-b then d
+# Prefix is Ctrl-b by default. Detach with: Ctrl-b then d
 ```
 
 Leave the session running — Phase 1 will reuse it.
@@ -216,48 +132,31 @@ Leave the session running — Phase 1 will reuse it.
 
 ---
 
-## 7. Smoke HANDOFF round-trip
+## 5. Smoke HANDOFF round-trip
 
-Exit the container shell (back to Mac):
-```bash
-exit
-```
-
-On the Mac, write an acknowledgement to HANDOFF.md — this verifies the volume mount is bidirectional. Use your editor of choice; a minimal append-only entry is fine.
-
-Append this entry at the bottom of `ops/HANDOFF.md` on the host:
+Append an acknowledgement to `ops/HANDOFF.md` — this exercises the primary command channel. Use your editor of choice; a minimal append-only entry is fine.
 
 ```
 ## 2026-MM-DD HH:MM — FROM commander TO chief-of-staff — Phase 0 checkpoint green
 
-Container built and running. Branches cut. Toolchain verified. Ready for Phase 1 OPORD.
+Scaffold committed. Branches cut. Toolchain verified. Ready for Phase 1 OPORD.
 ```
 
-Now verify the container sees the same content:
-```bash
-podman exec scout tail -n 6 /workspace/ops/HANDOFF.md
-```
-You should see your entry. Bidirectional mount confirmed.
-
-**Milestone:** Host ↔ container file sync verified via HANDOFF round-trip.
-**Checkpoint:** The `tail` output includes your commander entry.
+**Milestone:** HANDOFF channel exercised.
+**Checkpoint:** The entry appears at the bottom of `ops/HANDOFF.md`.
 **Connection:** The primary command channel is operational.
 
 ---
 
-## 8. Commit the Phase 0 close
-
-On the Mac:
+## 6. Commit the Phase 0 close
 
 ```bash
 cd ~/projects/scout
 git add ops/HANDOFF.md
 git commit -m "Phase 0: command post verified
 
-All checkpoints green. Container up, branches cut, toolchain verified,
-HANDOFF round-trip confirmed. Standing by for Phase 1 OPORD.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+All checkpoints green. Branches cut, toolchain verified,
+HANDOFF round-trip confirmed. Standing by for Phase 1 OPORD."
 ```
 
 ---
@@ -266,13 +165,11 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 All of these must be green before declaring Phase 0 closed:
 
-- [ ] `podman images | grep scout` → `localhost/scout latest ...`
-- [ ] `podman ps` → `scout` container `Up`
-- [ ] `git -C ~/projects/scout branch` shows `main` plus five `sector/*` branches
-- [ ] `podman exec scout cargo check` succeeds
-- [ ] `podman exec scout tmux list-sessions` shows `scout` session
-- [ ] Your HANDOFF entry appears in `podman exec scout cat /workspace/ops/HANDOFF.md`
-- [ ] `ops/state/*.json` all still show `"status": "unmobilized"` (unchanged — agents not yet launched)
+- [ ] `git -C ~/projects/scout branch` shows `main` plus five `sector/*` branches.
+- [ ] `cargo check` succeeds against the scaffold.
+- [ ] `tmux list-sessions` shows the `scout` session.
+- [ ] Your HANDOFF entry appears in `ops/HANDOFF.md`.
+- [ ] `ops/state/*.json` all still show `"status": "unmobilized"` (unchanged — agents not yet launched).
 
 When every box is checked, return to the Chief of Staff (resume our conversation) with **"Phase 0 green"**. I will:
 1. Author `ops/phase-1-council.md` — the Phase 1 runbook.
@@ -285,18 +182,13 @@ When every box is checked, return to the Chief of Staff (resume our conversation
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `podman build` stalls on apt | Network flakiness in the VM | Re-run; layer cache handles it |
-| `podman run` errors `container exists` | Leftover from prior attempt | `podman rm -f scout` and re-run |
-| `useradd: UID 1000 is not unique` during build | Ubuntu 24.04 ships a default `ubuntu` user at UID 1000 | Fixed in Containerfile — `userdel -r ubuntu` runs before `useradd`. Re-run `podman build`; previous layers are cached up to the apt step. |
-| `sqlite3: command not found` in smoke test | `libsqlite3-dev` alone doesn't provide the `sqlite3` CLI | Fixed in Containerfile — `sqlite3` added to apt install list. Rebuild with `podman build -t scout:latest .` — apt layer re-runs (invalidated), later layers re-run too. ~2–3 minutes. |
-| Files inside container appear owned by unexpected UID | UID mismatch host↔VM | Ensure `-v ... :Z` is present; on rootless podman the UID mapping handles this automatically |
 | `git init -b main` flag unknown | Old git (<2.28) | `git init && git branch -m master main` |
-| Claude Code install fails in build | Upstream network hiccup | Re-run the build; if persistent, pin a version in the Containerfile and escalate |
+| `cargo check` fails to find a toolchain | Rust not on PATH | Ensure `~/.cargo/bin` is on PATH (rustup adds this) |
+| `claude --version` not found | Claude Code not installed | Install per the Claude Code docs before Phase 1 |
 
 ## When to call the commander
 
 If any of the following happen during Phase 0, stop and escalate:
-- You cannot make `podman build` succeed after two attempts.
+- You cannot make `cargo check` succeed after two attempts.
 - You find edits in `pathexplorer` (that project must stay untouched).
 - Any command prompts you for a password or MFA you weren't expecting.
-- The container image size exceeds ~3 GB (investigate bloat before moving on).
