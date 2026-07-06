@@ -32,7 +32,7 @@ On the Mac:
 podman ps
 # Expected: scout container Up
 
-grep -q '^/worktrees/' ~/@kairu/@projects/@shell/scout/.gitignore && echo "gitignore OK" || echo "FIX"
+grep -q '^/worktrees/' ~/projects/scout/.gitignore && echo "gitignore OK" || echo "FIX"
 # Expected: gitignore OK
 ```
 
@@ -51,7 +51,7 @@ podman start scout
 On the Mac, from the repo root:
 
 ```bash
-cd ~/@kairu/@projects/@shell/scout
+cd ~/projects/scout
 git worktree add worktrees/sector-index sector/index
 ```
 
@@ -60,8 +60,8 @@ Confirm:
 ```bash
 git worktree list
 # Expected:
-#   /Users/tc/@kairu/@projects/@shell/scout                    <hash> [main]
-#   /Users/tc/@kairu/@projects/@shell/scout/worktrees/sector-index <hash> [sector/index]
+#   ~/projects/scout                    <hash> [main]
+#   ~/projects/scout/worktrees/sector-index <hash> [sector/index]
 ```
 
 The worktree directory now exists on disk at `worktrees/sector-index/` and is pinned to the `sector/index` branch. Because `/worktrees/` is in `.gitignore`, the main working tree will not see its contents as untracked.
@@ -75,7 +75,7 @@ The worktree directory now exists on disk at `worktrees/sector-index/` and is pi
 On the Mac (writing to the main working tree — state files live here):
 
 ```bash
-cd ~/@kairu/@projects/@shell/scout
+cd ~/projects/scout
 ```
 
 Edit `ops/state/rifles-2.json` to:
@@ -118,7 +118,7 @@ Expected: a sensible reply. If auth prompts, complete it. If the container canno
 On the Mac:
 
 ```bash
-cd ~/@kairu/@projects/@shell/scout
+cd ~/projects/scout
 git add .gitignore ops/state/rifles-2.json ops/OPORD.md ops/phase-2-db.md ops/playbook.md
 git commit -m "Phase 2: OPORD issued; rifles-2 activated; worktree created"
 ```
@@ -330,7 +330,7 @@ Terse, decisive.
 Commander inspects:
 
 ```bash
-cd ~/@kairu/@projects/@shell/scout/worktrees/sector-index
+cd ~/projects/scout/worktrees/sector-index
 cargo test --test index_schema --test index_pragma
 ls migrations/
 # Expected: 0001_initial.sql
@@ -558,7 +558,7 @@ Terse, decisive.
 Commander gut-checks responsiveness on real data.
 
 ```bash
-cd ~/@kairu/@projects/@shell/scout/worktrees/sector-index
+cd ~/projects/scout/worktrees/sector-index
 
 # Build
 cargo build --release
@@ -591,7 +591,7 @@ If any of the above feels wrong — the walk stutters, the RSS climbs, the integ
 If satisfied, the commander authorises the merge of `sector/index` into `main`:
 
 ```bash
-cd ~/@kairu/@projects/@shell/scout
+cd ~/projects/scout
 git merge --no-ff sector/index -m "Phase 2: DB foundation merged to main"
 ```
 

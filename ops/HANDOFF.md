@@ -56,7 +56,7 @@ Awaiting commander's execution of `ops/phase-1-council.md`.
 1. Exit the container (if still inside): `exit`
 2. Rebuild the image:
    ```bash
-   cd ~/@kairu/@projects/@shell/scout
+   cd ~/projects/scout
    podman build -t scout:latest -f Containerfile .
    ```
    Note: the apt layer is invalidated by adding a package, so it and every layer after it rebuilds. ~2–3 minutes (Rust install, Claude Code install re-run).
@@ -64,7 +64,7 @@ Awaiting commander's execution of `ops/phase-1-council.md`.
    ```bash
    podman rm -f scout
    podman run -d --name scout --hostname scout \
-     -v ~/@kairu/@projects/@shell/scout:/workspace:Z \
+     -v ~/projects/scout:/workspace:Z \
      -w /workspace \
      scout:latest sleep infinity
    ```
@@ -91,7 +91,7 @@ Idempotent — `|| true` keeps us safe if a future Ubuntu image drops the defaul
 
 **Next action (commander):** re-run step 3:
 ```bash
-cd ~/@kairu/@projects/@shell/scout
+cd ~/projects/scout
 podman build -t scout:latest -f Containerfile .
 ```
 Cached layers mean the apt step won't re-run; the build should resume near the (now-fixed) user-creation step and finish.

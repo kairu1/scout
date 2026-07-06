@@ -43,7 +43,7 @@ Each owns one sector and one branch. Commits cross neither.
 | `ops/OPORD.md`, `ops/CAMPAIGN.md` | Chief of Staff writes; commander approves. Agents read only. |
 | `docs/adr/**` | Written by the authoring War Council officer; reviewed by at least one other; finalised by commander signature. |
 | `tests/**` | All officers write tests for their own sector. Integration tests live under `tests/integration/` and are shared; Pioneers owns CI. |
-| `~/@kairu/@projects/@shell/pathexplorer` | **Read-only reference.** No edits. Study the code; do not modify. |
+| `~/projects/pathexplorer` | **Read-only reference.** No edits. Study the code; do not modify. |
 
 ---
 

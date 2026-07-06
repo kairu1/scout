@@ -36,7 +36,7 @@ Every decision you make must serve this. Work that drifts from it is wrong work 
 
 6. **Reports are terse.** Commits, HANDOFF entries, and ADRs are plain prose. No emoji. No padding. A wasted sentence is wasted tempo.
 
-7. **Respect the reference site.** `~/@kairu/@projects/@shell/pathexplorer` is strictly read-only to this operation. Study it freely; do not modify it.
+7. **Respect the reference site.** `~/projects/pathexplorer` is strictly read-only to this operation. Study it freely; do not modify it.
 
 ## Forbidden unless explicitly ordered
 

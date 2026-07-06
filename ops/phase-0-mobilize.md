@@ -42,9 +42,9 @@ podman machine start
 ## 1. Navigate to the command post
 
 ```bash
-cd ~/@kairu/@projects/@shell/scout
+cd ~/projects/scout
 pwd
-# Expected: /Users/tc/@kairu/@projects/@shell/scout
+# Expected: ~/projects/scout
 ls
 # Expected: Cargo.toml  CLAUDE.md  Containerfile  README.md  docs  ops  src  tests
 ```
@@ -58,7 +58,7 @@ If the listing is wrong, **stand down and escalate** — the scaffold was incomp
 The scaffold files exist on disk but are not yet under version control. Bring them in, then cut sector branches.
 
 ```bash
-cd ~/@kairu/@projects/@shell/scout
+cd ~/projects/scout
 
 # Init on main (not master)
 git init -b main
@@ -107,7 +107,7 @@ git branch
 ## 3. Build the container image
 
 ```bash
-cd ~/@kairu/@projects/@shell/scout
+cd ~/projects/scout
 podman build -t scout:latest -f Containerfile .
 ```
 
@@ -132,7 +132,7 @@ One long-lived container. We'll attach tmux later for multi-pane work.
 podman run -d \
   --name scout \
   --hostname scout \
-  -v ~/@kairu/@projects/@shell/scout:/workspace:Z \
+  -v ~/projects/scout:/workspace:Z \
   -w /workspace \
   scout:latest \
   sleep infinity
@@ -250,7 +250,7 @@ You should see your entry. Bidirectional mount confirmed.
 On the Mac:
 
 ```bash
-cd ~/@kairu/@projects/@shell/scout
+cd ~/projects/scout
 git add ops/HANDOFF.md
 git commit -m "Phase 0: command post verified
 
@@ -268,7 +268,7 @@ All of these must be green before declaring Phase 0 closed:
 
 - [ ] `podman images | grep scout` → `localhost/scout latest ...`
 - [ ] `podman ps` → `scout` container `Up`
-- [ ] `git -C ~/@kairu/@projects/@shell/scout branch` shows `main` plus five `sector/*` branches
+- [ ] `git -C ~/projects/scout branch` shows `main` plus five `sector/*` branches
 - [ ] `podman exec scout cargo check` succeeds
 - [ ] `podman exec scout tmux list-sessions` shows `scout` session
 - [ ] Your HANDOFF entry appears in `podman exec scout cat /workspace/ops/HANDOFF.md`

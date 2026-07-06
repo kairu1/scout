@@ -51,7 +51,7 @@ Option A — mount your host `~/.claude` into the container (tear down and rerun
 ```bash
 podman rm -f scout
 podman run -d --name scout --hostname scout \
-  -v ~/@kairu/@projects/@shell/scout:/workspace:Z \
+  -v ~/projects/scout:/workspace:Z \
   -v ~/.claude:/home/scout/.claude:Z \
   -w /workspace \
   scout:latest sleep infinity
@@ -70,7 +70,7 @@ podman exec scout bash -c "echo 'export ANTHROPIC_API_KEY=<key>' >> ~/.bashrc"
 
 Still on the Mac — these are committed to git, so create on host:
 ```bash
-cd ~/@kairu/@projects/@shell/scout
+cd ~/projects/scout
 mkdir -p docs/adr/positions
 ```
 
@@ -182,7 +182,7 @@ Your portfolio is system design. Write a position paper to
   4. Module boundaries in Rust: proposed crate/module layout. Which
      types cross boundaries. Where traits earn their weight.
 
-You may reference ~/@kairu/@projects/@shell/pathexplorer AS READ-ONLY
+You may reference ~/projects/pathexplorer AS READ-ONLY
 REFERENCE — do not edit it. That project is our predecessor; study
 what it got right and what it got wrong (its search, index, and TUI
 modules). But note that its file paths are HOST paths, visible only
@@ -880,7 +880,7 @@ You read each ADR in full with its reviews. For each:
 
 Commit the signed ADRs to `main` (documentation commits are allowed to `main` per OPORD §3):
 ```bash
-cd ~/@kairu/@projects/@shell/scout
+cd ~/projects/scout
 git add docs/adr/
 git commit -m "Phase 1: War Council I ADRs signed"
 ```
