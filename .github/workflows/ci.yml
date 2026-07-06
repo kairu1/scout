@@ -1,6 +1,8 @@
 # CI tripwires (ADR-002 §Consequences, binds Pioneers): tests + clippy,
 # cargo-audit and cargo-deny as hard failures, the <120 transitive
-# ceiling, and the musl cross-compile smoke for both release arches.
+# ceiling (shipped-target reading, ADR-002 ratified 2026-07-06), and the
+# musl cross-compile smoke (reusable musl-build.yml) for both arches.
+# Third-party actions are pinned to commit SHAs (supply-chain posture).
 name: ci
 on:
   push:
@@ -11,49 +13,27 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable # rust-toolchain.toml pin wins
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable (toolchain file pins the version)
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo test --locked --all-targets
       - run: cargo clippy --all-targets -- -D warnings
 
   supply-chain:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      - uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2
         with:
           tool: cargo-audit,cargo-deny
       - run: cargo audit
       - run: cargo deny check
-      - name: transitive ceiling (<120 crates, ADR-002)
+      - name: transitive ceiling (<120 shipped-target crates, ADR-002)
         run: |
           count=$(cargo tree --prefix none | sed 's/ .*//' | sort -u | wc -l)
           echo "transitive crates: $count"
           test "$count" -lt 120
 
   musl:
-    strategy:
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-          - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
-      - run: cargo build --locked --release --target ${{ matrix.target }}
-      - name: static-link sanity
-        run: |
-          file target/${{ matrix.target }}/release/scout
-          ldd target/${{ matrix.target }}/release/scout 2>&1 | grep -qi 'not a dynamic\|statically' \
-            || { echo "expected a static binary"; exit 1; }
+    uses: ./.github/workflows/musl-build.yml

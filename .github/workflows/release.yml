@@ -1,6 +1,7 @@
 # Release machinery (Phase 4). Publishing is a commander act: pushing a
-# v* tag is the approval signal; the workflow only builds and attaches
-# the musl artifacts. The installer never ships a config (ADR-003).
+# v* tag is the approval signal. The build reuses musl-build.yml (single
+# source with CI), then a fan-in job attaches the artifacts once — no
+# per-arch race to create the release. Actions pinned to commit SHAs.
 name: release
 on:
   push:
@@ -10,39 +11,34 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-          - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
-    runs-on: ${{ matrix.runner }}
+  guard:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
       - name: tag matches Cargo.toml version
         run: |
           crate_version="$(cargo metadata --no-deps --format-version 1 \
             | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)"
           echo "tag=${GITHUB_REF_NAME} crate=v${crate_version}"
           test "${GITHUB_REF_NAME}" = "v${crate_version}"
-      - run: cargo build --locked --release --target ${{ matrix.target }}
-      - name: package
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          name="scout-${version}-${{ matrix.target }}"
-          mkdir "$name"
-          cp target/${{ matrix.target }}/release/scout "$name/"
-          cp README.md shell/scout.bash examples/config.toml "$name/"
-          tar czf "$name.tar.gz" "$name"
-          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
-      - uses: softprops/action-gh-release@v2
+
+  build:
+    needs: guard
+    uses: ./.github/workflows/musl-build.yml
+    with:
+      upload: true
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
-            scout-*.tar.gz
-            scout-*.tar.gz.sha256
+            dist/scout-*.tar.gz
+            dist/scout-*.tar.gz.sha256

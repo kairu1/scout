@@ -1,0 +1,53 @@
+# Reusable musl build (ADR-002 §Cross-compile). Single source for both
+# the CI smoke and the release build so a toolchain fix can't land in one
+# and drift in the other (shadow-review 2026-07-06). Callers pass no
+# inputs; the arch matrix lives here.
+name: musl-build
+on:
+  workflow_call:
+    inputs:
+      upload:
+        description: package + emit artifacts for the release job
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: static-link sanity
+        run: |
+          file target/${{ matrix.target }}/release/scout
+          ldd target/${{ matrix.target }}/release/scout 2>&1 | grep -qi 'not a dynamic\|statically' \
+            || { echo "expected a static binary"; exit 1; }
+      - name: package
+        if: inputs.upload
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          name="scout-${version}-${{ matrix.target }}"
+          mkdir "$name"
+          cp target/${{ matrix.target }}/release/scout "$name/"
+          cp README.md shell/scout.bash examples/config.toml "$name/"
+          tar czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: inputs.upload
+        with:
+          name: scout-${{ matrix.target }}
+          path: |
+            scout-*.tar.gz
+            scout-*.tar.gz.sha256

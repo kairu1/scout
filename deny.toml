@@ -1,20 +1,40 @@
-# cargo-deny policy (ADR-002 §Transitive ceiling and advisory discipline).
-# CI runs `cargo deny check` as a hard failure.
+# cargo-deny policy (ADR-002 §Transitive ceiling and advisory discipline,
+# ratified 2026-07-06). CI runs `cargo deny check` as a hard failure.
 
 [licenses]
+# Allow-list per ADR-002 §Rationale, extended 2026-07-06 after the tripwire
+# caught two gaps in the original list:
+#   - Unicode-3.0: modern unicode-ident relicensed to it (same Unicode terms).
+#   - MPL-2.0: the licence of nucleo-matcher (ADR-002 slot 6, a signed roster
+#     crate). File-level weak copyleft; we link an UNMODIFIED build, so it
+#     imposes no obligation on scout's own MIT source. The original ADR-002
+#     list omitted it — admitting it here keeps the roster and the gate
+#     consistent (ratified in ADR-002 Revision history).
 allow = [
     "MIT",
     "Apache-2.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
+    "MPL-2.0",
     "Unicode-DFS-2016",
     "Unicode-3.0",
     "Zlib",
 ]
 
 [bans]
-multiple-versions = "warn"
+# ADR-002: "fails on duplicate versions beyond a small allow-list."
+# The skip list IS that allow-list — irreducible transitive duplicates.
+# hashbrown/itertools come in via ratatui/nucleo/toml; windows-sys is a
+# Windows-only transitive under crossterm (a platform ADR-002 defers).
+# Adding to this list is a review decision, so a NEW duplicate elsewhere
+# fails the build loudly.
+multiple-versions = "deny"
+skip = [
+    { crate = "hashbrown" },
+    { crate = "itertools" },
+    { crate = "windows-sys" },
+]
 
 [advisories]
 unmaintained = "workspace"

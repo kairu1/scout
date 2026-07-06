@@ -48,11 +48,6 @@ impl Placeholder {
             }
         }
     }
-
-    /// The three placeholders POSIX-single-quoted at the `print` seam.
-    fn is_path_valued(&self) -> bool {
-        matches!(self, Placeholder::Path | Placeholder::Parent | Placeholder::Home)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,16 +136,22 @@ impl Template {
         })
     }
 
-    /// Expand against `ctx`. `quote_path_values` is true only at the
-    /// `print` seam. Errors carry the ADR failure kind for tracing.
-    pub fn expand(&self, ctx: &ExpandCtx, quote_path_values: bool) -> Result<String, ExpandError> {
+    /// Expand against `ctx`. `quote_at_seam` is true only at the `print`
+    /// seam, where every placeholder value is POSIX-single-quoted before
+    /// it reaches the wrapper's `eval`. Errors carry the ADR failure kind.
+    pub fn expand(&self, ctx: &ExpandCtx, quote_at_seam: bool) -> Result<String, ExpandError> {
         let mut out = String::new();
         for segment in &self.segments {
             match segment {
                 Segment::Literal(lit) => out.push_str(lit),
                 Segment::Placeholder(ph) => {
                     let value = ctx.resolve(ph)?;
-                    if quote_path_values && ph.is_path_valued() {
+                    // At the print seam EVERY placeholder is quoted, not
+                    // just the path family (ADR-003 §2 / ADR-004 §3,
+                    // revised 2026-07-06): the whole line is eval'd, so a
+                    // filename, query, or env value bearing shell
+                    // metacharacters would otherwise inject.
+                    if quote_at_seam {
                         if value.contains('\0') || value.contains('\n') {
                             return Err(ExpandError::HazardousPath);
                         }

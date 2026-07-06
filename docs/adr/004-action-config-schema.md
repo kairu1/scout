@@ -103,7 +103,7 @@ The return-code contract: a `spawn` step is `success` iff the child exits with s
 | Field | Type | Required | Default | Semantics |
 |---|---|---|---|---|
 | `kind` | string | yes | — | literal `"print"` |
-| `format` | string | yes | — | Template string. `{path}`, `{parent}`, and `{home}` placeholders are POSIX-single-quoted on expansion (ADR-003 §2 seam 1); other placeholders expand literally; a path containing NUL or newline in any quoted placeholder aborts the step with `action.failed{kind="hazardous_path"}`. |
+| `format` | string | yes | — | Template string. **Every** placeholder expansion is POSIX-single-quoted on output (ADR-003 §2 seam 1, revised 2026-07-06) — `{path}`/`{parent}`/`{home}` and equally `{name}`/`{ext}`/`{query}`/`{env.*}`, because the whole line is `eval`'d by the wrapper and any of them may carry shell metacharacters. Literal (non-placeholder) text in the format is emitted verbatim, so shell syntax the author *wrote* still works. A placeholder value containing NUL or newline aborts the step with `action.failed{kind="hazardous_path"}`. |
 
 The expanded string is written to SCOUT's own stdout followed by a single `\n`. No other stdio discipline applies; the surrounding shell wrapper `eval`s SCOUT's stdout per the canonical "open-and-cd" workflow.
 
@@ -168,7 +168,7 @@ A literal `{` or `}` inside a template is expressed as `{{` or `}}` respectively
 
 Every expansion above is argv-level. A shell parses a SCOUT-templated string at exactly two points:
 
-1. **`print` step output.** The `format` template expands, `{path}` / `{parent}` / `{home}` are POSIX-single-quoted, and the result lands on stdout for the wrapper shell to `eval`. The `print` step is responsible for its own quoting; other step kinds are not.
+1. **`print` step output.** The `format` template expands, **every placeholder** (not just the path family) is POSIX-single-quoted, and the result lands on stdout for the wrapper shell to `eval`. The `print` step is responsible for its own quoting; other step kinds are not.
 2. **`argv = ["sh", "-c", "… {placeholder} …"]`.** The loader refuses this shape unless the `[[action]]` carries `unsafe_shell_template = true`. The attestation is ceremonial: the user types the word "unsafe" to buy the behaviour. Placeholder expansion in this shape is literal substitution — SCOUT does not try to quote into a language it is not parsing. The user owns the quoting inside the `-c` string. An `sh -c` step without any placeholder (a pure user-authored string) does not require the attestation.
 
 Every other template field is argv-level, no shell, no quoting dance.
@@ -219,13 +219,18 @@ SCOUT ships two compiled-in default actions that apply when, and only when, the 
   },
   Action {
     name: "print-path",
-    description: "Print the selection's absolute path (POSIX-quoted) to stdout",
+    // Revised 2026-07-06: emits `printf '%s\n' {path}` — a COMMAND, not a
+    // bare value — so it survives the shell wrapper's eval allowlist. The
+    // {path} is still POSIX-quoted (§3), so the printed path is exact.
+    description: "Print the selection's absolute path to stdout",
     keybinding: None,
-    steps: [ print("{path}") ],
+    steps: [ print("printf '%s\\n' {path}") ],
     on_failure: Abort,
   },
 ]
 ```
+
+**Why `print-path` prints a command, not a value (revised 2026-07-06).** The recommended integration wraps the binary in a shell function that `eval`s scout's stdout (ADR-003 §2 seam 1), and that wrapper allowlists the *command shapes* it will run. A bare `'/abs/path'` on stdout is a value, not a command, so the wrapper refuses it — the default was unusable under its own recommended setup. Emitting `printf '%s\n' {path}` makes the default a legitimate command in every consumption mode (piped or wrapped) while keeping the path POSIX-quoted. The compiled-in default is not part of the trust hash (§9), so this change never re-prompts.
 
 **Rationale for compiled-in (not shipped-as-file).** A default `config.toml` dropped into `$XDG_CONFIG_HOME/scout/` at install time would *pre-trust itself* (no hash in the trust store → first-run prompt) but, worse, would corrupt the "nothing exists yet, configure me" signal — the user can never tell whether the file on disk is their own choice or the packager's. Compiling defaults into the binary means the defaults are as trusted as the binary itself (the user installed the binary; they consented). ADR-003 §Consequences already binds Pioneers to *not* drop a default config on install; this ADR is the reason.
 
@@ -410,3 +415,4 @@ _Appended by peer reviewers._
 
 - 2026-04-24 — drafted by council-architect (2nd sitting).
 - 2026-04-24 — signed by commander.
+- 2026-07-06 — two revisions, commander-authorised, from the shadow-review pass (HANDOFF 2026-07-06). (1) §3/§4: the `print` seam now POSIX-single-quotes **every** placeholder, not only `{path}`/`{parent}`/`{home}` — closes the `{name}`/`{ext}`/`{query}`/`{env.*}` injection gap ADR-003 §2 (revised same day) describes; enforced in `src/config/template.rs`. (2) §7: the compiled-in `print-path` default now emits `printf '%s\n' {path}` (a command) instead of a bare quoted value, so it works under the shell wrapper's eval allowlist; not hashed, so no re-prompt. Status remains Accepted; both are alignment/hardening, not new decisions.

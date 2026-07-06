@@ -103,12 +103,15 @@ pub fn compiled_defaults() -> Vec<Action> {
         },
         Action {
             name: "print-path".into(),
-            description: "Print the selection's absolute path (POSIX-quoted) to stdout".into(),
+            description: "Print the selection's absolute path to stdout".into(),
             keybinding: None,
             on_failure: OnFailure::Abort,
             unsafe_shell_template: false,
+            // Emits a COMMAND (`printf '%s\n' '<path>'`), not a bare
+            // value, so it survives the shell wrapper's eval allowlist
+            // (ADR-004 §7, revised 2026-07-06). {path} is still quoted.
             steps: vec![Step::Print {
-                format: Template::parse("{path}").expect("static template"),
+                format: Template::parse("printf '%s\\n' {path}").expect("static template"),
             }],
             from_user_config: false,
         },
