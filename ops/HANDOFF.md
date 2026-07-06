@@ -372,3 +372,17 @@ Findings for the record:
 Release is armed, not fired: pushing a v0.1.0 tag is the commander's act; the workflow attaches musl tarballs + sha256.
 
 Phase 5 (AAR) awaits commander word.
+
+## 2026-07-06 — FROM chief-of-staff TO commander — shadow-review escalations resolved
+
+All six escalated findings actioned under commander authorisation ("go with your suggestions"). Committed cbca014 (fixes) atop 7955b5f (confirmed-fix batch).
+
+- Print-seam injection: real vuln (unquoted {name}/{ext}/{query}/{env.*} on a wrapper-eval'd line). ADR-003 §2 + ADR-004 §3/§4 revised to quote EVERY placeholder at the print seam; enforced in template.rs; drilled end-to-end (dir named `proj $(touch PWNED)` no longer executes). This was the highest-value escalation.
+- print-path default: ADR-004 §7 revised; default emits a command, works under the wrapper.
+- deny.toml/ADR-002: ratified in ADR-002 Revision history. Running cargo-deny for real caught two gaps I'd missed by hand — nucleo-matcher (signed slot 6) is MPL-2.0, absent from the ADR allow-list; windows-sys duplicates. Both now recorded/allowed. `cargo deny check` fully clean.
+- Actions SHA-pinned; musl build extracted to a reusable workflow (CI+release share one source); release gains a tag==version guard + single fan-in publish.
+- unicode display-width: NOT fixed — needs unicode-width, an ADR-002 successor-ADR decision. Documented as a v2 known limitation.
+
+Meta-lesson for the AAR: the CI supply-chain tripwire earned its keep before it ever ran in CI — cargo-deny surfaced the MPL-2.0 roster/allow-list inconsistency that four council reviewers and the commander missed when ADR-002 was signed. The gate found a hole in the doctrine that authored it.
+
+58 tests green; clippy clean; cargo deny clean. Ready for a v0.1.0 tag when the commander chooses.
