@@ -658,6 +658,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "unicode-width",
 ]
 
 [[package]]

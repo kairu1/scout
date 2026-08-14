@@ -449,3 +449,74 @@ default prints INFO only, `debug` and `scout=debug` surface the
 canonicalisation skip, `foo=notalevel` and `====` fall back to info with a
 message, `dbug` warns that it reads as a target. Panic path verified by
 PTY capture in both directions as described above.
+
+## 2026-08-14 — FROM chief-of-staff TO commander — ADR-005 landed; Spotlight direction recorded
+
+### ADR-005 (Display Width) drafted, signed by direct order, implemented
+
+The deferral was priced against a bill that never arrives: `unicode-width`
+is already in the shipped graph twice under `ratatui` — directly and
+through `unicode-truncate`. Admitting it as a direct dependency moved the
+transitive ceiling by zero, 105 of 120. The 2026-07-06 shadow-review
+deferred this on supply-chain grounds that were reasonable then and simply
+false now, and nobody re-checked. Worth carrying to the AAR: a deferral
+records a judgement about a cost, and costs move; a deferral with no
+re-check date is a decision that quietly stops being true.
+
+Pinned to `0.1` because `deny.toml` sets `multiple-versions = "deny"`.
+Requesting a major that resolved separately from ratatui's would fail our
+own gate. The requirement therefore moves only when ratatui moves, which
+makes it a note for whoever does the dependency refresh.
+
+Layout is now measured in terminal columns at all three call sites:
+`render::display_width` is the single source of truth, `truncate_left`
+spends a column budget, and `result_line` pads by columns.
+
+Verified by PTY capture with frame reconstruction (a `script(1)` capture
+of a ratatui frame collapses to one line, because ratatui paints by
+absolute cursor positioning rather than newlines — the replay tool
+rebuilds the grid). Over a tree mixing CJK and ASCII names at 90 columns:
+
+    with ADR-005      43 / 43 / 43 / 43 columns of path text
+    char counting     43 / 43 / 49 / 51 columns — and the widest row's
+                      basename clipped mid-name by ratatui
+
+That clipping is the part that matters. The overflow does not merely
+push the meta column out of true; it eats the end of the basename, which
+is the single most useful part of the row and the reason truncation is
+left-anchored in the first place. Recorded as cosmetic in July; it was
+destroying information.
+
+The test obligation in ADR-005 §Consequences exists because the original
+suite asserted `cells.len()` after truncation — an assertion that passes
+with the bug fully present. The new tests assert columns.
+
+### Commander's UI direction — Spotlight, not lazygit's panels
+
+Correction to the roadmap I filed on 2026-08-14. The lazygit reference
+was about *presentation quality*, not about panel layout. The commander
+does not want a multi-pane, multi-column interface. The stated
+inspiration is **macOS Spotlight (Tahoe)**: a search surface that
+appears, takes a query, presents a small number of well-formed results,
+and gets out of the way.
+
+Consequences for the UI engagement, which is still ADR-gated and not yet
+opened:
+
+- **Fewer visible paths, not more.** The commander's words: not having to
+  see loads of file paths. The full absolute path is diagnostic output,
+  not the primary presentation. A result should read as a *thing* — name
+  first, location as secondary context — rather than as a filesystem
+  string that happens to be truncated.
+- **Multi-column layout is not the goal**, so ADR-005's value is not the
+  column arithmetic for a grid. It is that any presentation which places
+  anything after a variable-width name needs true widths — and a
+  name-first layout needs them more than a path list did, because the
+  name is now the aligned element.
+- **The preview pane's status is an open question** for that ADR. It is a
+  second panel, and it is also the thing that makes a result legible
+  without reading its path. Not to be removed on my initiative.
+- `scout doctor` (the diagnostics subcommand proposed in the same
+  roadmap) is endorsed by the commander and stays on the list.
+
+Neither the UI work nor `doctor` is started. Both need their ADRs.

@@ -29,6 +29,11 @@ ratatui = "0.26"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 thiserror = "1"
+# ADR-005: layout is measured in terminal columns, not chars. Already in
+# the graph under ratatui, so admitting it costs no ceiling slot. Pinned
+# to 0.1 to unify with ratatui's resolution — deny.toml forbids duplicate
+# versions, so this requirement moves only when ratatui does.
+unicode-width = "0.1"
 
 [lib]
 name = "scout"

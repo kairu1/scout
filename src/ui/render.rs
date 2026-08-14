@@ -55,21 +55,46 @@ pub fn path_cells(path: &str, home: &str, match_indices: &[u32]) -> Vec<(char, C
     cells
 }
 
-/// Left-truncate to `width` cells, keeping the tail (where basenames
-/// live) and marking the cut with a leading ellipsis.
+/// Terminal columns these cells occupy (ADR-005). The single source of
+/// truth for every layout calculation downstream.
 ///
-/// KNOWN LIMITATION (shadow-review 2026-07-06): width is counted in
-/// chars, not terminal display columns, so a path with wide (CJK/emoji)
-/// glyphs mis-aligns the signal-meter column. The correct fix needs
-/// `unicode-width`, which is off the ADR-002 roster — admitting it is a
-/// successor-ADR decision, deferred to v2. Cosmetic; no correctness or
-/// security impact (control bytes are already stripped).
+/// `None` — which `unicode-width` returns for C0/C1 — is read as zero
+/// columns. Those characters are stripped by `path_cells` before they
+/// can reach here, so a `None` means the strip filter has a hole; zero
+/// keeps the arithmetic closest to correct until it is found.
+pub fn display_width(cells: &[(char, CellKind)]) -> usize {
+    use unicode_width::UnicodeWidthChar;
+    cells.iter().map(|(c, _)| c.width().unwrap_or(0)).sum()
+}
+
+/// Left-truncate to `width` terminal columns, keeping the tail (where
+/// basenames live) and marking the cut with a leading ellipsis.
+///
+/// Columns, not chars (ADR-005): a CJK or emoji glyph is two columns
+/// wide, so dropping one cell can free two. The result is therefore
+/// guaranteed to be *at most* `width` and may undershoot by one when a
+/// wide glyph straddles the boundary. Undershooting keeps the meta
+/// column aligned; overshooting would push it off the pane.
 pub fn truncate_left(cells: &mut Vec<(char, CellKind)>, width: usize) {
-    if cells.len() > width && width > 0 {
-        let drop = cells.len() - width + 1;
-        cells.drain(..drop);
-        cells.insert(0, ('…', CellKind::Dir));
+    use unicode_width::UnicodeWidthChar;
+
+    if width == 0 || display_width(cells) <= width {
+        return;
     }
+    // One column is spent on the ellipsis itself.
+    let budget = width - 1;
+    let mut kept = 0usize;
+    let mut split = cells.len();
+    for (i, (c, _)) in cells.iter().enumerate().rev() {
+        let w = c.width().unwrap_or(0);
+        if kept + w > budget {
+            break;
+        }
+        kept += w;
+        split = i;
+    }
+    cells.drain(..split);
+    cells.insert(0, ('…', CellKind::Dir));
 }
 
 /// Frecency signal meter: 0-3 strength levels derived from ranking's
@@ -140,6 +165,61 @@ mod tests {
         truncate_left(&mut cells, 9);
         assert_eq!(render(&cells), "…dir/base");
         assert_eq!(cells.len(), 9);
+        assert_eq!(display_width(&cells), 9);
+    }
+
+    #[test]
+    fn width_counts_columns_not_chars() {
+        // ADR-005. CJK ideographs are two columns each, so this path is
+        // 1 + 4*2 + 1 + 3 = 13 columns across 9 chars. A char count
+        // would say 9 and misplace everything to its right.
+        let cells = path_cells("/日本語版/abc", "", &[]);
+        assert_eq!(cells.len(), 9);
+        assert_eq!(display_width(&cells), 13);
+
+        // Combining marks add characters but no columns.
+        let combining = path_cells("/e\u{301}", "", &[]);
+        assert_eq!(combining.len(), 3);
+        assert_eq!(display_width(&combining), 2);
+    }
+
+    #[test]
+    fn truncation_budget_is_columns() {
+        // Truncating a wide-glyph path to 9 columns must yield at most 9
+        // COLUMNS. Asserting cells.len() here would pass even with the
+        // pre-ADR-005 char-counting bug fully present, which is exactly
+        // how that bug survived the original suite.
+        let mut cells = path_cells("/日本語版/abc", "", &[]);
+        truncate_left(&mut cells, 9);
+        assert!(
+            display_width(&cells) <= 9,
+            "rendered {:?} at {} columns, budget 9",
+            render(&cells),
+            display_width(&cells)
+        );
+        // Tail preserved, cut marked.
+        assert!(render(&cells).ends_with("/abc"));
+        assert!(render(&cells).starts_with('…'));
+    }
+
+    #[test]
+    fn truncation_undershoots_rather_than_overshoots_on_a_straddling_glyph() {
+        // A two-column glyph straddling the boundary cannot be half
+        // rendered. Dropping it undershoots by one column; keeping it
+        // would push the meta column off the pane.
+        let mut cells = path_cells("日日日", "", &[]); // 6 columns, 3 chars
+        truncate_left(&mut cells, 4); // ellipsis (1) + budget 3 -> one glyph fits
+        assert_eq!(display_width(&cells), 3);
+        assert_eq!(render(&cells), "…日");
+    }
+
+    #[test]
+    fn narrow_and_exact_widths_are_left_alone() {
+        let mut cells = path_cells("/abc", "", &[]);
+        truncate_left(&mut cells, 4); // exactly fits: untouched
+        assert_eq!(render(&cells), "/abc");
+        truncate_left(&mut cells, 0); // degenerate width: untouched
+        assert_eq!(render(&cells), "/abc");
     }
 
     #[test]

@@ -374,7 +374,9 @@ fn result_line<'a>(app: &App<'_>, r: &Ranked, selected: bool, path_width: usize)
     // Group consecutive same-kind cells into spans.
     let mut run = String::new();
     let mut run_kind: Option<CellKind> = None;
-    let filled = cells.len();
+    // Columns, not cells (ADR-005): the pad that reaches the meta column
+    // must be measured in what the terminal will actually spend.
+    let filled = render::display_width(&cells);
     for (c, kind) in cells {
         if run_kind != Some(kind) {
             if let Some(prev) = run_kind {
