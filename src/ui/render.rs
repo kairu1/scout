@@ -79,8 +79,17 @@ pub fn truncate_left(cells: &mut Vec<(char, CellKind)>, width: usize) {
     if width == 0 || display_width(cells) <= width {
         return;
     }
-    // One column is spent on the ellipsis itself.
-    let budget = width - 1;
+    // The marker's own columns come out of the budget. Its width is a
+    // known constant because `glyph` forbids Ambiguous-width ornaments
+    // (see glyph::ornaments_are_width_unambiguous); with `…` this was a
+    // guess that came out wrong on a CJK-locale terminal.
+    let marker: Vec<char> = super::glyph::ELLIPSIS.chars().collect();
+    let marker_width: usize = marker.iter().map(|c| c.width().unwrap_or(0)).sum();
+    if width <= marker_width {
+        cells.clear();
+        return;
+    }
+    let budget = width - marker_width;
     let mut kept = 0usize;
     let mut split = cells.len();
     for (i, (c, _)) in cells.iter().enumerate().rev() {
@@ -92,7 +101,9 @@ pub fn truncate_left(cells: &mut Vec<(char, CellKind)>, width: usize) {
         split = i;
     }
     cells.drain(..split);
-    cells.insert(0, ('…', CellKind::Dir));
+    for c in marker.into_iter().rev() {
+        cells.insert(0, (c, CellKind::Dir));
+    }
 }
 
 /// Frecency signal meter: 0-3 strength levels derived from ranking's
@@ -111,9 +122,6 @@ pub fn signal_level(s_now: f64) -> usize {
         0
     }
 }
-
-pub const SIGNAL_GLYPHS: [&str; 4] =
-    ["   ", "\u{2581}  ", "\u{2581}\u{2584} ", "\u{2581}\u{2584}\u{2588}"];
 
 #[cfg(test)]
 mod tests {
@@ -162,7 +170,7 @@ mod tests {
     fn truncation_keeps_tail() {
         let mut cells = path_cells("/very/long/dir/base", "", &[]);
         truncate_left(&mut cells, 9);
-        assert_eq!(render(&cells), "…dir/base");
+        assert_eq!(render(&cells), "..ir/base");
         assert_eq!(cells.len(), 9);
         assert_eq!(display_width(&cells), 9);
     }
@@ -198,7 +206,7 @@ mod tests {
         );
         // Tail preserved, cut marked.
         assert!(render(&cells).ends_with("/abc"));
-        assert!(render(&cells).starts_with('…'));
+        assert!(render(&cells).starts_with(crate::ui::glyph::ELLIPSIS));
     }
 
     #[test]
@@ -208,8 +216,9 @@ mod tests {
         // would push the meta column off the pane.
         let mut cells = path_cells("日日日", "", &[]); // 6 columns, 3 chars
         truncate_left(&mut cells, 4); // ellipsis (1) + budget 3 -> one glyph fits
-        assert_eq!(display_width(&cells), 3);
-        assert_eq!(render(&cells), "…日");
+                                      // marker (2 cols) + one wide glyph (2) would be 4; budget is 4.
+        assert_eq!(display_width(&cells), 4);
+        assert_eq!(render(&cells), "..日");
     }
 
     #[test]
@@ -230,7 +239,7 @@ mod tests {
         assert_eq!(signal_level(k - 0.01), 2);
         assert_eq!(signal_level(0.0), 0);
         assert_eq!(signal_level(0.06 * k), 1);
-        assert_eq!(SIGNAL_GLYPHS.len(), 4);
+        assert_eq!(crate::ui::glyph::SIGNAL.len(), 4);
     }
 
     #[test]

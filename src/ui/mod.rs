@@ -9,6 +9,7 @@
 //! in the accent, and a per-row frecency signal meter — ranking made
 //! visible, not decorated.
 
+pub mod glyph;
 pub mod render;
 pub mod strip;
 
@@ -30,7 +31,7 @@ use crate::config::Config;
 use crate::search::matcher::NucleoMatcher;
 use crate::search::{search, CandidateRow, IndexState, Ranked};
 
-use render::{path_cells, signal_level, truncate_left, CellKind, SIGNAL_GLYPHS};
+use render::{path_cells, signal_level, truncate_left, CellKind};
 
 const RESULT_LIMIT: usize = 200;
 
@@ -325,9 +326,12 @@ fn result_line<'a>(app: &App<'_>, r: &Ranked, selected: bool, path_width: usize)
 
     let mut spans: Vec<Span<'a>> = Vec::with_capacity(8);
     spans.push(if selected {
-        Span::styled("\u{258c} ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
+        Span::styled(
+            format!("{} ", glyph::SELECTED),
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        )
     } else {
-        Span::raw("  ")
+        Span::raw(format!("{} ", glyph::UNSELECTED))
     });
 
     // Group consecutive same-kind cells into spans.
@@ -355,7 +359,7 @@ fn result_line<'a>(app: &App<'_>, r: &Ranked, selected: bool, path_width: usize)
     // Pad to the meta column, then the signal meter + visit count.
     spans.push(Span::raw(" ".repeat(path_width.saturating_sub(filled) + 1)));
     spans.push(Span::styled(
-        SIGNAL_GLYPHS[signal_level(r.s_now)],
+        glyph::SIGNAL[signal_level(r.s_now)],
         Style::default().fg(ACCENT).add_modifier(Modifier::DIM),
     ));
     let visits =

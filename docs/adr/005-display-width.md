@@ -173,6 +173,37 @@ than to this ADR. Recorded here because the width work is what surfaced
 it, and because the parity guard between `strip::clean` and
 `path_cells` is the seam any such fix must pass through.
 
+## Revision 2026-08-14 — Ambiguous-width ornaments
+
+The original decision made *measurement* correct and left *emission*
+unconstrained, which is only half a contract. `unicode-width` exposes
+Ambiguous-width characters two ways — `width()` reads them as one column,
+`width_cjk()` as two — and the caller chooses. Scout was choosing, for
+its own ornaments, a number the reader's terminal might disagree with.
+
+Seven of the ten glyphs scout emitted were Ambiguous. The one that broke
+this ADR's own arithmetic was `…`: §Decision 2 spends *one column* on the
+truncation marker, and on a CJK-locale terminal `…` occupies two, so the
+truncation overshot by exactly one column — the failure this ADR exists
+to prevent, in this ADR's code.
+
+**Ornaments must have one width in every terminal.** `src/ui/glyph.rs`
+now holds every glyph scout emits, and
+`ornaments_are_width_unambiguous` fails the build when `width()` and
+`width_cjk()` disagree on any of them. Replacements: `…` → `..`, the
+selection bar `▌` → `❙` (U+2759), and the meter ramp `▁▄█` → `❘❙❚`
+(U+2758/2759/275A), all East Asian Width Neutral.
+
+Two exemptions, stated rather than silent: the hairline rule and the
+action-menu border remain box-drawing. Neither feeds any arithmetic —
+the hairline is a solid fill ratatui clips to the area, and the border is
+drawn by ratatui from a `BorderType` we merely select — so replacing them
+would cost legibility and buy nothing.
+
+The guard was observed failing before being trusted (AAR §3.1): admitting
+`▌` back makes it fail with the character, its two widths, and the
+instruction to pick another glyph.
+
 ## Reviews
 
 _Appended by peer reviewers._
@@ -187,3 +218,4 @@ a security reviewer would have been the right officer to rule on.
 ## Revision history
 
 - 2026-08-14 — drafted by chief-of-staff under direct commander order; admitted `unicode-width` to the roster and made display width the layout unit. Supersedes the ADR-002 deferral.
+- 2026-08-14 — revised: Ambiguous-width ornaments forbidden and mechanically guarded (`src/ui/glyph.rs`). Closes the gap surfaced by ADR-007's glyph selection, in which this ADR's own truncation marker had an indeterminate width. Status remains Accepted.
