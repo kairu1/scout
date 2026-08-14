@@ -126,8 +126,7 @@ pub fn open(path: &Path) -> Result<Connection> {
         return Err(IndexError::Refused(format!("journal_mode = WAL not honoured (got {mode})")));
     }
     conn.pragma_update(None, "synchronous", "NORMAL")?;
-    let _autocheckpoint: i64 =
-        conn.query_row("PRAGMA wal_autocheckpoint = 0", [], |r| r.get(0))?;
+    let _autocheckpoint: i64 = conn.query_row("PRAGMA wal_autocheckpoint = 0", [], |r| r.get(0))?;
 
     apply_migrations(&conn)?;
     Ok(conn)

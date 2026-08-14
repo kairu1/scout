@@ -87,6 +87,65 @@ columns is the behaviour that keeps the layout closest to correct while
 that bug is found — the alternative, treating unknown input as one
 column, would bake the strip filter's failure into the arithmetic.
 
+## Rationale
+
+Three arguments, in descending order of force.
+
+**The cost is zero and was always going to be zero.** ADR-002's roster
+discipline exists to keep the transitive graph small and defensible.
+`unicode-width` is already inside that graph — it ships in every binary
+we have ever built. Declaring it a direct dependency changes the
+`Cargo.toml`, not the artifact. Refusing it on supply-chain grounds
+protects nothing, while the refusal costs a visible defect in the one
+surface the user actually looks at.
+
+**Character counting is not an approximation of column counting; it is a
+different quantity.** An approximation degrades gracefully. This does
+not: the error is proportional to how much non-ASCII the path contains,
+so the layout is exactly right for ASCII users and progressively more
+wrong for everyone else, which is the failure mode least likely to be
+caught by the people maintaining it.
+
+**The severity was misjudged, and the correct reading raises the
+priority.** Recorded as "misaligns the signal-meter column", the defect
+sounds like whitespace. Measured, character counting produced path
+columns of 43, 43, 49 and 51 over a mixed CJK/ASCII tree at 90 columns,
+and the renderer clipped the widest row's basename mid-name.
+Left-anchored truncation exists precisely to protect the basename
+(§Context of ADR-001's display discipline, realised in `truncate_left`);
+an overflow that eats it defeats the feature rather than blemishing it.
+Deferring information loss is a different decision from deferring
+polish, and only the second one was ever actually made.
+
+Against the six decade-longevity gates: `unicode-width` is `unicode-rs`
+org-backed, over a decade old with current commits, carries no RustSec
+history, is replaceable (the tables are derivable from the Unicode
+database), and sits about as close to the trunk as a non-std crate gets
+— `clap`, `textwrap`, and `ratatui` itself all depend on it. Gate 3
+(1.0+ semver) is the one it fails, at `0.1.x`. That is accepted here on
+the same reasoning ADR-002 applied to `nucleo-matcher`: a perpetual 0.x
+with a two-function API surface and a decade of stability is a weaker
+risk than a young 1.0. The API we consume is one method.
+
+## Alternatives considered
+
+1. **Hand-roll the width tables.** Rejected. The East Asian Width
+   property is a large Unicode table that changes with each Unicode
+   release; hand-rolling it means owning a data-maintenance obligation
+   forever to avoid a dependency we already ship.
+2. **Keep counting characters and accept the misalignment.** Rejected by
+   the commander's reclassification. Defensible for a single-column
+   list; indefensible for the UI direction that follows.
+3. **Take `unicode-segmentation` as well and count grapheme clusters.**
+   Deferred, not rejected. Grapheme clustering is the correct unit for
+   *cursor movement and editing*; column width is the correct unit for
+   *layout*, and this ADR is about layout. A future editable-query or
+   selection feature reopens it. Unlike `unicode-width`, that crate is
+   not already in the graph and would cost a real ceiling slot.
+4. **Wait and take it with the ratatui bump.** Rejected on sequencing.
+   The bump is a larger, riskier change; this is a self-contained
+   correctness fix whose cost is already sunk.
+
 ## Consequences
 
 **Binds `ui` sector (3rd Rifles).** `render.rs` and `ui/mod.rs` as
@@ -114,24 +173,16 @@ than to this ADR. Recorded here because the width work is what surfaced
 it, and because the parity guard between `strip::clean` and
 `path_cells` is the seam any such fix must pass through.
 
-## Alternatives considered
+## Reviews
 
-1. **Hand-roll the width tables.** Rejected. The East Asian Width
-   property is a large Unicode table that changes with each Unicode
-   release; hand-rolling it means owning a data-maintenance obligation
-   forever to avoid a dependency we already ship.
-2. **Keep counting characters and accept the misalignment.** Rejected by
-   the commander's reclassification. Defensible for a single-column
-   list; indefensible for the UI direction that follows.
-3. **Take `unicode-segmentation` as well and count grapheme clusters.**
-   Deferred, not rejected. Grapheme clustering is the correct unit for
-   *cursor movement and editing*; column width is the correct unit for
-   *layout*, and this ADR is about layout. A future editable-query or
-   selection feature reopens it. Unlike `unicode-width`, that crate is
-   not already in the graph and would cost a real ceiling slot.
-4. **Wait and take it with the ratatui bump.** Rejected on sequencing.
-   The bump is a larger, riskier change; this is a self-contained
-   correctness fix whose cost is already sunk.
+_Appended by peer reviewers._
+
+None. This ADR was authored and implemented in a single commander-directed
+sortie with no council convened, which is a deviation from the Phase 1
+pattern where four officers reviewed every ADR. Recorded rather than
+glossed: the reasoning above has not been adversarially read by anyone,
+and §Consequences names one open question (bidi/zero-width spoofing) that
+a security reviewer would have been the right officer to rule on.
 
 ## Revision history
 

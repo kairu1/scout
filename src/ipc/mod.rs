@@ -12,8 +12,5 @@ pub static QUERY_ACTIVE: AtomicU64 = AtomicU64::new(0);
 /// Wall-clock ms now, for QUERY_ACTIVE comparisons.
 pub fn now_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }

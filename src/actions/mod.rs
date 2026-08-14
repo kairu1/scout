@@ -107,9 +107,9 @@ fn run_step(
             }
             let cwd = match cwd {
                 Some(template) => {
-                    let raw = template.expand(&expand_ctx, false).map_err(|e| {
-                        (format!("cwd:{}", fail_kind(&e)), 1)
-                    })?;
+                    let raw = template
+                        .expand(&expand_ctx, false)
+                        .map_err(|e| (format!("cwd:{}", fail_kind(&e)), 1))?;
                     let p = PathBuf::from(raw);
                     if p.is_absolute() {
                         p
@@ -122,8 +122,7 @@ fn run_step(
             spawn(&expanded, *wait, &cwd, scope)
         }
         Step::BuiltinEdit => {
-            let editor = resolve_editor(scope)
-                .ok_or_else(|| ("no_editor".to_string(), 127))?;
+            let editor = resolve_editor(scope).ok_or_else(|| ("no_editor".to_string(), 127))?;
             let argv = vec![editor, ctx.path.display().to_string()];
             spawn(&argv, true, Path::new(&ctx.home), scope)
         }
@@ -187,11 +186,7 @@ fn spawn(
         // Detached: own process group + null stdio so the child cannot
         // wedge the controlling terminal (ADR-003 §2; setsid semantics
         // approximated with std's process_group — no libc on the roster).
-        command
-            .process_group(0)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        command.process_group(0).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         match command.spawn() {
             Ok(_child) => Ok(()),
             Err(err) => {

@@ -122,16 +122,13 @@ impl Template {
     /// placeholder may not also carry literal whitespace or shell
     /// metacharacters.
     pub fn violates_single_slot(&self) -> bool {
-        const META: &[char] = &[
-            '"', '\'', '`', '$', '\\', '|', '&', ';', '<', '>', '(', ')', '*', '?', '~', '#',
-        ];
+        const META: &[char] =
+            &['"', '\'', '`', '$', '\\', '|', '&', ';', '<', '>', '(', ')', '*', '?', '~', '#'];
         if !self.has_placeholder() {
             return false;
         }
         self.segments.iter().any(|s| match s {
-            Segment::Literal(lit) => {
-                lit.chars().any(|c| c.is_whitespace() || META.contains(&c))
-            }
+            Segment::Literal(lit) => lit.chars().any(|c| c.is_whitespace() || META.contains(&c)),
             Segment::Placeholder(_) => false,
         })
     }
@@ -207,12 +204,9 @@ impl ExpandCtx<'_> {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| self.path.display().to_string())),
-            Placeholder::Parent => Ok(self
-                .path
-                .parent()
-                .unwrap_or(self.path)
-                .display()
-                .to_string()),
+            Placeholder::Parent => {
+                Ok(self.path.parent().unwrap_or(self.path).display().to_string())
+            }
             Placeholder::Ext => {
                 let meta = std::fs::metadata(self.path)
                     .map_err(|e| ExpandError::PathResolution(e.to_string()))?;
@@ -230,11 +224,9 @@ impl ExpandCtx<'_> {
                 .map(|p| p.display().to_string()),
             Placeholder::Home => Ok(self.home.to_string()),
             Placeholder::Query => Ok(self.query.to_string()),
-            Placeholder::Env(name) => self
-                .env
-                .get(name)
-                .cloned()
-                .ok_or_else(|| ExpandError::UndefinedEnv(name.clone())),
+            Placeholder::Env(name) => {
+                self.env.get(name).cloned().ok_or_else(|| ExpandError::UndefinedEnv(name.clone()))
+            }
         }
     }
 }

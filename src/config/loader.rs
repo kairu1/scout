@@ -71,7 +71,11 @@ struct RawAction {
 /// Full load: discovery → gates → trust → merge. `interactive` controls
 /// whether a trust prompt may be rendered (the caller has already
 /// decided the UI mode); a required prompt without a TTY refuses.
-pub fn load(chain: &[PathBuf], trust_store_path: PathBuf, interactive: bool) -> Result<Config, LoadError> {
+pub fn load(
+    chain: &[PathBuf],
+    trust_store_path: PathBuf,
+    interactive: bool,
+) -> Result<Config, LoadError> {
     let Some(config_path) = discover(chain)? else {
         return Ok(Config::builtin_only());
     };
@@ -104,12 +108,7 @@ fn open_nofollow(path: &Path) -> std::io::Result<Option<std::fs::File>> {
             }
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(_)
-            if path
-                .symlink_metadata()
-                .map(|m| m.file_type().is_symlink())
-                .unwrap_or(false) =>
-        {
+        Err(_) if path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) => {
             Ok(None)
         }
         Err(err) => Err(err),
@@ -122,8 +121,9 @@ pub fn load_file(
     interactive: bool,
 ) -> Result<Config, LoadError> {
     // Stage 2-3: open O_NOFOLLOW, cap at 256 KiB.
-    let mut file = open_nofollow(config_path)?
-        .ok_or_else(|| LoadError::Refused(format!("{}: not a regular file", config_path.display())))?;
+    let mut file = open_nofollow(config_path)?.ok_or_else(|| {
+        LoadError::Refused(format!("{}: not a regular file", config_path.display()))
+    })?;
     let mut buf = Vec::with_capacity(8 * 1024);
     file.by_ref().take(SIZE_CAP as u64 + 1).read_to_end(&mut buf)?;
     if buf.len() > SIZE_CAP {
@@ -132,9 +132,8 @@ pub fn load_file(
             config_path.display()
         )));
     }
-    let text = String::from_utf8(buf).map_err(|_| {
-        LoadError::Refused(format!("{}: not valid UTF-8", config_path.display()))
-    })?;
+    let text = String::from_utf8(buf)
+        .map_err(|_| LoadError::Refused(format!("{}: not valid UTF-8", config_path.display())))?;
 
     // Stage 4: TOML parse (toml errors carry line/column in Display).
     let raw: RawConfig = toml::from_str(&text).map_err(|err| LoadError::Toml {
@@ -144,7 +143,10 @@ pub fn load_file(
 
     // Stage 5: schema version.
     if raw.schema_version != 1 {
-        return Err(LoadError::SchemaVersion { path: config_path.to_path_buf(), found: raw.schema_version });
+        return Err(LoadError::SchemaVersion {
+            path: config_path.to_path_buf(),
+            found: raw.schema_version,
+        });
     }
     // [scout] is reserved and must be empty in v1 (ADR-004 §1).
     if let Some(scout_table) = &raw.scout {
@@ -171,8 +173,7 @@ pub fn load_file(
             });
         }
     }
-    let enter_count =
-        actions.iter().filter(|a| a.keybinding.as_deref() == Some("enter")).count();
+    let enter_count = actions.iter().filter(|a| a.keybinding.as_deref() == Some("enter")).count();
     if enter_count > 1 {
         return Err(LoadError::Validation {
             path: config_path.to_path_buf(),
@@ -348,7 +349,8 @@ fn validate_step(
     table: &toml::Table,
     parse_template: &dyn Fn(&str, &str) -> Result<Template, LoadError>,
 ) -> Result<Step, LoadError> {
-    let bad = |message: String| validation(path, format!("action `{action}`, step {index}: {message}"));
+    let bad =
+        |message: String| validation(path, format!("action `{action}`, step {index}: {message}"));
 
     let kind = table
         .get("kind")
@@ -369,18 +371,18 @@ fn validate_step(
 
     match kind {
         "spawn" => {
-            let argv_value = table.get("argv").ok_or_else(|| bad("spawn requires `argv`".into()))?;
-            let argv_list = argv_value
-                .as_array()
-                .ok_or_else(|| bad("`argv` must be an array of strings (single-string argv is refused)".into()))?;
+            let argv_value =
+                table.get("argv").ok_or_else(|| bad("spawn requires `argv`".into()))?;
+            let argv_list = argv_value.as_array().ok_or_else(|| {
+                bad("`argv` must be an array of strings (single-string argv is refused)".into())
+            })?;
             if argv_list.is_empty() {
                 return Err(bad("`argv` must have at least one element".into()));
             }
             let mut argv = Vec::with_capacity(argv_list.len());
             for (i, element) in argv_list.iter().enumerate() {
-                let s = element
-                    .as_str()
-                    .ok_or_else(|| bad(format!("argv[{i}] must be a string")))?;
+                let s =
+                    element.as_str().ok_or_else(|| bad(format!("argv[{i}] must be a string")))?;
                 // Single-slot rule enforced in the action-level pass,
                 // where the sh -c payload exemption is known.
                 argv.push(parse_template(&format!("argv[{i}]"), s)?);
@@ -428,7 +430,8 @@ fn validate_step(
                 let value = value
                     .as_str()
                     .ok_or_else(|| bad(format!("env value for `{env_name}` must be a string")))?;
-                bindings.push((env_name.clone(), parse_template(&format!("set.{env_name}"), value)?));
+                bindings
+                    .push((env_name.clone(), parse_template(&format!("set.{env_name}"), value)?));
             }
             Ok(Step::Env { set: bindings })
         }

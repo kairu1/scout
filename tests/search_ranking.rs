@@ -90,10 +90,7 @@ fn query_eliminates_non_matches_and_blends_frecency() {
 #[test]
 fn tie_breakers_are_total_and_ordered() {
     // Identical rank inputs; visits_total differs.
-    let conn = db_with_rows(&[
-        ("/aa/x", 0.0, NOW, 1, 1, None),
-        ("/bb/x", 0.0, NOW, 9, 1, None),
-    ]);
+    let conn = db_with_rows(&[("/aa/x", 0.0, NOW, 1, 1, None), ("/bb/x", 0.0, NOW, 9, 1, None)]);
     let candidates = load_candidates(&conn).unwrap();
     let mut matcher = NucleoMatcher::new();
     let ranked = search(&mut matcher, &candidates, "", NOW, 10);
@@ -133,8 +130,7 @@ fn degradation_states() {
 
 #[test]
 fn limit_truncates() {
-    let rows: Vec<(String, f64)> =
-        (0..50).map(|i| (format!("/p/{i:02}"), i as f64)).collect();
+    let rows: Vec<(String, f64)> = (0..50).map(|i| (format!("/p/{i:02}"), i as f64)).collect();
     let conn = Connection::open_in_memory().unwrap();
     apply_migrations(&conn).unwrap();
     conn.execute("UPDATE run_state SET current_generation = 1", []).unwrap();
@@ -161,8 +157,7 @@ fn match_indices_cover_query_chars() {
     let hit = &ranked[0];
     assert_eq!(hit.match_indices.len(), 5, "five query chars, five highlight positions");
     let chars: Vec<char> = hit.path.chars().collect();
-    let highlighted: String =
-        hit.match_indices.iter().map(|&i| chars[i as usize]).collect();
+    let highlighted: String = hit.match_indices.iter().map(|&i| chars[i as usize]).collect();
     assert_eq!(highlighted, "scout");
     // Zero-query results carry no highlights.
     let ranked = search(&mut matcher, &candidates, "", NOW, 10);

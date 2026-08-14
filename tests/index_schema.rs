@@ -22,13 +22,10 @@ fn reapply_is_idempotent() {
     apply_migrations(&conn).unwrap();
     assert_eq!(schema_version(&conn).unwrap(), 1);
     // Single row in schema_version, single row in run_state.
-    let rows: i64 = conn
-        .query_row("SELECT count(*) FROM schema_version", [], |r| r.get(0))
-        .unwrap();
+    let rows: i64 =
+        conn.query_row("SELECT count(*) FROM schema_version", [], |r| r.get(0)).unwrap();
     assert_eq!(rows, 1);
-    let rows: i64 = conn
-        .query_row("SELECT count(*) FROM run_state", [], |r| r.get(0))
-        .unwrap();
+    let rows: i64 = conn.query_row("SELECT count(*) FROM run_state", [], |r| r.get(0)).unwrap();
     assert_eq!(rows, 1);
 }
 
@@ -50,11 +47,7 @@ fn paths_columns_match_adr_001() {
     let mut stmt = conn.prepare("PRAGMA table_info(paths)").unwrap();
     let cols: Vec<(String, String, bool)> = stmt
         .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)? != 0,
-            ))
+            Ok((row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)? != 0))
         })
         .unwrap()
         .map(|r| r.unwrap())

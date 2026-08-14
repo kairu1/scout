@@ -131,11 +131,8 @@ fn build_dir(path: &Path) -> Preview {
     }
     dirs.sort();
     files.sort();
-    let entries: Vec<(String, bool)> = dirs
-        .into_iter()
-        .map(|n| (n, true))
-        .chain(files.into_iter().map(|n| (n, false)))
-        .collect();
+    let entries: Vec<(String, bool)> =
+        dirs.into_iter().map(|n| (n, true)).chain(files.into_iter().map(|n| (n, false))).collect();
     Preview::Dir { entries, truncated, total }
 }
 
@@ -172,10 +169,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "scout-preview-{tag}-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         fs::create_dir_all(&dir).unwrap();
         dir

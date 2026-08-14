@@ -137,10 +137,7 @@ pub fn tty_available() -> bool {
 /// ISO-8601 UTC from SystemTime, hand-rolled (`chrono` refused,
 /// ADR-002). Civil-from-days per the well-known Hinnant algorithm.
 pub fn iso8601(t: std::time::SystemTime) -> String {
-    let secs = t
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
+    let secs = t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
     let days = secs.div_euclid(86_400);
     let tod = secs.rem_euclid(86_400);
     let (h, m, s) = (tod / 3600, tod % 3600 / 60, tod % 60);

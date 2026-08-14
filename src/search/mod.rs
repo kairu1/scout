@@ -49,11 +49,10 @@ pub enum IndexState {
 }
 
 pub fn index_state(conn: &Connection) -> Result<IndexState> {
-    let generation: i64 = conn.query_row(
-        "SELECT current_generation FROM run_state WHERE id = 1",
-        [],
-        |row| row.get(0),
-    )?;
+    let generation: i64 =
+        conn.query_row("SELECT current_generation FROM run_state WHERE id = 1", [], |row| {
+            row.get(0)
+        })?;
     if generation >= 1 {
         let candidates: i64 = conn.query_row(
             "SELECT count(*) FROM paths
@@ -75,11 +74,10 @@ pub fn index_state(conn: &Connection) -> Result<IndexState> {
 /// Load the candidate set: every non-tombstoned row in the current
 /// `scan_generation` (ADR-001 §Candidate scope — no project filter).
 pub fn load_candidates(conn: &Connection) -> Result<Vec<CandidateRow>> {
-    let generation: i64 = conn.query_row(
-        "SELECT current_generation FROM run_state WHERE id = 1",
-        [],
-        |row| row.get(0),
-    )?;
+    let generation: i64 =
+        conn.query_row("SELECT current_generation FROM run_state WHERE id = 1", [], |row| {
+            row.get(0)
+        })?;
     if generation < 1 {
         return Ok(Vec::new());
     }

@@ -28,10 +28,7 @@ pub fn sentinel_path(db_path: &Path) -> PathBuf {
 /// is built in its place.
 pub(crate) fn startup_check(db_path: &Path) -> Result<()> {
     let sentinel = sentinel_path(db_path);
-    let db_exists = db_path
-        .symlink_metadata()
-        .map(|m| m.is_file() && m.len() > 0)
-        .unwrap_or(false);
+    let db_exists = db_path.symlink_metadata().map(|m| m.is_file() && m.len() > 0).unwrap_or(false);
 
     if sentinel.exists() {
         // Clean shutdown last time; consume the sentinel so a crash
@@ -75,10 +72,7 @@ pub(crate) fn startup_check(db_path: &Path) -> Result<()> {
         renamed_to = %target.display(),
         "index.recovery.corrupt_renamed — rebuilding fresh index"
     );
-    eprintln!(
-        "scout: index failed integrity check; moved to {} and rebuilding",
-        target.display()
-    );
+    eprintln!("scout: index failed integrity check; moved to {} and rebuilding", target.display());
     Ok(())
 }
 

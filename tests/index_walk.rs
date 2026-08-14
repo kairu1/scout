@@ -22,10 +22,7 @@ fn temp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "scout-walk-{tag}-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
     ));
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -60,8 +57,7 @@ fn walk_and_insert_100_files() {
     make_files(&tree, 100);
 
     let mut conn = open_db(&dir);
-    let stats =
-        batched_insert(&mut conn, walk(&WalkConfig::new(tree.clone())), 1000).unwrap();
+    let stats = batched_insert(&mut conn, walk(&WalkConfig::new(tree.clone())), 1000).unwrap();
 
     // 100 files + the root dir itself.
     assert_eq!(stats.inserted, 101);
@@ -173,8 +169,7 @@ fn smoke_100k_paths_under_budget() {
 
     let mut conn = open_db(&dir);
     let started = std::time::Instant::now();
-    let stats =
-        batched_insert(&mut conn, walk(&WalkConfig::new(tree.clone())), 1000).unwrap();
+    let stats = batched_insert(&mut conn, walk(&WalkConfig::new(tree.clone())), 1000).unwrap();
     let elapsed = started.elapsed();
 
     assert!(stats.completed);
@@ -184,9 +179,9 @@ fn smoke_100k_paths_under_budget() {
     let rss_kb = fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|s| {
-            s.lines().find(|l| l.starts_with("VmRSS:")).and_then(|l| {
-                l.split_whitespace().nth(1).and_then(|v| v.parse::<u64>().ok())
-            })
+            s.lines()
+                .find(|l| l.starts_with("VmRSS:"))
+                .and_then(|l| l.split_whitespace().nth(1).and_then(|v| v.parse::<u64>().ok()))
         })
         .unwrap_or(0);
     assert!(rss_kb < 100 * 1024, "RSS {rss_kb} kB exceeds 100 MB");

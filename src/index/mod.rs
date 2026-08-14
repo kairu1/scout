@@ -62,8 +62,5 @@ pub type Result<T> = std::result::Result<T, IndexError>;
 /// Public: search ranking and the CLI both take a now-instant.
 pub fn unix_now() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }

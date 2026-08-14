@@ -13,10 +13,7 @@ fn temp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "scout-rec-{tag}-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
     ));
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -25,12 +22,10 @@ fn temp_dir(tag: &str) -> PathBuf {
 fn seed_paths(conn: &rusqlite::Connection, count: usize) {
     let tx = conn.unchecked_transaction().unwrap();
     {
-        let mut stmt = tx
-            .prepare("INSERT INTO paths (path, scan_generation) VALUES (:path, 1)")
-            .unwrap();
+        let mut stmt =
+            tx.prepare("INSERT INTO paths (path, scan_generation) VALUES (:path, 1)").unwrap();
         for i in 0..count {
-            stmt.execute(rusqlite::named_params! { ":path": format!("/fixture/p{i:06}") })
-                .unwrap();
+            stmt.execute(rusqlite::named_params! { ":path": format!("/fixture/p{i:06}") }).unwrap();
         }
     }
     tx.commit().unwrap();
@@ -44,22 +39,26 @@ fn visit_updates_frecency_and_total() {
     let conn = pragma::open(&db).unwrap();
     seed_paths(&conn, 3);
 
-    let id: i64 = conn
-        .query_row("SELECT rowid FROM paths LIMIT 1", [], |r| r.get(0))
-        .unwrap();
+    let id: i64 = conn.query_row("SELECT rowid FROM paths LIMIT 1", [], |r| r.get(0)).unwrap();
     assert!(record_visit(&conn, id).unwrap());
     assert!(record_visit(&conn, id).unwrap());
 
     let (s, visits): (f64, i64) = conn
-        .query_row("SELECT S, visits_total FROM paths WHERE rowid = :id",
-            rusqlite::named_params! { ":id": id }, |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row(
+            "SELECT S, visits_total FROM paths WHERE rowid = :id",
+            rusqlite::named_params! { ":id": id },
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .unwrap();
     assert!(s > 1.9 && s <= 2.0, "S after two immediate visits: {s}");
     assert_eq!(visits, 2);
 
     // Tombstoned rows are never credited.
-    conn.execute("UPDATE paths SET tombstoned_at = 1 WHERE rowid = :id",
-        rusqlite::named_params! { ":id": id }).unwrap();
+    conn.execute(
+        "UPDATE paths SET tombstoned_at = 1 WHERE rowid = :id",
+        rusqlite::named_params! { ":id": id },
+    )
+    .unwrap();
     assert!(!record_visit(&conn, id).unwrap());
 
     fs::remove_dir_all(&dir).unwrap();

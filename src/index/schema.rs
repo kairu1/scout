@@ -19,7 +19,8 @@ pub fn schema_version(conn: &Connection) -> Result<u32> {
     if !exists {
         return Ok(0);
     }
-    let version: u32 = conn.query_row("SELECT version FROM schema_version", [], |row| row.get(0))?;
+    let version: u32 =
+        conn.query_row("SELECT version FROM schema_version", [], |row| row.get(0))?;
     Ok(version)
 }
 

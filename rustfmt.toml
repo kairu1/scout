@@ -1,0 +1,6 @@
+# House style. `use_small_heuristics = "Max"` matches how this codebase
+# was actually written (compact struct literals and argument lists up to
+# the 100-column default) — the alternative reflows nearly every file for
+# no readability gain. CI enforces `cargo fmt --check`, so this file is
+# the single definition of the format and drift fails the build.
+use_small_heuristics = "Max"

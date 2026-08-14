@@ -48,15 +48,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// Runtime verbosity, from `SCOUT_LOG` (a `tracing` filter directive:
-/// `debug`, `scout::index=trace`, ...). Default `info` preserves the
-/// level the binary shipped with; the walker's `debug!` diagnostics —
-/// canonicalisation failures, boundary refusals, skipped entries — are
-/// only reachable by setting this.
-///
-/// Scout-specific rather than `RUST_LOG` on purpose: a developer with
-/// `RUST_LOG=debug` exported for another tool should not have scout
-/// start writing to their log file.
+/// Level names `SCOUT_LOG` accepts as a bare directive.
 const LOG_LEVELS: [&str; 6] = ["off", "error", "warn", "info", "debug", "trace"];
 
 /// A bare directive (no `=`) is a level if it names one, and a *target*
@@ -80,24 +72,30 @@ fn warn_on_bare_non_level(spec: &str) {
     }
 }
 
-/// Runtime verbosity, from `SCOUT_LOG`.
+/// Runtime verbosity, from `SCOUT_LOG` (a `tracing` filter directive:
+/// `debug`, `scout::index=trace`, ...). Default `info` preserves the
+/// level the binary shipped with; the walker's `debug!` diagnostics —
+/// canonicalisation failures, boundary refusals, skipped entries — are
+/// only reachable by setting this.
+///
+/// Scout-specific rather than `RUST_LOG` on purpose: a developer with
+/// `RUST_LOG=debug` exported for another tool should not have scout
+/// start writing to their log file.
 fn log_filter() -> tracing_subscriber::EnvFilter {
     const DEFAULT: &str = "info";
     match std::env::var("SCOUT_LOG") {
-        Ok(spec) if !spec.is_empty() => {
-            match tracing_subscriber::EnvFilter::try_new(&spec) {
-                Ok(filter) => {
-                    warn_on_bare_non_level(&spec);
-                    filter
-                }
-                Err(err) => {
-                    eprintln!(
-                        "scout: SCOUT_LOG=`{spec}` is not a valid filter ({err}); using `{DEFAULT}`"
-                    );
-                    tracing_subscriber::EnvFilter::new(DEFAULT)
-                }
+        Ok(spec) if !spec.is_empty() => match tracing_subscriber::EnvFilter::try_new(&spec) {
+            Ok(filter) => {
+                warn_on_bare_non_level(&spec);
+                filter
             }
-        }
+            Err(err) => {
+                eprintln!(
+                    "scout: SCOUT_LOG=`{spec}` is not a valid filter ({err}); using `{DEFAULT}`"
+                );
+                tracing_subscriber::EnvFilter::new(DEFAULT)
+            }
+        },
         _ => tracing_subscriber::EnvFilter::new(DEFAULT),
     }
 }

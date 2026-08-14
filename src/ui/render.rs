@@ -1,6 +1,7 @@
 //! Pure render helpers — kept ratatui-free so the visual grammar is
 //! unit-testable: path cell classification (dim dir / bold basename /
-//! accent match), home shortening, and the frecency signal meter.
+//! accent match), home shortening, terminal-column measurement and
+//! truncation (ADR-005), and the frecency signal meter.
 
 /// Visual class of one displayed character.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,10 +26,7 @@ pub fn path_cells(path: &str, home: &str, match_indices: &[u32]) -> Vec<(char, C
         && path.starts_with(home)
         && (chars.len() == home_chars || chars.get(home_chars) == Some(&'/'));
 
-    let base_start = path
-        .rfind('/')
-        .map(|byte| path[..byte].chars().count() + 1)
-        .unwrap_or(0);
+    let base_start = path.rfind('/').map(|byte| path[..byte].chars().count() + 1).unwrap_or(0);
 
     let mut cells = Vec::with_capacity(chars.len());
     let mut start = 0;
@@ -114,7 +112,8 @@ pub fn signal_level(s_now: f64) -> usize {
     }
 }
 
-pub const SIGNAL_GLYPHS: [&str; 4] = ["   ", "\u{2581}  ", "\u{2581}\u{2584} ", "\u{2581}\u{2584}\u{2588}"];
+pub const SIGNAL_GLYPHS: [&str; 4] =
+    ["   ", "\u{2581}  ", "\u{2581}\u{2584} ", "\u{2581}\u{2584}\u{2588}"];
 
 #[cfg(test)]
 mod tests {
@@ -240,8 +239,7 @@ mod tests {
         // the canonical strip::clean over a control-char corpus
         // (ADR-003 §6 lives in one place, guarded here).
         let corpus = "plain\tpath\x00\x1b\x07\u{85}\u{9f}end/base\u{1b}]0;x\u{7}z";
-        let rendered: String =
-            path_cells(corpus, "", &[]).iter().map(|(c, _)| *c).collect();
+        let rendered: String = path_cells(corpus, "", &[]).iter().map(|(c, _)| *c).collect();
         assert_eq!(rendered, crate::ui::strip::clean(corpus));
     }
 }

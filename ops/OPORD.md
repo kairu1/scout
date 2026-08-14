@@ -1,7 +1,7 @@
 # OPORD — Active Operation Order
 
 **Phase:** 4 — Consolidation: Portability
-**Status:** CLOSED 2026-07-05 — "Phase 4 green" filed in HANDOFF. Release tag + Phase 5 AAR await commander.
+**Status:** CLOSED 2026-07-05 — "Phase 4 green" filed in HANDOFF. v0.1.0 tagged and pushed; first CI run green (the musl smoke finally executed). Phase 5 AAR is the only phase still awaiting the commander.
 **Issued:** 2026-07-05
 **Signed:** Chief of Staff, under commander goal directive 2026-07-05 ("add the preview pane then do phase 4")
 **Previous phase:** 3 — Main Assault — CLOSED 2026-07-05 (HANDOFF "Phase 3 green"); post-close enhancements: TUI visual pass, preview pane (HANDOFF 2026-07-05 20:10 and Phase 4 entry).

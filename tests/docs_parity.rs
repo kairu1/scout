@@ -30,8 +30,5 @@ fn toolchain_version_is_consistent() {
 fn readme_carries_the_canonical_wrapper() {
     let readme = include_str!("../README.md");
     let wrapper = include_str!("../shell/scout.bash");
-    assert!(
-        readme.contains(wrapper),
-        "README.md wrapper block has drifted from shell/scout.bash"
-    );
+    assert!(readme.contains(wrapper), "README.md wrapper block has drifted from shell/scout.bash");
 }

@@ -30,9 +30,17 @@ impl OnFailure {
 
 #[derive(Debug, Clone)]
 pub enum Step {
-    Spawn { argv: Vec<Template>, wait: bool, cwd: Option<Template> },
-    Print { format: Template },
-    Env { set: Vec<(String, Template)> },
+    Spawn {
+        argv: Vec<Template>,
+        wait: bool,
+        cwd: Option<Template>,
+    },
+    Print {
+        format: Template,
+    },
+    Env {
+        set: Vec<(String, Template)>,
+    },
     /// Compiled-in `edit` fallback chain ($VISUAL → $EDITOR → vi-family
     /// on PATH). Rust-native because the strict placeholder grammar
     /// correctly refuses fallback logic (ADR-004 §7). Never hashed:

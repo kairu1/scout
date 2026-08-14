@@ -11,10 +11,7 @@ fn temp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "scout-cfg-{tag}-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
     ));
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -37,7 +34,10 @@ steps = [ { kind = "spawn", argv = ["alacritty", "--working-directory", "{path}"
 /// Load a config file, pre-trusting it by round-tripping the hash the
 /// non-TTY refusal reports (tests never have a TTY; ADR-003 §3 requires
 /// exactly this refuse-then-verify workflow for automation).
-fn load_pretrusted(dir: &std::path::Path, config_toml: &str) -> Result<scout::config::Config, LoadError> {
+fn load_pretrusted(
+    dir: &std::path::Path,
+    config_toml: &str,
+) -> Result<scout::config::Config, LoadError> {
     let config_path = dir.join("config.toml");
     fs::write(&config_path, config_toml).unwrap();
     let store = dir.join("trusted-config.sha256");
@@ -169,10 +169,7 @@ fn refusal_gates() {
     for (i, (toml_text, needle)) in cases.iter().enumerate() {
         let err = load_pretrusted(&dir, toml_text).unwrap_err();
         let message = err.to_string();
-        assert!(
-            message.contains(needle),
-            "case {i}: expected `{needle}` in error, got: {message}"
-        );
+        assert!(message.contains(needle), "case {i}: expected `{needle}` in error, got: {message}");
     }
 
     fs::remove_dir_all(&dir).unwrap();

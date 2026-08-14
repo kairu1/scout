@@ -17,7 +17,9 @@ use std::io::Stderr;
 use std::path::PathBuf;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -84,8 +86,7 @@ impl App<'_> {
             return;
         };
         if self.preview.as_ref().map(|(id, _)| *id) != Some(current.id) {
-            self.preview =
-                Some((current.id, preview::build(std::path::Path::new(&current.path))));
+            self.preview = Some((current.id, preview::build(std::path::Path::new(&current.path))));
         }
     }
 
@@ -212,9 +213,7 @@ fn event_loop(
 
         match key.code {
             KeyCode::Esc => return Ok(None),
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                return Ok(None)
-            }
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(None),
             KeyCode::Enter => {
                 if let Some(action) = app.config.enter_action() {
                     let action_name = action.name.clone();
@@ -273,10 +272,7 @@ fn draw(frame: &mut ratatui::Frame, app: &App<'_>) {
 
     let mut next = 2;
     if let Some((text, style)) = banner {
-        frame.render_widget(
-            Paragraph::new(Span::styled(strip::clean(&text), style)),
-            chunks[next],
-        );
+        frame.render_widget(Paragraph::new(Span::styled(strip::clean(&text), style)), chunks[next]);
         next += 1;
     }
 
@@ -357,11 +353,8 @@ fn result_line<'a>(app: &App<'_>, r: &Ranked, selected: bool, path_width: usize)
     } else {
         Style::default().fg(CHROME)
     };
-    let base_style = if selected {
-        Style::default().add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
+    let base_style =
+        if selected { Style::default().add_modifier(Modifier::BOLD) } else { Style::default() };
     let match_style = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
 
     let mut spans: Vec<Span<'a>> = Vec::with_capacity(8);
@@ -399,7 +392,8 @@ fn result_line<'a>(app: &App<'_>, r: &Ranked, selected: bool, path_width: usize)
         SIGNAL_GLYPHS[signal_level(r.s_now)],
         Style::default().fg(ACCENT).add_modifier(Modifier::DIM),
     ));
-    let visits = if r.visits_total > 0 { format!(" {:>4}", r.visits_total) } else { "     ".into() };
+    let visits =
+        if r.visits_total > 0 { format!(" {:>4}", r.visits_total) } else { "     ".into() };
     spans.push(Span::styled(visits, Style::default().fg(CHROME)));
 
     Line::from(spans)
@@ -551,7 +545,10 @@ fn draw_action_menu(frame: &mut ratatui::Frame, app: &App<'_>, menu_index: usize
                 },
             ));
             if a.keybinding.as_deref() == Some("enter") {
-                spans.push(Span::styled("  enter", Style::default().fg(ACCENT).add_modifier(Modifier::DIM)));
+                spans.push(Span::styled(
+                    "  enter",
+                    Style::default().fg(ACCENT).add_modifier(Modifier::DIM),
+                ));
             }
             if !a.description.is_empty() {
                 spans.push(Span::styled(
@@ -570,7 +567,10 @@ fn draw_action_menu(frame: &mut ratatui::Frame, app: &App<'_>, menu_index: usize
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(CHROME))
-            .title(Span::styled(" actions ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))),
+            .title(Span::styled(
+                " actions ",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )),
     );
     frame.render_widget(Clear, area);
     frame.render_stateful_widget(list, area, &mut state);
