@@ -248,6 +248,55 @@ they do not make the display disagree with itself — the string shown *is*
 the string that executes. A future ADR may revisit with `unicode-security`
 on the roster.
 
+## Revision 2026-08-14 (second) — `{env.NAME}` scope, and escapes on the CLI
+
+Two findings from an independent review, both closing gaps between what
+this document states and what the code did.
+
+**§129 was stated and not implemented.** This ADR says a reference to a
+binding whose setter step failed "does not expand to the empty string,
+does not expand to the shell's own environment variable by the same
+name, does not fall through to a default". The third clause held; the
+second did not. `execute` seeded the template scope from the process
+environment, so `{env.FOO}` silently resolved to whatever the user had
+exported — precisely the substitution named and refused here.
+
+The scope is now split in two, because it was serving two contracts that
+pull in opposite directions. `child_env` — the sanitized process
+environment plus anything an `env` step sets — is what a spawned process
+inherits; a child without `PATH` is useless. `bindings` starts **empty**
+and holds only what `env` steps set; it is what `{env.NAME}` resolves
+against. `$EDITOR` resolution for the built-in editor moved to
+`child_env`, since that is a variable the user exports rather than one
+an action sets.
+
+**This is a breaking change, deliberately.** A config using
+`{env.HOME}` or `{env.EDITOR}` without an `env` step that sets them will
+now fail the step with `undefined_env:NAME` rather than silently
+resolving. That failure is the point: the alternative is an action
+expanding to a value neither the config nor scout chose. Actions that
+want a shell variable can reference it in a `print` template, where the
+user's own shell expands it after scout exits.
+
+**Escapes on the CLI paths.** §6 binds "every string that reaches
+`ratatui`", which left the non-TUI subcommands outside it — and the
+index refuses NUL and newline in a path (§Print refusal) but permits
+ESC, so `scout query` printed attacker-influenceable escape sequences
+straight to a terminal.
+
+`doctor` now strips unconditionally: it is a report, ADR-006 says its
+output exists to be pasted, and every detail it prints is
+attacker-influenceable.
+
+`query` strips **only when stdout is a terminal**. Stripping a piped
+path would corrupt the machine-readable contract ADR-008 exists to
+provide — a stripped path is a path that does not exist on disk, and a
+consumer cannot open it. The split follows `ls`, which quotes
+non-printables for a terminal and not for a pipe, for the same reason.
+The residual hole is `scout query | cat`, where the escape reaches the
+terminal through a second process; that is inherent to the convention
+and shared by every tool that follows it.
+
 ## Reviews
 
 _Appended by peer reviewers._

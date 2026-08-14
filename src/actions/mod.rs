@@ -50,7 +50,22 @@ pub struct ExecOutcome {
 /// and candidate rowid for the credit hook; None skips crediting (e.g.
 /// dry runs).
 pub fn execute(action: &Action, ctx: &ActionCtx, visit: Option<(&Connection, i64)>) -> ExecOutcome {
-    let mut scope = sanitized_process_env();
+    // Two maps, because `scope` was serving two contracts that pull in
+    // opposite directions.
+    //
+    // `child_env` is what a spawned process inherits: the sanitized
+    // process environment plus anything an `env` step sets. A child
+    // without PATH or HOME is useless.
+    //
+    // `bindings` is what `{env.NAME}` resolves against, and it starts
+    // EMPTY. ADR-003 §129 is explicit: a reference to a binding whose
+    // setter step failed "does not expand to the shell's own environment
+    // variable by the same name". Seeding it from the process
+    // environment made exactly that silent fallback the default — a
+    // failed `env` step resolved to whatever the user happened to have
+    // exported, which is the substitution the threat model refuses.
+    let mut child_env = sanitized_process_env();
+    let mut bindings: HashMap<String, String> = HashMap::new();
     let mut any_success = false;
     let mut credited = false;
     let mut first_fail_code: Option<i32> = None;
@@ -59,7 +74,7 @@ pub fn execute(action: &Action, ctx: &ActionCtx, visit: Option<(&Connection, i64
 
     for (index, step) in action.steps.iter().enumerate() {
         steps_run += 1;
-        let result = run_step(step, ctx, &mut scope);
+        let result = run_step(step, ctx, &mut child_env, &mut bindings);
         match result {
             Ok(()) => {
                 if !any_success {
@@ -140,9 +155,12 @@ pub fn failure_hint(reason: &str) -> Option<String> {
 fn run_step(
     step: &Step,
     ctx: &ActionCtx,
-    scope: &mut HashMap<String, String>,
+    child_env: &mut HashMap<String, String>,
+    bindings: &mut HashMap<String, String>,
 ) -> Result<(), (String, i32)> {
-    let expand_ctx = ExpandCtx { path: &ctx.path, query: &ctx.query, home: &ctx.home, env: scope };
+    // `bindings`, not the process environment (ADR-003 §129).
+    let expand_ctx =
+        ExpandCtx { path: &ctx.path, query: &ctx.query, home: &ctx.home, env: bindings };
     match step {
         Step::Spawn { argv, wait, cwd } => {
             let mut expanded = Vec::with_capacity(argv.len());
@@ -163,12 +181,15 @@ fn run_step(
                 }
                 None => PathBuf::from(&ctx.home),
             };
-            spawn(&expanded, *wait, &cwd, scope)
+            spawn(&expanded, *wait, &cwd, child_env)
         }
         Step::BuiltinEdit => {
-            let editor = resolve_editor(scope).ok_or_else(|| ("no_editor".to_string(), 127))?;
+            // The inherited environment, not the step bindings: $EDITOR
+            // is something the user exports, not something an action
+            // sets.
+            let editor = resolve_editor(child_env).ok_or_else(|| ("no_editor".to_string(), 127))?;
             let argv = vec![editor, ctx.path.display().to_string()];
-            spawn(&argv, true, Path::new(&ctx.home), scope)
+            spawn(&argv, true, Path::new(&ctx.home), child_env)
         }
         Step::Print { format } => {
             let line = format.expand(&expand_ctx, true).map_err(expand_fail)?;
@@ -189,7 +210,10 @@ fn run_step(
                 ));
             }
             for (name, value) in staged {
-                scope.insert(name, value);
+                // A binding is both visible to later templates and
+                // exported to later children.
+                child_env.insert(name.clone(), value.clone());
+                bindings.insert(name, value);
             }
             Ok(())
         }

@@ -131,6 +131,17 @@ assert that splitting on the first N tabs recovers the path *whole*.
 Asserting only that the output "contains the path" would pass while the
 format was broken.
 
+## Revision 2026-08-14 — Terminal escapes
+
+A path may contain ESC (the index refuses only NUL and newline), so the
+default human-facing output could rewrite a terminal.
+
+Output is stripped **only when stdout is a terminal**. Piped output stays
+byte-exact in every format — `paths`, `tsv` and `--print0` alike —
+because this ADR's whole purpose is that a consumer can act on what it
+reads, and a stripped path does not exist on disk. Guarded by
+`piped_output_is_byte_exact_in_every_format`.
+
 ## Reviews
 
 _Appended by peer reviewers._

@@ -51,7 +51,9 @@ Flags:
 - `scout --version`, `scout --help`, `scout <command> --help`.
 
 `scout query` **exits 1 when nothing matched**, so a script can branch
-without inspecting the output.
+without inspecting the output. Piped output is byte-exact; when stdout
+is a terminal, terminal escape sequences in a path are stripped so a
+directory name cannot rewrite your terminal.
 
 Re-running `scout index` on the same tree is the normal way to refresh:
 it starts a new scan generation and tombstones paths that have gone
@@ -174,6 +176,12 @@ not seem to have taken.
 
 Actions are declarative TOML: a name, a keybinding, and a list of steps
 that either spawn a process or print a command for your shell to run.
+
+`{env.NAME}` resolves **only** against variables an earlier `env` step in
+the same action set — never against your shell's environment. A
+reference to something unset fails the step rather than quietly
+expanding to whatever you happened to export. To use a shell variable,
+reference it in a `print` template and let your own shell expand it.
 Placeholders (`{path}`, `{parent}`, `{name}`, `{query}`, and friends)
 are quoted at the print seam, so a directory called `proj $(rm -rf ~)`
 is a filename, not an instruction. A template that needs a placeholder

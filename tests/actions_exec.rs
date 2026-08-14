@@ -303,3 +303,170 @@ fn exec_outcome_carries_the_failure_reason() {
 
     fs::remove_dir_all(&dir).unwrap();
 }
+
+// ---------------------------------------------------------------------
+// {env.NAME} scope (ADR-003 §129): template bindings are what an `env`
+// step set, never what the user happened to export.
+// ---------------------------------------------------------------------
+
+/// The substitution the threat model refuses: a reference resolving to
+/// an inherited variable of the same name. Previously `{env.SCOUT_TEST_*}`
+/// silently picked this up from the process environment.
+#[test]
+fn env_placeholder_does_not_fall_back_to_the_inherited_environment() {
+    let dir = temp_dir("env-nofallback");
+    std::env::set_var("SCOUT_TEST_INHERITED", "from-the-shell");
+
+    let action = Action {
+        name: "leak".into(),
+        description: String::new(),
+        keybinding: None,
+        on_failure: OnFailure::Abort,
+        unsafe_shell_template: false,
+        steps: vec![Step::Print {
+            format: Template::parse("printf '%s' {env.SCOUT_TEST_INHERITED}").unwrap(),
+        }],
+        from_user_config: true,
+    };
+    let ctx =
+        ActionCtx { path: dir.clone(), query: String::new(), home: dir.display().to_string() };
+
+    let outcome = execute(&action, &ctx, None);
+    assert!(!outcome.any_success, "the reference must not resolve");
+    let (_, reason) = outcome.failure.expect("a reason");
+    assert!(reason.contains("undefined_env"), "{reason}");
+    assert!(reason.contains("SCOUT_TEST_INHERITED"), "{reason}");
+
+    std::env::remove_var("SCOUT_TEST_INHERITED");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The legitimate case still works: a binding set by an earlier step in
+/// the same action is visible to a later one.
+#[test]
+fn env_placeholder_resolves_a_binding_set_by_an_earlier_step() {
+    let dir = temp_dir("env-binding");
+    let action = Action {
+        name: "chain".into(),
+        description: String::new(),
+        keybinding: None,
+        on_failure: OnFailure::Abort,
+        unsafe_shell_template: false,
+        steps: vec![
+            Step::Env { set: vec![("SCOUT_STEP_SET".into(), Template::parse("{name}").unwrap())] },
+            Step::Print { format: Template::parse("printf '%s' {env.SCOUT_STEP_SET}").unwrap() },
+        ],
+        from_user_config: true,
+    };
+    let ctx =
+        ActionCtx { path: dir.clone(), query: String::new(), home: dir.display().to_string() };
+
+    let outcome = execute(&action, &ctx, None);
+    assert!(outcome.any_success, "failure: {:?}", outcome.failure);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A spawned child must still inherit a usable environment — the split
+/// restricts what `{env.NAME}` sees, not what a process receives.
+#[test]
+fn a_spawned_child_still_inherits_the_process_environment() {
+    let dir = temp_dir("env-child");
+    let marker = dir.join("saw-path");
+    // `sh -c` needs PATH to find anything; writing the file proves the
+    // child got a working environment.
+    let action = Action {
+        name: "spawn".into(),
+        description: String::new(),
+        keybinding: None,
+        on_failure: OnFailure::Abort,
+        unsafe_shell_template: false,
+        steps: vec![Step::Spawn {
+            argv: vec![
+                Template::parse("/bin/sh").unwrap(),
+                Template::parse("-c").unwrap(),
+                Template::parse(&format!("test -n \"$PATH\" && touch {}", marker.display()))
+                    .unwrap(),
+            ],
+            wait: true,
+            cwd: None,
+        }],
+        from_user_config: true,
+    };
+    let ctx =
+        ActionCtx { path: dir.clone(), query: String::new(), home: dir.display().to_string() };
+
+    let outcome = execute(&action, &ctx, None);
+    assert!(outcome.any_success, "failure: {:?}", outcome.failure);
+    assert!(marker.exists(), "child did not see PATH");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// An `env` step's value is exported to later children as well as being
+/// visible to later templates.
+#[test]
+fn an_env_step_exports_to_later_children() {
+    let dir = temp_dir("env-export");
+    let marker = dir.join("exported");
+    let action = Action {
+        name: "export".into(),
+        description: String::new(),
+        keybinding: None,
+        on_failure: OnFailure::Abort,
+        unsafe_shell_template: false,
+        steps: vec![
+            Step::Env { set: vec![("SCOUT_EXPORTED".into(), Template::parse("{name}").unwrap())] },
+            Step::Spawn {
+                argv: vec![
+                    Template::parse("/bin/sh").unwrap(),
+                    Template::parse("-c").unwrap(),
+                    Template::parse(&format!(
+                        "test -n \"$SCOUT_EXPORTED\" && touch {}",
+                        marker.display()
+                    ))
+                    .unwrap(),
+                ],
+                wait: true,
+                cwd: None,
+            },
+        ],
+        from_user_config: true,
+    };
+    let ctx =
+        ActionCtx { path: dir.clone(), query: String::new(), home: dir.display().to_string() };
+
+    let outcome = execute(&action, &ctx, None);
+    assert!(outcome.any_success, "failure: {:?}", outcome.failure);
+    assert!(marker.exists(), "the env step did not reach the child");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// `BuiltinEdit` resolves $EDITOR/$VISUAL/PATH from the *inherited*
+/// environment. It read the same map that now holds only step bindings,
+/// so restricting that map without moving this lookup would have made
+/// the built-in editor unresolvable on every machine.
+#[test]
+fn builtin_edit_still_resolves_editor_from_the_inherited_environment() {
+    let dir = temp_dir("builtin-edit");
+    std::env::set_var("EDITOR", "/bin/true");
+
+    let action = Action {
+        name: "edit".into(),
+        description: String::new(),
+        keybinding: None,
+        on_failure: OnFailure::Abort,
+        unsafe_shell_template: false,
+        steps: vec![Step::BuiltinEdit],
+        from_user_config: false,
+    };
+    let ctx =
+        ActionCtx { path: dir.clone(), query: String::new(), home: dir.display().to_string() };
+
+    let outcome = execute(&action, &ctx, None);
+    std::env::remove_var("EDITOR");
+    assert!(
+        outcome.any_success,
+        "the built-in editor must still find $EDITOR: {:?}",
+        outcome.failure
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}

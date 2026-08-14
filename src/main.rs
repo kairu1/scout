@@ -286,13 +286,31 @@ fn cmd_query(query: &str, limit: usize, format: &str, print0: bool) -> ExitCode 
     let mut matcher = scout::search::matcher::NucleoMatcher::new();
     let now = scout::index::unix_now();
     let results = scout::search::search(&mut matcher, &candidates, query, now, limit);
+    // Strip terminal escapes only when stdout is a terminal.
+    //
+    // The index refuses NUL and newline in a path but permits ESC, so a
+    // directory name can carry an escape sequence. Printed to a
+    // terminal that rewrites the title; printed to a pipe it is data,
+    // and mangling it would corrupt the machine-readable contract
+    // ADR-008 exists to provide — a stripped path is a path that does
+    // not exist on disk. `ls` draws the same line for the same reason.
+    let to_terminal = std::io::stdout().is_terminal();
+    let render = |path: &str| -> String {
+        if to_terminal {
+            scout::ui::strip::clean(path)
+        } else {
+            path.to_string()
+        }
+    };
     for ranked in &results {
         match (format, print0) {
             // Path last in every mode: it is the only field whose bytes
             // are not under our control (ADR-008).
-            ("tsv", _) => println!("{:.4}\t{}\t{}", ranked.rank, ranked.visits_total, ranked.path),
-            (_, true) => print!("{}\0", ranked.path),
-            _ => println!("{}", ranked.path),
+            ("tsv", _) => {
+                println!("{:.4}\t{}\t{}", ranked.rank, ranked.visits_total, render(&ranked.path))
+            }
+            (_, true) => print!("{}\0", render(&ranked.path)),
+            _ => println!("{}", render(&ranked.path)),
         }
     }
     let _ = scout::index::recovery::shutdown(conn);

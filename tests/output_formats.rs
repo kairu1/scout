@@ -123,3 +123,39 @@ fn unknown_format_is_refused_not_ignored() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// ADR-008's contract is that piped output is data. The index refuses
+/// NUL and newline in a path but permits ESC, so a directory name can
+/// carry a terminal escape — and mangling it in a pipe would hand a
+/// consumer a path that does not exist on disk.
+///
+/// Every format must therefore be byte-exact when piped. The
+/// human-facing counterpart (stripping when stdout is a terminal) needs
+/// a PTY and is covered by the harness, not here.
+#[test]
+fn piped_output_is_byte_exact_in_every_format() {
+    let dir = sandbox("escape-pipe");
+    let weird = dir.join("tree").join("evil\u{1b}]0;HIJACK\u{7}dir");
+    std::fs::create_dir_all(&weird).unwrap();
+    index(&dir);
+    let expected = weird.to_str().unwrap();
+
+    // Default paths format.
+    let out = run(&dir, &["query", "evil"]);
+    assert!(stdout(&out).contains(expected), "paths format mangled the path");
+
+    // TSV: the path is the last field, so take everything after two tabs.
+    let out = run(&dir, &["query", "evil", "--format", "tsv"]);
+    let text = stdout(&out);
+    let line = text.lines().find(|l| l.contains("evil")).expect("a row");
+    let path = line.splitn(3, '\t').nth(2).expect("third field");
+    assert_eq!(path, expected, "tsv mangled the path");
+
+    // NUL-separated.
+    let out = run(&dir, &["query", "evil", "--print0"]);
+    let raw = String::from_utf8_lossy(&out.stdout);
+    let record = raw.split('\0').next().expect("a record");
+    assert_eq!(record, expected, "print0 mangled the path");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
