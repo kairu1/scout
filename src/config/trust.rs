@@ -108,7 +108,20 @@ pub fn prompt(
     // string would never re-prompt on change either.
     let show = crate::ui::strip::clean;
     for action in actions {
-        writeln!(err, "  [{}] {}", show(&action.name), show(&action.description))?;
+        // `keybinding` and `unsafe_shell_template` are both inside the
+        // canonical trust hash, so changing either re-prompts — and
+        // without rendering them the new prompt was byte-identical to
+        // the old one. The user would be asked to re-approve with no
+        // visible reason, for the two fields that decide what key runs
+        // an action and whether shell metacharacters escape.
+        write!(err, "  [{}]", show(&action.name))?;
+        if let Some(binding) = &action.keybinding {
+            write!(err, " key={}", show(binding))?;
+        }
+        if action.unsafe_shell_template {
+            write!(err, " UNSAFE-SHELL-TEMPLATE")?;
+        }
+        writeln!(err, " {}", show(&action.description))?;
         for step in &action.steps {
             match step {
                 Step::Spawn { argv, wait, cwd } => {

@@ -191,7 +191,8 @@ pub struct ExpandCtx<'a> {
     pub path: &'a Path,
     pub query: &'a str,
     pub home: &'a str,
-    /// Action-scope env (seeded sanitised, overlaid by env steps).
+    /// Bindings set by `env` steps in this action. NOT the process
+    /// environment — see ADR-003 §129 and `actions::execute`.
     pub env: &'a HashMap<String, String>,
 }
 

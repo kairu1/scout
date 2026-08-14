@@ -542,6 +542,45 @@ fn draw_search(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
     );
 }
 
+/// Terminal columns a string occupies.
+fn str_columns(text: &str) -> usize {
+    use unicode_width::UnicodeWidthChar;
+    text.chars().map(|c| c.width().unwrap_or(0)).sum()
+}
+
+/// The longest suffix of `text` that fits in `columns`.
+fn take_last_columns(text: &str, columns: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+    let mut used = 0usize;
+    let mut take = 0usize;
+    for c in text.chars().rev() {
+        let w = c.width().unwrap_or(0);
+        if used + w > columns {
+            break;
+        }
+        used += w;
+        take += 1;
+    }
+    let skip = text.chars().count() - take;
+    text.chars().skip(skip).collect()
+}
+
+/// The longest prefix of `text` that fits in `columns`.
+fn take_first_columns(text: &str, columns: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+    let mut used = 0usize;
+    let mut out = String::new();
+    for c in text.chars() {
+        let w = c.width().unwrap_or(0);
+        if used + w > columns {
+            break;
+        }
+        used += w;
+        out.push(c);
+    }
+    out
+}
+
 /// The query, with the caret drawn where it actually is. Each half is
 /// stripped separately: `strip::clean` can remove characters, so
 /// cleaning the whole string and then slicing by the caret would put the
@@ -552,16 +591,14 @@ fn query_spans<'a>(app: &App<'_>, width: usize) -> Vec<Span<'a>> {
     // Scroll horizontally so the caret is always on screen. Without
     // this, typing past the field width moved the caret off the right
     // edge and further keystrokes produced no visible change at all.
+    //
+    // Measured in COLUMNS, not characters (ADR-005). A char-counted
+    // window is right for ASCII and wrong by a factor of two for CJK,
+    // which is the failure this whole layer exists to prevent — and the
+    // first version of this scroll fix made exactly that mistake.
     let room = width.saturating_sub(3).max(1); // prompt, space, caret
-    let before: String = {
-        let cols = before.chars().count();
-        if cols > room {
-            before.chars().skip(cols - room).collect()
-        } else {
-            before.to_string()
-        }
-    };
-    let after: String = after.chars().take(room.saturating_sub(before.chars().count())).collect();
+    let before = take_last_columns(before, room);
+    let after = take_first_columns(after, room.saturating_sub(str_columns(&before)));
     let (before, after) = (before.as_str(), after.as_str());
     let text = Style::default().add_modifier(Modifier::BOLD);
     let mut spans = vec![
@@ -599,9 +636,19 @@ fn draw_results(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
 
     let shown = visible(app, area);
     if shown.is_empty() {
+        // Distinguish "nothing matched" from "no room to draw anything".
+        // Below a certain height the pane shows zero rows, and with no
+        // drawn row nothing can be selected or run — reporting that as
+        // "no matches" told the user their query was wrong when their
+        // window was.
+        let message = if body_rows(area) == 0 {
+            "  terminal too short - make the window taller"
+        } else {
+            "  no matches"
+        };
         frame.render_widget(
             Paragraph::new(Span::styled(
-                "  no matches",
+                message,
                 Style::default().fg(CHROME).add_modifier(Modifier::DIM),
             )),
             inner,
@@ -912,5 +959,114 @@ fn centered(area: Rect, width: u16, height: u16) -> Rect {
         y: area.y + (area.height - h) / 2,
         width: w,
         height: h,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn screen(width: u16, height: u16) -> Rect {
+        Rect { x: 0, y: 0, width, height }
+    }
+
+    /// The layout arithmetic must survive every terminal size, including
+    /// the degenerate ones. Underflow here would panic inside a draw.
+    #[test]
+    fn layout_survives_every_terminal_size() {
+        for width in [0u16, 1, 2, 3, 4, 5, 8, 20, 40, 200] {
+            for height in [0u16, 1, 2, 3, 4, 5, 6, 8, 24, 80] {
+                for banner in [false, true] {
+                    let area = screen(width, height);
+                    let p = panel(area);
+                    assert!(p.width <= width.max(1) || width == 0);
+                    let (search, _, body, footer) = regions(p, banner);
+                    // Nothing may extend past the panel.
+                    for r in [search, body, footer] {
+                        assert!(
+                            r.x + r.width <= p.x + p.width.max(1) + 1,
+                            "{width}x{height} banner={banner}: region escapes the panel"
+                        );
+                    }
+                    let _ = results_capacity(area, banner);
+                }
+            }
+        }
+    }
+
+    /// A pane too short to draw a single row must report zero capacity —
+    /// the `.max(1)` floor that used to sit here made row 0 selectable
+    /// when nothing was drawn, so `enter` acted on an unseen row.
+    #[test]
+    fn a_pane_with_no_room_has_no_capacity() {
+        assert_eq!(body_rows(screen(80, 0)), 0);
+        assert_eq!(body_rows(screen(80, 1)), 0);
+        assert_eq!(body_rows(screen(80, 2)), 0);
+        assert_eq!(body_rows(screen(80, 3)), 1);
+        // And the cap holds however tall the terminal is.
+        assert_eq!(body_rows(screen(80, 500)), DISPLAY_CAP);
+    }
+
+    /// The search field scrolls in COLUMNS. A char-counted window is
+    /// right for ASCII and wrong by a factor of two for CJK, which is
+    /// how the first version of this fix still lost the caret.
+    #[test]
+    fn the_search_window_is_measured_in_columns() {
+        assert_eq!(str_columns("abcd"), 4);
+        assert_eq!(str_columns("日本語"), 6);
+
+        // Suffix: 4 columns of a wide string is two glyphs, not four.
+        assert_eq!(take_last_columns("日本語日", 4), "語日");
+        assert_eq!(take_last_columns("abcdef", 4), "cdef");
+        // A budget that splits a wide glyph takes the narrower fit.
+        assert_eq!(take_last_columns("日本語", 3), "語");
+
+        // Prefix, same rules.
+        assert_eq!(take_first_columns("日本語日", 4), "日本");
+        assert_eq!(take_first_columns("abcdef", 4), "abcd");
+        assert_eq!(take_first_columns("日本語", 1), "");
+        assert_eq!(take_first_columns("", 10), "");
+    }
+
+    /// Whatever the query and however narrow the field, the rendered
+    /// row must fit — that is what keeps the caret on screen.
+    #[test]
+    fn the_rendered_query_row_never_exceeds_the_field() {
+        let config = Config::builtin_only();
+        let candidates: Vec<CandidateRow> = Vec::new();
+        let state = IndexState::Empty;
+        for query in
+            ["", "a", "abcdefghij", &"x".repeat(200), "日本語版プロジェクト", &"語".repeat(50)]
+        {
+            for width in [4usize, 8, 12, 20, 40, 100] {
+                let mut app = App {
+                    config: &config,
+                    candidates: &candidates,
+                    index_state: &state,
+                    home: String::new(),
+                    matcher: crate::search::matcher::NucleoMatcher::new(),
+                    query: query.to_string(),
+                    caret: query.chars().count(),
+                    results: Vec::new(),
+                    selected: 0,
+                    menu: None,
+                    action_query: String::new(),
+                    capacity: 8,
+                    help: false,
+                    no_config_banner: false,
+                };
+                app.caret = query.chars().count();
+                let spans = query_spans(&app, width);
+                let rendered: usize = spans.iter().map(|s| str_columns(&s.content)).sum();
+                assert!(
+                    rendered <= width,
+                    "query {:?} at width {width} rendered {rendered} columns",
+                    query
+                );
+                // The caret must be present whenever the field has focus.
+                let has_caret = spans.iter().any(|s| s.content.contains(glyph::CURSOR));
+                assert!(has_caret, "caret lost: query {:?} at width {width}", query);
+            }
+        }
     }
 }

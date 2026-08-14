@@ -3,8 +3,12 @@
 //! it is trusted, what the index holds, and how the environment reads.
 //!
 //! Three rules from ADR-006 §Decision bind this module. It never
-//! prompts and never writes — config loads with `interactive: false`, so
-//! an untrusted config is a finding rather than a prompt. It prints a
+//! prompts, and it never modifies, migrates or repairs anything —
+//! config loads with `interactive: false`, so an untrusted config is a
+//! finding rather than a prompt, and the index is opened read-only.
+//! (Reading a WAL database lets SQLite create transient `-shm`/`-wal`
+//! sidecars; that is a property of reading WAL at all, and buying it
+//! back with `immutable=1` made the report wrong — see `index_section`.) It prints a
 //! closed allowlist of environment variables, never the environment,
 //! because this output exists to be pasted into bug reports. And it
 //! collapses `$HOME` to `~` for the same reason.
@@ -303,15 +307,28 @@ fn index_section(home: Option<&Path>) -> Section {
     // ADR-006 §Alternatives 4 rejects outright: the evidence is gone by
     // the time the user reads the line describing it. Read-only open
     // cannot create, migrate, or recover.
-    // `immutable=1`, not merely SQLITE_OPEN_READ_ONLY. A read-only open
-    // of a WAL database still creates and leaves behind `-shm` and
-    // `-wal` sidecars, so "doctor never writes" was false on disk even
-    // though no scout code called a write path. Immutable tells SQLite
-    // the file cannot change, so it neither creates nor consults them.
-    let uri = format!("file:{}?immutable=1", db_path.display());
+    // Read-only, and deliberately NOT `immutable=1`.
+    //
+    // `immutable=1` was tried, to stop SQLite creating `-shm`/`-wal`
+    // sidecars while reading a WAL database. It made the diagnostic
+    // lie, in three ways: `PRAGMA journal_mode` reports `delete` for a
+    // database that is in WAL, so every healthy machine got a spurious
+    // warning; the index writer sets `wal_autocheckpoint = 0`, so
+    // between checkpoints the rows live in `-wal` and an immutable
+    // connection cannot see them — a crashed `scout index` would be
+    // reported as a near-empty but *healthy* index, which is the worst
+    // possible answer from the tool you reach for when something is
+    // wrong; and it required building a URI, where a `%`, `?` or `#`
+    // anywhere in the path made a working index fail to open.
+    //
+    // A diagnostic that reads the truth matters more than a literal
+    // "writes no bytes". The narrowed, accurate promise is in ADR-006:
+    // doctor never modifies, migrates or repairs your index. SQLite may
+    // create transient sidecars to read a WAL database, as any reader
+    // must.
     let conn = match rusqlite::Connection::open_with_flags(
-        &uri,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     ) {
         Ok(conn) => conn,
         Err(err) => {

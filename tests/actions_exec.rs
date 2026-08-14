@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 use rusqlite::Connection;
@@ -314,8 +315,10 @@ fn exec_outcome_carries_the_failure_reason() {
 /// silently picked this up from the process environment.
 #[test]
 fn env_placeholder_does_not_fall_back_to_the_inherited_environment() {
+    // PATH is always set in the parent environment, so this needs no
+    // mutation of it. Tests that call `std::env::set_var` race every
+    // sibling test reading `std::env::vars()` on another thread.
     let dir = temp_dir("env-nofallback");
-    std::env::set_var("SCOUT_TEST_INHERITED", "from-the-shell");
 
     let action = Action {
         name: "leak".into(),
@@ -323,9 +326,7 @@ fn env_placeholder_does_not_fall_back_to_the_inherited_environment() {
         keybinding: None,
         on_failure: OnFailure::Abort,
         unsafe_shell_template: false,
-        steps: vec![Step::Print {
-            format: Template::parse("printf '%s' {env.SCOUT_TEST_INHERITED}").unwrap(),
-        }],
+        steps: vec![Step::Print { format: Template::parse("printf '%s' {env.PATH}").unwrap() }],
         from_user_config: true,
     };
     let ctx =
@@ -335,9 +336,8 @@ fn env_placeholder_does_not_fall_back_to_the_inherited_environment() {
     assert!(!outcome.any_success, "the reference must not resolve");
     let (_, reason) = outcome.failure.expect("a reason");
     assert!(reason.contains("undefined_env"), "{reason}");
-    assert!(reason.contains("SCOUT_TEST_INHERITED"), "{reason}");
+    assert!(reason.contains("PATH"), "{reason}");
 
-    std::env::remove_var("SCOUT_TEST_INHERITED");
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -446,8 +446,14 @@ fn an_env_step_exports_to_later_children() {
 /// the built-in editor unresolvable on every machine.
 #[test]
 fn builtin_edit_still_resolves_editor_from_the_inherited_environment() {
+    // No env mutation: whatever the inherited environment offers is
+    // what the built-in editor must be able to reach.
     let dir = temp_dir("builtin-edit");
-    std::env::set_var("EDITOR", "/bin/true");
+    let inherited_editor = std::env::var("EDITOR").ok().filter(|v| !v.is_empty()).is_some()
+        || std::env::var("VISUAL").ok().filter(|v| !v.is_empty()).is_some()
+        || std::env::var("PATH").unwrap_or_default().split(':').any(|d| {
+            !d.is_empty() && ["vi", "vim", "nano"].iter().any(|c| Path::new(d).join(c).is_file())
+        });
 
     let action = Action {
         name: "edit".into(),
@@ -462,11 +468,18 @@ fn builtin_edit_still_resolves_editor_from_the_inherited_environment() {
         ActionCtx { path: dir.clone(), query: String::new(), home: dir.display().to_string() };
 
     let outcome = execute(&action, &ctx, None);
-    std::env::remove_var("EDITOR");
-    assert!(
-        outcome.any_success,
-        "the built-in editor must still find $EDITOR: {:?}",
-        outcome.failure
-    );
+    if inherited_editor {
+        assert!(
+            outcome.any_success,
+            "an editor is reachable from the inherited environment, so the built-in edit step \
+             must resolve it: {:?}",
+            outcome.failure
+        );
+    } else {
+        // Nothing to resolve — but it must fail for THAT reason, not
+        // because the lookup was pointed at the wrong map.
+        let (_, reason) = outcome.failure.expect("a reason");
+        assert_eq!(reason, "no_editor", "{reason}");
+    }
     fs::remove_dir_all(&dir).unwrap();
 }

@@ -143,6 +143,15 @@ pub fn failure_hint(reason: &str) -> Option<String> {
             format!("the environment variable `{name}` is not set")
         }
         "no_editor" => "set $EDITOR or $VISUAL, or install a vi-family editor on PATH".to_string(),
+        "path" => "the selection's path is not valid UTF-8".to_string(),
+        "print_write" => "scout could not write to stdout".to_string(),
+        "exit_status" => {
+            "the command ran and returned a non-zero status; run it yourself to see why".to_string()
+        }
+        r if r.starts_with("spawn:") => {
+            let detail = r.split_once(':').map(|(_, d)| d).unwrap_or(r);
+            format!("the command could not be started ({detail}); check that it exists on PATH")
+        }
         "hazardous_path" => {
             "the path contains NUL or newline and cannot be passed to a shell safely".to_string()
         }
@@ -290,7 +299,8 @@ fn resolve_editor(scope: &HashMap<String, String>) -> Option<String> {
     None
 }
 
-/// Action-scope env seed: the process env with PATH stripped of `.` and
+/// Environment a spawned child inherits: the process env with PATH
+/// stripped of `.` and
 /// empty entries (ADR-003 §6). Secrets are deliberately NOT stripped
 /// (ADR-003 §1).
 pub fn sanitized_process_env() -> HashMap<String, String> {
@@ -328,23 +338,46 @@ fn credit_visit(conn: &Connection, candidate_id: i64, path: &Path) -> bool {
 mod hint_tests {
     use super::failure_hint;
 
-    /// The codes `fail_kind` actually produces must each reach an arm.
-    /// This test exists because the previous version of this mapping
-    /// lived in the binary crate, where nothing could reach it, and had
-    /// silently drifted out of agreement with its producer.
+    /// Every reason this module PRODUCES must reach an arm.
+    ///
+    /// The producer set is scanned out of the source rather than written
+    /// here by hand. The previous version was a hardcoded list, and it
+    /// passed while four produced reasons — `path`, `print_write`,
+    /// `exit_status` and `spawn:<kind>` — had no arm at all, including
+    /// the two commonest real failures: a command not on PATH, and a
+    /// command that exits non-zero. A parity guard carrying its own copy
+    /// of the thing it checks is not a parity guard.
     #[test]
     fn every_produced_reason_shape_has_a_hint() {
-        for reason in [
-            "undefined_placeholder:repo_root",
-            "undefined_placeholder:ext",
-            "undefined_env:GITHUB_TOKEN",
-            "no_editor",
-            "hazardous_path",
-            // The wrapped form, produced when a `cwd` template fails.
-            "cwd:undefined_placeholder:repo_root",
-            "cwd:undefined_env:HOME",
-        ] {
-            assert!(failure_hint(reason).is_some(), "no hint for `{reason}`");
+        let source = include_str!("mod.rs");
+        // (marker in the source, a representative reason it produces)
+        let producers = [
+            ("\"no_editor\".to_string()", "no_editor"),
+            ("\"print_write\"", "print_write"),
+            ("\"exit_status\"", "exit_status"),
+            ("\"path\".into()", "path"),
+            ("\"hazardous_path\".into()", "hazardous_path"),
+            ("undefined_placeholder:{which}", "undefined_placeholder:repo_root"),
+            ("undefined_env:{name}", "undefined_env:SOME_VAR"),
+            ("spawn:{", "spawn:entity not found"),
+            ("cwd:{}", "cwd:undefined_placeholder:repo_root"),
+        ];
+        let mut seen = 0usize;
+        for (marker, sample) in producers {
+            if !source.contains(marker) {
+                continue;
+            }
+            seen += 1;
+            assert!(failure_hint(sample).is_some(), "no hint for produced reason `{sample}`");
+        }
+        assert!(
+            seen >= 8,
+            "the producer scan matched only {seen} markers; it has lost track of the source and \
+             is no longer guarding anything"
+        );
+        // Wrapped forms, which the plain scan cannot see.
+        for wrapped in ["cwd:undefined_env:HOME", "cwd:path"] {
+            assert!(failure_hint(wrapped).is_some(), "no hint for `{wrapped}`");
         }
     }
 

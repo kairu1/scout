@@ -52,11 +52,11 @@ fn fresh_machine_warns_but_does_not_fail() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// ADR-006 §Decision: `doctor` never writes. The index open path
-/// (`index::pragma::open`) creates directories, creates the file, runs
-/// migrations and rebuilds a corrupt database — so a diagnostic that
-/// reached for it would silently repair, or fabricate, the very state it
-/// claims to be observing. This is the guard for that.
+/// ADR-006 §Decision: `doctor` never modifies, migrates or repairs. The
+/// index open path (`index::pragma::open`) creates directories, creates
+/// the file, runs migrations and rebuilds a corrupt database — so a
+/// diagnostic that reached for it would silently repair, or fabricate,
+/// the very state it claims to be observing. This is the guard for that.
 #[test]
 fn doctor_creates_nothing() {
     let dir = sandbox("readonly");
@@ -168,4 +168,74 @@ fn terminal_escapes_never_reach_the_report() {
     assert!(!text.contains('\u{1b}'), "ESC reached the report");
     assert!(!text.contains('\u{7}'), "BEL reached the report");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The report must be true, which is a stronger requirement than
+/// "writes no bytes" and was briefly traded away for it.
+///
+/// Opening `immutable=1` stopped SQLite creating `-shm`/`-wal` sidecars
+/// — and made `PRAGMA journal_mode` report `delete` on every healthy
+/// WAL database, and made rows still resident in an uncheckpointed
+/// `-wal` invisible, so a crashed indexer would be reported as a
+/// near-empty but healthy index.
+#[test]
+fn a_wal_index_is_reported_truthfully() {
+    let dir = sandbox("wal");
+    let tree = dir.join("tree");
+    for i in 0..12 {
+        std::fs::create_dir_all(tree.join(format!("proj{i}"))).unwrap();
+    }
+    let indexed = Command::new(env!("CARGO_BIN_EXE_scout"))
+        .arg("index")
+        .arg(&tree)
+        .env("HOME", dir.join("home"))
+        .env("XDG_CONFIG_HOME", dir.join("cfg"))
+        .env("XDG_DATA_HOME", dir.join("data"))
+        .env("XDG_STATE_HOME", dir.join("state"))
+        .output()
+        .expect("index");
+    assert!(indexed.status.success());
+
+    let out = doctor(&dir);
+    let text = stdout(&out);
+
+    assert!(text.contains("journal"), "{text}");
+    assert!(
+        !text.contains("warn  journal") && !text.contains("delete"),
+        "journal mode misreported on a healthy WAL index:\n{text}"
+    );
+    // The rows the indexer wrote must be visible to the diagnostic.
+    assert!(!text.contains("0 live"), "doctor cannot see the indexed rows:\n{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A `%`, `?` or `#` anywhere in the data path must not break the open.
+/// Building a SQLite URI made these percent-decode or truncate, so a
+/// working index reported FAIL and exited 1.
+#[test]
+fn uri_metacharacters_in_the_path_do_not_break_the_open() {
+    let base = std::env::temp_dir().join(format!("scout-doctor-uri%41-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    for sub in ["home", "cfg", "data", "state", "tree/proj"] {
+        std::fs::create_dir_all(base.join(sub)).unwrap();
+    }
+    let run = |args: &[&std::ffi::OsStr]| {
+        Command::new(env!("CARGO_BIN_EXE_scout"))
+            .args(args)
+            .env("HOME", base.join("home"))
+            .env("XDG_CONFIG_HOME", base.join("cfg"))
+            .env("XDG_DATA_HOME", base.join("data"))
+            .env("XDG_STATE_HOME", base.join("state"))
+            .output()
+            .expect("run scout")
+    };
+    let tree = base.join("tree");
+    assert!(run(&["index".as_ref(), tree.as_os_str()]).status.success());
+
+    let out = run(&["doctor".as_ref()]);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert_eq!(out.status.code(), Some(0), "percent in path broke doctor:\n{text}");
+    assert!(!text.contains("FAIL"), "{text}");
+
+    let _ = std::fs::remove_dir_all(&base);
 }

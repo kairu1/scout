@@ -21,7 +21,9 @@
 # right directory, in your shell*, which is the whole point.
 #
 # Placeholders: {path} {parent} {name} {ext} {repo_root} {home} {query}
-# and {env.VAR}. Every one is quoted at the print seam, so a directory
+# and {env.VAR} — where VAR must have been set by an earlier `env` step
+# in the SAME action. It is not your shell's environment: to use a shell
+# variable, write it in the printed command and let your shell expand it. Every one is quoted at the print seam, so a directory
 # called `proj $(rm -rf ~)` is a filename, not an instruction.
 #
 # That quoting is what makes an untrusted filename safe, so a template
