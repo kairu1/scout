@@ -99,6 +99,37 @@ matched, which directly informs the next keystroke.
 **7. A `?` help overlay.** The only borrowing from lazygit that survives
 the reframing. Today `Tab` is discoverable solely by reading the README.
 
+**8. Three commander rulings, 2026-08-14.** The questions this draft
+left open are answered.
+
+**8a. Eight results.** Display depth is 8, adapting downward when the
+terminal is too short. `RESULT_LIMIT = 200` remains ranking depth.
+
+**8b. The query row keeps its counter.** `5/5` stays. It is ranking
+metadata by decision 5's logic, but decision 5's target is *per-row*
+ornament repeated once per line; the counter appears once, in the row
+the user is already looking at while typing, and it is the only feedback
+that a query is narrowing. One counter is information; eight meters are
+decoration.
+
+**8c. A kind marker earns its column.** One leading character
+distinguishing a git repository from a plain directory from a file —
+the terminal's answer to Spotlight's icons, and the fastest way to tell
+"the project" from "a file inside the project".
+
+Marker set, chosen for width rather than looks: `⑂` (U+2442) for a git
+repository, `‣` (U+2023) for a directory, and a space for a file. All
+are East Asian Width **Neutral**, so they occupy exactly one column in
+every terminal. The obvious candidates — `◆`, `▪`, `·` — are
+**Ambiguous**, which means one column or two depending on the reader's
+locale, and an ornament that changes width defeats ADR-005 in the exact
+place ADR-005 was written to protect.
+
+Repository detection is a `.git` stat, performed **only for the rows
+being displayed** — at most eight per frame. It must not enter the
+indexer: it would add a stat per path to a walk with a 100k budget, to
+answer a question about eight rows.
+
 ## Rationale
 
 **The row's job is discrimination, not description.** A picker exists to
@@ -185,16 +216,25 @@ operate on sets, never on single rows.
 should be removed rather than left dormant — an unused visual grammar is
 a trap for the next reader.
 
-**Open questions for the commander.** Deliberately not decided here:
+**An ADR-005 gap this ADR surfaced, and does not close.** Checking the
+marker candidates revealed that almost the entire existing visual
+grammar is East Asian Width **Ambiguous**: `▌` (selection bar), `▁▄█`
+(the meter), `─` (hairline), and — the one that matters —
+`…`, the truncation ellipsis. `unicode-width` 0.1 reports Ambiguous as
+one column, which is right for most terminals and wrong for a reader
+whose locale renders them wide. `truncate_left` spends exactly one
+column on that ellipsis (ADR-005 §Decision 2), so on such a terminal the
+truncation overshoots by one, which is the failure ADR-005 exists to
+prevent, in ADR-005's own code.
 
-- **How many results?** 8 is proposed. It is the number that fits a
-  small card without scrolling and matches Spotlight's own density.
-- **Does the query row keep the `5/5` counter?** It is ranking metadata
-  by decision 5's logic, but it is also the only feedback that a query
-  is narrowing.
-- **Is there a kind marker** — something distinguishing a git repo from
-  a plain directory from a file? Spotlight leans on icons for exactly
-  this. A single character would do it. It is additive and could wait.
+Three of the four offenders leave with decisions 5 and 8. The ellipsis
+stays and needs a ruling: either accept Ambiguous-as-narrow explicitly,
+or replace `…` with `..`. This is filed as an ADR-005 revision, not
+fixed here.
+
+**Glyph width is now a design constraint, not a detail.** See §Decision
+8. Every ornament glyph must be checked against East Asian Width before
+it is used.
 
 ## Reviews
 
@@ -203,3 +243,4 @@ _Appended by peer reviewers._
 ## Revision history
 
 - 2026-08-14 — drafted by chief-of-staff at commander's direction. Preview-pane removal already executed under separate order.
+- 2026-08-14 — the three open questions answered by the commander and folded into §Decision 8: eight results, the counter stays, the kind marker ships. Marker glyphs selected for unambiguous width, which surfaced the ellipsis gap now filed against ADR-005. Status remains Draft pending signature.
