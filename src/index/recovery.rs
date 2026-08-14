@@ -70,7 +70,7 @@ pub(crate) fn startup_check(db_path: &Path) -> Result<()> {
     }
     tracing::error!(
         renamed_to = %target.display(),
-        "index.recovery.corrupt_renamed — rebuilding fresh index"
+        "index.recovery.corrupt_renamed - rebuilding fresh index"
     );
     eprintln!("scout: index failed integrity check; moved to {} and rebuilding", target.display());
     Ok(())

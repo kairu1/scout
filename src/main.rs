@@ -149,27 +149,6 @@ fn init_tracing(to_state_file: bool) {
 
 /// `doctor` logs to stderr like the other CLI paths, and prints its
 /// report on stdout so it can be piped into a bug report.
-/// Plain-language next step for the failures a user can actually act on.
-fn failure_hint(reason: &str) -> Option<String> {
-    match reason {
-        r if r.starts_with("undefined_placeholder:repo_root") => Some(
-            "the selection is not inside a git repository, so {repo_root} has nothing to resolve to"
-                .into(),
-        ),
-        r if r.starts_with("undefined_placeholder:") => {
-            let name = r.split_once(':').map(|(_, n)| n).unwrap_or(r);
-            Some(format!("`{name}` could not be resolved for this selection"))
-        }
-        "no_editor" => {
-            Some("set $EDITOR or $VISUAL, or install a vi-family editor on PATH".into())
-        }
-        "hazardous_path" => {
-            Some("the path contains NUL or newline and cannot be passed to a shell safely".into())
-        }
-        _ => None,
-    }
-}
-
 fn cmd_doctor(format: &str) -> ExitCode {
     init_tracing(false);
     let report = scout::doctor::report();
@@ -231,7 +210,7 @@ fn cmd_index(root: PathBuf, hidden: bool, follow: bool) -> ExitCode {
         stats.skipped,
         stats.errors,
         stats.generation,
-        if stats.completed { "" } else { " INCOMPLETE — prior generation still serves" }
+        if stats.completed { "" } else { " INCOMPLETE - prior generation still serves" }
     );
     if stats.completed {
         ExitCode::SUCCESS
@@ -281,15 +260,19 @@ fn cmd_query(query: &str, limit: usize, format: &str, print0: bool) -> ExitCode 
     };
     match state {
         scout::search::IndexState::Empty => {
-            eprintln!("no paths indexed — run 'scout index <path>' to populate");
-            return ExitCode::SUCCESS;
+            eprintln!("no paths indexed - run 'scout index <path>' to populate");
+            // Nothing matched, so exit 1 (ADR-008). Returning success
+            // here contradicted the contract in the same breath as
+            // stating it: a script branching on the exit code saw
+            // "found something" on a machine with no index at all.
+            return ExitCode::FAILURE;
         }
         scout::search::IndexState::FirstScanInProgress { rows_so_far } => {
             eprintln!(
-                "indexing in progress ({rows_so_far} paths so far) — results will appear when \
+                "indexing in progress ({rows_so_far} paths so far) - results will appear when \
                  the first scan completes"
             );
-            return ExitCode::SUCCESS;
+            return ExitCode::FAILURE;
         }
         scout::search::IndexState::Ready { .. } => {}
     }
@@ -411,7 +394,7 @@ fn cmd_tui() -> ExitCode {
     // had no reason to look in.
     if let Some((step, reason)) = &outcome.failure {
         eprintln!("scout: action `{}` failed at step {} ({reason})", action.name, step + 1);
-        if let Some(hint) = failure_hint(reason) {
+        if let Some(hint) = scout::actions::failure_hint(reason) {
             eprintln!("scout: {hint}");
         }
     }

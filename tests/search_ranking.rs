@@ -203,24 +203,24 @@ fn a_directory_named_for_the_query_outranks_its_contents() {
     assert!(see >= 2, "a non-matching basename outranked the named dirs: {paths:#?}");
 }
 
-/// The saturation half of the same defect, isolated: with a fixed
-/// `k_match` of 100 every candidate here normalised to within 0.002 of
-/// every other, so ordering fell through to the tie-breakers. Scores
-/// must now separate meaningfully.
+/// Ordering the fixture layer can establish: the shallow candidate
+/// leads. The *calibration* itself is guarded in
+/// `ranking::calibration_keeps_real_score_differences_visible`, because
+/// nucleo scores these two identically on the path term — they contain
+/// the same contiguous match — so no fixture pair can isolate the
+/// constant. Discovered by writing the fixture guard, watching it read
+/// a spread of exactly 0.00000, and not believing it.
 #[test]
-fn match_scores_separate_rather_than_saturate() {
+fn a_shallow_match_leads_an_equally_named_deep_one() {
     let rows: Vec<FixtureRow> = vec![
         ("/w/service-hub", 0.0, NOW, 0, 1, None),
-        ("/w/a/b/c/service-hub-system/deep/unrelated-name", 0.0, NOW, 0, 1, None),
+        ("/w/x/service-hub/y/service-hub", 0.0, NOW, 0, 1, None),
     ];
     let conn = db_with_rows(&rows);
     let candidates = load_candidates(&conn).unwrap();
     let mut matcher = NucleoMatcher::new();
     let ranked = search(&mut matcher, &candidates, "service-hub", NOW, 10);
-
     assert_eq!(ranked.len(), 2);
-    let spread = ranked[0].rank - ranked[1].rank;
-    assert!(spread > 0.05, "ranks must separate; spread was {spread:.4} (saturation regression)");
     assert_eq!(ranked[0].path, "/w/service-hub");
 }
 

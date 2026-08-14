@@ -99,6 +99,43 @@ pub fn execute(action: &Action, ctx: &ActionCtx, visit: Option<(&Connection, i64
     ExecOutcome { any_success, failure, exit_code, credited, steps_run }
 }
 
+/// Plain-language next step for a failure reason, or `None` when there
+/// is nothing useful to add.
+///
+/// Lives beside `fail_kind`, which produces the codes, because the two
+/// are one contract. It previously sat private in the *binary* crate,
+/// where no test could reach it — and it had drifted: `cwd:` prefixed
+/// reasons never matched, and `undefined_env:` had no arm at all.
+pub fn failure_hint(reason: &str) -> Option<String> {
+    // A cwd failure wraps the underlying reason (`cwd:undefined_...`).
+    // Strip the wrapper so the inner reason is still recognised.
+    let (context, inner) = match reason.strip_prefix("cwd:") {
+        Some(rest) => (" while resolving the action's working directory", rest),
+        None => ("", reason),
+    };
+    let hint = match inner {
+        "undefined_placeholder:repo_root" => {
+            "the selection is not inside a git repository, so {repo_root} has nothing to \
+             resolve to"
+                .to_string()
+        }
+        r if r.starts_with("undefined_placeholder:") => {
+            let name = r.split_once(':').map(|(_, n)| n).unwrap_or(r);
+            format!("`{{{name}}}` could not be resolved for this selection")
+        }
+        r if r.starts_with("undefined_env:") => {
+            let name = r.split_once(':').map(|(_, n)| n).unwrap_or(r);
+            format!("the environment variable `{name}` is not set")
+        }
+        "no_editor" => "set $EDITOR or $VISUAL, or install a vi-family editor on PATH".to_string(),
+        "hazardous_path" => {
+            "the path contains NUL or newline and cannot be passed to a shell safely".to_string()
+        }
+        _ => return None,
+    };
+    Some(format!("{hint}{context}"))
+}
+
 /// Run one step. Err carries (failure kind for tracing, exit code).
 fn run_step(
     step: &Step,
@@ -260,5 +297,42 @@ fn credit_visit(conn: &Connection, candidate_id: i64, path: &Path) -> bool {
             tracing::warn!(%err, "visit credit failed");
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod hint_tests {
+    use super::failure_hint;
+
+    /// The codes `fail_kind` actually produces must each reach an arm.
+    /// This test exists because the previous version of this mapping
+    /// lived in the binary crate, where nothing could reach it, and had
+    /// silently drifted out of agreement with its producer.
+    #[test]
+    fn every_produced_reason_shape_has_a_hint() {
+        for reason in [
+            "undefined_placeholder:repo_root",
+            "undefined_placeholder:ext",
+            "undefined_env:GITHUB_TOKEN",
+            "no_editor",
+            "hazardous_path",
+            // The wrapped form, produced when a `cwd` template fails.
+            "cwd:undefined_placeholder:repo_root",
+            "cwd:undefined_env:HOME",
+        ] {
+            assert!(failure_hint(reason).is_some(), "no hint for `{reason}`");
+        }
+    }
+
+    #[test]
+    fn a_wrapped_reason_keeps_the_inner_explanation_and_says_where() {
+        let hint = failure_hint("cwd:undefined_placeholder:repo_root").unwrap();
+        assert!(hint.contains("git repository"), "{hint}");
+        assert!(hint.contains("working directory"), "{hint}");
+    }
+
+    #[test]
+    fn an_unknown_reason_yields_no_hint_rather_than_a_wrong_one() {
+        assert!(failure_hint("something_new").is_none());
     }
 }

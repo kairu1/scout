@@ -100,22 +100,29 @@ pub fn prompt(
     writeln!(err, "scout: config: {}", config_path.display())?;
     writeln!(err, "scout: mtime:  {mtime}")?;
     writeln!(err, "scout: {} action(s):", actions.len())?;
+    // Every field below is attacker-controlled in the threat model this
+    // prompt exists to serve: it is untrusted config, rendered at the
+    // exact moment the user makes the trust decision. Raw, a name
+    // carrying ANSI/OSC could clear the screen and forge the [y/N] line.
+    // `description` is not in the trust hash (ADR-004 §9), so a forging
+    // string would never re-prompt on change either.
+    let show = crate::ui::strip::clean;
     for action in actions {
-        writeln!(err, "  [{}] {}", action.name, action.description)?;
+        writeln!(err, "  [{}] {}", show(&action.name), show(&action.description))?;
         for step in &action.steps {
             match step {
                 Step::Spawn { argv, wait, cwd } => {
-                    let argv: Vec<&str> = argv.iter().map(|t| t.raw.as_str()).collect();
+                    let argv: Vec<String> = argv.iter().map(|t| show(&t.raw)).collect();
                     write!(err, "    spawn {argv:?} wait={wait}")?;
                     if let Some(cwd) = cwd {
-                        write!(err, " cwd={}", cwd.raw)?;
+                        write!(err, " cwd={}", show(&cwd.raw))?;
                     }
                     writeln!(err)?;
                 }
-                Step::Print { format } => writeln!(err, "    print {:?}", format.raw)?,
+                Step::Print { format } => writeln!(err, "    print {:?}", show(&format.raw))?,
                 Step::Env { set } => {
                     let pairs: Vec<String> =
-                        set.iter().map(|(k, v)| format!("{k}={}", v.raw)).collect();
+                        set.iter().map(|(k, v)| format!("{}={}", show(k), show(&v.raw))).collect();
                     writeln!(err, "    env {}", pairs.join(" "))?;
                 }
                 Step::BuiltinEdit => writeln!(err, "    builtin editor spawn")?,

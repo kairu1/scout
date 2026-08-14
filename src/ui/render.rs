@@ -1,7 +1,7 @@
 //! Pure render helpers — kept ratatui-free so the visual grammar is
 //! unit-testable: path cell classification (dim dir / bold basename /
 //! accent match), home shortening, terminal-column measurement and
-//! truncation (ADR-005), and the frecency signal meter.
+//! truncation (ADR-005), and the name/context split rows are built from.
 
 /// Visual class of one displayed character.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,12 +18,49 @@ pub enum CellKind {
 /// truth for every layout calculation downstream.
 ///
 /// `None` — which `unicode-width` returns for C0/C1 — is read as zero
-/// columns. Those characters are stripped by `path_cells` before they
+/// columns. Those characters are stripped by `strip::keep` before they
 /// can reach here, so a `None` means the strip filter has a hole; zero
 /// keeps the arithmetic closest to correct until it is found.
 pub fn display_width(cells: &[(char, CellKind)]) -> usize {
     use unicode_width::UnicodeWidthChar;
     cells.iter().map(|(c, _)| c.width().unwrap_or(0)).sum()
+}
+
+/// Right-truncate to `width` terminal columns, keeping the HEAD and
+/// marking the cut. Names are truncated from the end because a name's
+/// distinguishing part is usually its start — the opposite of a path,
+/// where the tail carries the basename.
+pub fn truncate_right(cells: &mut Vec<(char, CellKind)>, width: usize) {
+    use unicode_width::UnicodeWidthChar;
+
+    if width == 0 {
+        cells.clear();
+        return;
+    }
+    if display_width(cells) <= width {
+        return;
+    }
+    let marker: Vec<char> = super::glyph::ELLIPSIS.chars().collect();
+    let marker_width: usize = marker.iter().map(|c| c.width().unwrap_or(0)).sum();
+    if width <= marker_width {
+        cells.clear();
+        return;
+    }
+    let budget = width - marker_width;
+    let mut kept = 0usize;
+    let mut split = 0usize;
+    for (i, (c, _)) in cells.iter().enumerate() {
+        let w = c.width().unwrap_or(0);
+        if kept + w > budget {
+            break;
+        }
+        kept += w;
+        split = i + 1;
+    }
+    cells.truncate(split);
+    for c in marker {
+        cells.push((c, CellKind::Dir));
+    }
 }
 
 /// Left-truncate to `width` terminal columns, keeping the tail (where
@@ -311,6 +348,15 @@ fn segments(path: &str) -> Split {
 /// end and insufficient at the other, and the user is only ever
 /// experiencing the ambiguity that is actually in front of them.
 pub fn context_depths(paths: &[&str]) -> Vec<usize> {
+    // Key on the STRIPPED text. Uniqueness computed over raw bytes is
+    // uniqueness the user cannot see: two paths differing only by a
+    // zero-width or bidi character are "distinct" here and render
+    // byte-identical, so both would show no context at all. The strip
+    // filter would then have manufactured the collision this function
+    // has already ruled out (ADR-003 §6 revision).
+    let display: Vec<String> = paths.iter().map(|p| super::strip::clean(p)).collect();
+    let paths: Vec<&str> = display.iter().map(|s| s.as_str()).collect();
+    let paths = paths.as_slice();
     let parsed: Vec<Split> = paths.iter().map(|p| segments(p)).collect();
     let chars: Vec<Vec<char>> = paths.iter().map(|p| p.chars().collect()).collect();
 

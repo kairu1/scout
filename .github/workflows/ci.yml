@@ -1,5 +1,5 @@
 # CI tripwires (ADR-002 §Consequences, binds Pioneers): tests + clippy,
-# cargo-audit and cargo-deny as hard failures, the <120 transitive
+# cargo-audit and cargo-deny as hard failures, the transitive
 # ceiling (shipped-target reading, ADR-002 ratified 2026-07-06), and the
 # musl cross-compile smoke (reusable musl-build.yml) for both arches.
 # Third-party actions are pinned to commit SHAs (supply-chain posture).

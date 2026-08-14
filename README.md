@@ -176,7 +176,10 @@ Actions are declarative TOML: a name, a keybinding, and a list of steps
 that either spawn a process or print a command for your shell to run.
 Placeholders (`{path}`, `{parent}`, `{name}`, `{query}`, and friends)
 are quoted at the print seam, so a directory called `proj $(rm -rf ~)`
-is a filename, not an instruction.
+is a filename, not an instruction. A template that needs a placeholder
+expanded *unquoted* is refused unless the action sets
+`unsafe_shell_template = true` — which means you have read it and
+accepted that a hostile filename becomes shell syntax.
 
 On first run — and on every subsequent change to the file — scout shows
 you the actions it is about to trust and asks for confirmation. It needs

@@ -60,7 +60,7 @@ Every slot that does not appear is a slot we chose to pay with stdlib or hand-ro
 
 ### Transitive ceiling and advisory discipline
 
-Target **< 120 transitive crates** at v1. Exceeding this cold-builds too slowly on a fresh machine to honour commander's "clone dotfiles → install → works day one" checkpoint in Phase 4. Pioneers owns the measurement (`cargo tree --duplicates` and `cargo tree --target all | wc -l`) and the enforcement: a dependency bump that pushes us over 120 without a Quartermaster sign-off is a release blocker.
+Target **< 150 transitive crates** (raised from 120 on 2026-08-14; see Revision history). Exceeding this cold-builds too slowly on a fresh machine to honour commander's "clone dotfiles → install → works day one" checkpoint in Phase 4. Pioneers owns the measurement (`cargo tree --duplicates` and `cargo tree --target all | wc -l`) and the enforcement: a dependency bump that pushes us over the ceiling without a Quartermaster sign-off is a release blocker.
 
 `cargo-deny` and `cargo audit` must be wired into CI from Phase 4 preflight. `cargo-deny` enforces licence allow-list (MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Unicode-DFS-2016, Zlib) and fails on duplicate versions beyond a small allow-list. `cargo audit` fails the build on any RustSec advisory against a crate in the direct roster. This is the tripwire — wired before we need it, not after.
 
@@ -125,7 +125,7 @@ Wiring `cargo-deny` and `cargo audit` later is cheap mechanically but expensive 
 
 ## Consequences
 
-**Binds Pioneers (Phase 4).** Cargo.toml must be written exactly once, with exactly the fourteen entries above, at the pinned lines declared. CI must run `cargo audit`, `cargo-deny check`, and `cargo tree --duplicates`; the first two as hard failures, the third as a warning that escalates past the 120-transitive ceiling. Cross-compile smoke test for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` with `rusqlite` `bundled` is a Phase 4 preflight gate.
+**Binds Pioneers (Phase 4).** Cargo.toml must be written exactly once, with exactly the fourteen entries above, at the pinned lines declared. CI must run `cargo audit`, `cargo-deny check`, and `cargo tree --duplicates`; the first two as hard failures, the third as a warning that escalates past the transitive ceiling. Cross-compile smoke test for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` with `rusqlite` `bundled` is a Phase 4 preflight gate.
 
 **Binds 2nd Rifles (Phase 2).** Only `rusqlite` (with `bundled`) and `tracing` (+ `tracing-subscriber` for init) are admitted in the index/DB sector. `signal-hook` enters at Phase 2 for SIGINT discipline during indexing. Any other import is rejected in review.
 

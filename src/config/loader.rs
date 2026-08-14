@@ -7,6 +7,8 @@ use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
+use crate::O_NOFOLLOW;
+
 use serde::Deserialize;
 
 use super::template::Template;
@@ -14,13 +16,6 @@ use super::trust::{TrustStatus, TrustStore};
 use super::{canonical, merge_with_defaults, trust, Action, Config, OnFailure, Step};
 
 const SIZE_CAP: usize = 256 * 1024;
-
-#[cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "x86")))]
-const O_NOFOLLOW: i32 = 0o400000;
-#[cfg(all(target_os = "linux", not(any(target_arch = "x86_64", target_arch = "x86"))))]
-const O_NOFOLLOW: i32 = 0o100000;
-#[cfg(target_os = "macos")]
-const O_NOFOLLOW: i32 = 0x0100;
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
@@ -68,8 +63,11 @@ struct RawAction {
     steps: Vec<toml::Table>,
 }
 
-/// Chords the picker itself uses; an action may not claim them.
-const PICKER_OWNED: [&str; 2] = ["ctrl-c", "ctrl-o"];
+/// Chords the picker itself uses; an action may not claim them. Only
+/// what is genuinely handled belongs here — `ctrl-o` was refused for a
+/// while on the strength of ADR-004 having *reserved the name*, which
+/// protected nothing and cost users a usable chord.
+const PICKER_OWNED: [&str; 1] = ["ctrl-c"];
 
 /// Full load: discovery → gates → trust → merge. `interactive` controls
 /// whether a trust prompt may be rendered (the caller has already
@@ -263,7 +261,13 @@ fn validate_action(
         }
     };
 
-    if let Some(binding) = raw.keybinding.as_deref() {
+    // Normalised once, here. Validation accepted `ctrl-C` (any ASCII
+    // letter) while dispatch lower-cases the pressed key and matches the
+    // stored string exactly — so `ctrl-C` loaded cleanly and never
+    // fired, and slipped past both the picker-owned refusal and the
+    // duplicate check, which are exact-match lists.
+    let keybinding = raw.keybinding.as_deref().map(str::to_ascii_lowercase);
+    if let Some(binding) = keybinding.as_deref() {
         if binding != "enter" {
             let chord = binding
                 .strip_prefix("alt-")
@@ -368,7 +372,7 @@ fn validate_action(
     Ok(Action {
         name: name.clone(),
         description: raw.description.clone().unwrap_or_default(),
-        keybinding: raw.keybinding.clone(),
+        keybinding,
         on_failure,
         unsafe_shell_template,
         steps,

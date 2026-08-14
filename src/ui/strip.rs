@@ -45,9 +45,14 @@ pub fn keep(c: char) -> Option<char> {
         0x09 => Some(' '),
         0x00..=0x1f => None,
         0x80..=0x9f => None,
-        0x2069 => None,
+        0x7F => None,            // DELETE - a C0-class control the header claims
+        0x2069 => None,          // POP DIRECTIONAL ISOLATE
+        0x180E => None,          // MONGOLIAN VOWEL SEPARATOR
+        0x2060..=0x2064 => None, // WORD JOINER and invisible operators
+        0xFEFF => None,          // ZERO WIDTH NO-BREAK SPACE / BOM
+        // Tag characters: a whole invisible alphabet.
+        0xE0000..=0xE007F => None,
         _ if BIDI_AND_ZERO_WIDTH.contains(&code) => None,
-        0xFEFF => None, // ZERO WIDTH NO-BREAK SPACE / BOM
         _ => Some(c),
     }
 }
@@ -89,13 +94,17 @@ mod tests {
         assert_ne!(a, b, "the inputs really are different");
         assert_eq!(clean(a), clean(b), "and they rendered identically before");
         assert_eq!(clean(a), "payments");
+        // U+2060 is U+FEFF's functional twin; stripping one and not the
+        // other left the hole open.
+        assert_eq!(clean("pay\u{2060}ments"), "payments");
     }
 
     #[test]
     fn strips_every_named_formatting_control() {
         for code in [
-            0x061Cu32, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0x202A, 0x202B, 0x202C, 0x202D,
-            0x202E, 0x2066, 0x2067, 0x2068, 0x2069, 0xFEFF,
+            0x7Fu32, 0x061C, 0x180E, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0x202A, 0x202B,
+            0x202C, 0x202D, 0x202E, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0x2066, 0x2067, 0x2068,
+            0x2069, 0xFEFF, 0xE0001, 0xE0041,
         ] {
             let c = char::from_u32(code).unwrap();
             assert_eq!(keep(c), None, "U+{code:04X} must not reach the terminal");

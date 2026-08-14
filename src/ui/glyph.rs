@@ -116,18 +116,57 @@ mod tests {
     /// see it.
     #[test]
     fn no_glyph_literals_outside_this_module() {
-        let source = include_str!("mod.rs");
-        let offenders: Vec<String> = source
-            .lines()
-            .filter(|l| !l.trim_start().starts_with("//"))
-            .flat_map(|l| l.chars())
-            .filter(|c| !c.is_ascii())
-            .map(|c| format!("U+{:04X} {c}", c as u32))
-            .collect();
+        // Scope is the point. This guard used to read `mod.rs` alone
+        // while its own docstring claimed to "close the class" — and
+        // Ambiguous-width literals sat unguarded in `main.rs` and
+        // `doctor.rs` the whole time. It now walks every source file.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offenders: Vec<String> = Vec::new();
+        let mut checked = 0usize;
+        let mut stack = vec![root];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("read src").flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                    continue;
+                }
+                // This module is where glyphs are declared.
+                if path.file_name().and_then(|f| f.to_str()) == Some("glyph.rs") {
+                    continue;
+                }
+                checked += 1;
+                let source = std::fs::read_to_string(&path).expect("read source");
+                for (n, line) in source.lines().enumerate() {
+                    // Tests carry deliberate CJK fixtures — the width
+                    // rules are exactly what they exercise. In this
+                    // codebase test modules sit at the end of the file,
+                    // so stop there.
+                    if line.trim_start().starts_with("#[cfg(test)]") {
+                        break;
+                    }
+                    if line.trim_start().starts_with("//") {
+                        continue;
+                    }
+                    for c in line.chars().filter(|c| !c.is_ascii()) {
+                        offenders.push(format!(
+                            "{}:{} U+{:04X} {c}",
+                            path.file_name().unwrap().to_string_lossy(),
+                            n + 1,
+                            c as u32
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(checked > 5, "guard walked only {checked} files; the walk is broken");
         assert!(
             offenders.is_empty(),
-            "ui/mod.rs contains inline non-ASCII glyphs: {offenders:?} — declare them in glyph.rs \
-             so the width guard covers them"
+            "inline non-ASCII glyphs outside glyph.rs: {offenders:#?} — declare them in \
+             glyph.rs so the width guard covers them"
         );
     }
 

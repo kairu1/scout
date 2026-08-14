@@ -31,9 +31,9 @@ const BLEND: Blend = Blend {
 };
 
 /// Frecency saturation constant (ADR-001 §K_frec ~ two weeks of daily
-/// visits). Exported as the single source so downstream calibration —
-/// e.g. the TUI signal meter — derives from it instead of re-hardcoding
-/// the literal.
+/// visits). Still exported as the single source for any downstream
+/// calibration; the TUI signal meter that used to derive from it was
+/// removed by ADR-007 §Decision 5, so it currently has no consumer.
 pub const K_FREC: f64 = BLEND.k_frec;
 
 /// Match quality for one candidate: the whole path, and the final
@@ -94,4 +94,44 @@ pub fn compare(a: &super::Ranked, b: &super::Ranked) -> std::cmp::Ordering {
         .then_with(|| a.path.len().cmp(&b.path.len()))
         .then_with(|| a.path.as_bytes().cmp(b.path.as_bytes()))
         .then_with(|| a.id.cmp(&b.id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Guards the calibration directly, because no fixture pair can.
+    ///
+    /// These are measured numbers: over a real index, an 11-character
+    /// query produced raw nucleo scores spanning 272-284. The whole job
+    /// of `k_match` is to keep a spread that size *visible* in the
+    /// blended rank. With the old fixed `k_match = 100` both values sit
+    /// far out on `tanh`, where the derivative is ~0.014, and the
+    /// difference collapses by roughly an order of magnitude — which is
+    /// how 317 candidates came to be ordered by tie-breakers alone.
+    ///
+    /// If this fails, the match term has been re-saturated. Raising the
+    /// threshold to make it pass would restore the original defect.
+    #[test]
+    fn calibration_keeps_real_score_differences_visible() {
+        let query_chars = 11;
+        let score = |path| MatchScore { path, base: None, base_chars: 3 };
+        let best = blend(score(284), 0.0, query_chars);
+        let worst = blend(score(272), 0.0, query_chars);
+        let spread = best - worst;
+        assert!(
+            spread > 0.002,
+            "measured raw scores 272..284 collapse to a rank spread of {spread:.5}; the match \
+             term is saturated and ordering will fall through to the tie-breakers"
+        );
+    }
+
+    /// A basename that does not match contributes nothing, which is what
+    /// separates a directory named for the query from a file inside one.
+    #[test]
+    fn an_unmatched_basename_costs_the_whole_basename_term() {
+        let named = blend(MatchScore { path: 280, base: Some(280), base_chars: 11 }, 0.0, 11);
+        let buried = blend(MatchScore { path: 280, base: None, base_chars: 3 }, 0.0, 11);
+        assert!(named > buried + 0.2, "named {named:.4} vs buried {buried:.4}");
+    }
 }

@@ -197,7 +197,7 @@ Per commander's directive, every `[[action]]` accepts an optional `keybinding` f
 - `keybinding` unset: the action is invokable via the action menu only, not via a key.
 - `keybinding` set to any other string: the loader emits a non-fatal warning naming the action and the unknown binding, does not dispatch on that key, and otherwise loads normally. The warning is the contract — the user is not blocked, but is told their binding will not fire.
 
-**Reserved future values (not dispatched in v1).** `"tab"`, `"alt-e"`, `"alt-c"`, `"ctrl-o"`, and the chord form `"alt-<letter>"` / `"ctrl-<letter>"` are reserved identifiers; the loader already recognises their *shape* and warns with a v1-specific message ("binding `alt-e` recognised but not dispatched in v1; track ADR-NNN"). This is distinct from a truly unknown binding, which gets a generic warning. The distinction is small but it tells the user "we know about this; we haven't shipped it yet" versus "we have no idea what you meant".
+**Chord values (dispatched since ADR-009, 2026-08-14).** `"alt-<letter>"` and `"ctrl-<letter>"` are dispatched from the picker; the loader normalises their case and refuses both duplicates and picker-owned chords. `"tab"` remains reserved and undispatched *permanently* — it opens the action pane, the only route to every action without a chord (ADR-009 §Decision). The v1 warning text this section originally specified ("recognised but not dispatched in v1") is retired; keeping it would now be a lie to the user. This is distinct from a truly unknown binding, which gets a generic warning. The distinction is small but it tells the user "we know about this; we haven't shipped it yet" versus "we have no idea what you meant".
 
 **Hash input.** `keybinding` **is** part of the canonical-JSON hash (§9). A keybinding change alters which action runs on Enter; Security §3's trust prompt must re-fire on that change.
 
@@ -389,7 +389,7 @@ A failure at any stage halts the load and exits non-zero with a message that nam
 - **Action inheritance / includes / references.** Deferred per §Alternatives 8.
 - **Step-level `on_failure`, retry, or timeout knobs.** Deferred per §Alternatives 9.
 - **Dynamic placeholders.** Refused per §Alternatives 10.
-- **Keybinding dispatch beyond `enter`.** Schema allows, v1 does not dispatch; named future values are reserved (§6).
+- **Keybinding dispatch beyond `enter`.** Delivered by ADR-009 for the chord forms; `tab` stays reserved by decision, not deferral (§6).
 
 ## Reviews
 

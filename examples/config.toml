@@ -24,7 +24,17 @@
 # and {env.VAR}. Every one is quoted at the print seam, so a directory
 # called `proj $(rm -rf ~)` is a filename, not an instruction.
 #
-# Only `enter` is dispatched in v1; reach everything else with `tab`.
+# That quoting is what makes an untrusted filename safe, so a template
+# that needs a placeholder to expand UNQUOTED — to build a command line
+# out of one — is refused unless the action opts out explicitly with
+# `unsafe_shell_template = true`. Setting it means you have read the
+# template and accepted that a hostile filename becomes shell syntax.
+# No action below needs it.
+#
+# `enter` runs the default action. An action can also claim its own
+# chord — `keybinding = "alt-s"` or `ctrl-<letter>` — and fire straight
+# from the picker (ADR-009). `tab` is reserved for the action pane, which
+# is how every action without a chord is reached.
 
 schema_version = 1
 

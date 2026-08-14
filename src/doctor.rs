@@ -149,10 +149,10 @@ fn describe_entry(path: &Path) -> (Level, &'static str) {
     match path.symlink_metadata() {
         Err(_) => (Level::Ok, "absent"),
         Ok(meta) if meta.file_type().is_symlink() => {
-            (Level::Warn, "symlink — discovery skips it (O_NOFOLLOW)")
+            (Level::Warn, "symlink - discovery skips it (O_NOFOLLOW)")
         }
         Ok(meta) if meta.is_file() => (Level::Ok, "regular file"),
-        Ok(_) => (Level::Warn, "not a regular file — discovery skips it"),
+        Ok(_) => (Level::Warn, "not a regular file - discovery skips it"),
     }
 }
 
@@ -172,7 +172,7 @@ fn config_section(home: Option<&Path>) -> Section {
         checks.push(Check::new(
             &format!("chain[{i}]"),
             level,
-            format!("{} — {what}", tilde(entry, home)),
+            format!("{} - {what}", tilde(entry, home)),
         ));
     }
 
@@ -182,7 +182,7 @@ fn config_section(home: Option<&Path>) -> Section {
         Ok(None) => checks.push(Check::new(
             "resolved",
             Level::Warn,
-            "no config found — compiled-in defaults apply",
+            "no config found - compiled-in defaults apply",
         )),
         Err(err) => checks.push(Check::new("resolved", Level::Fail, err.to_string())),
     }
@@ -215,7 +215,7 @@ fn config_section(home: Option<&Path>) -> Section {
                 checks.push(Check::new(
                     "enter",
                     Level::Warn,
-                    "no action bound to Enter — the picker will have nothing to run",
+                    "no action bound to Enter - the picker will have nothing to run",
                 ));
             }
         }
@@ -239,7 +239,7 @@ fn trust_section(home: Option<&Path>) -> Section {
                 checks.push(Check::new(
                     "status",
                     Level::Ok,
-                    "nothing trusted yet — the first user config will prompt",
+                    "nothing trusted yet - the first user config will prompt",
                 ));
             } else {
                 // A load with interactive:false succeeds only when the
@@ -249,7 +249,7 @@ fn trust_section(home: Option<&Path>) -> Section {
                 checks.push(Check::new(
                     "status",
                     Level::Ok,
-                    "see config/load above — it fails when trust is stale",
+                    "see config/load above - it fails when trust is stale",
                 ));
             }
         }
@@ -270,11 +270,23 @@ fn index_section(home: Option<&Path>) -> Section {
     };
     checks.push(Check::new("database", Level::Ok, tilde(&db_path, home)));
 
+    // Before `exists()`, which follows symlinks: a dangling symlink at
+    // the DB path would otherwise report "no index yet" and exit 0,
+    // while every other subcommand refuses the same path outright.
+    if db_path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+        checks.push(Check::new(
+            "open",
+            Level::Fail,
+            "database path is a symlink; scout refuses to open it (ADR-003 section 4)",
+        ));
+        return Section { title: "index", checks };
+    }
+
     if !db_path.exists() {
         checks.push(Check::new(
             "state",
             Level::Warn,
-            "no index yet — run 'scout index <path>' to populate",
+            "no index yet - run 'scout index <path>' to populate",
         ));
         return Section { title: "index", checks };
     }
@@ -286,17 +298,15 @@ fn index_section(home: Option<&Path>) -> Section {
     // ADR-006 §Alternatives 4 rejects outright: the evidence is gone by
     // the time the user reads the line describing it. Read-only open
     // cannot create, migrate, or recover.
-    if db_path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
-        checks.push(Check::new(
-            "open",
-            Level::Fail,
-            "database path is a symlink; scout refuses to open it (ADR-003 §4)",
-        ));
-        return Section { title: "index", checks };
-    }
+    // `immutable=1`, not merely SQLITE_OPEN_READ_ONLY. A read-only open
+    // of a WAL database still creates and leaves behind `-shm` and
+    // `-wal` sidecars, so "doctor never writes" was false on disk even
+    // though no scout code called a write path. Immutable tells SQLite
+    // the file cannot change, so it neither creates nor consults them.
+    let uri = format!("file:{}?immutable=1", db_path.display());
     let conn = match rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        &uri,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
     ) {
         Ok(conn) => conn,
         Err(err) => {
@@ -315,15 +325,24 @@ fn index_section(home: Option<&Path>) -> Section {
         }
     }
 
-    let rows: i64 = conn.query_row("SELECT count(*) FROM paths", [], |r| r.get(0)).unwrap_or(-1);
-    let live: i64 = conn
-        .query_row("SELECT count(*) FROM paths WHERE tombstoned_at IS NULL", [], |r| r.get(0))
-        .unwrap_or(-1);
-    checks.push(Check::new(
-        "paths",
-        if live > 0 { Level::Ok } else { Level::Warn },
-        format!("{live} live, {rows} total"),
-    ));
+    // No `-1` sentinel. A failed count means the table is missing or
+    // unreadable — a structural fault — and rendering it as a negative
+    // number let doctor print "-1 live" and still exit 0.
+    let counts: Result<(i64, i64), _> =
+        conn.query_row("SELECT count(*), sum(tombstoned_at IS NULL) FROM paths", [], |r| {
+            Ok((r.get(0)?, r.get::<_, Option<i64>>(1)?.unwrap_or(0)))
+        });
+    match counts {
+        Ok((rows, live)) => checks.push(Check::new(
+            "paths",
+            if live > 0 { Level::Ok } else { Level::Warn },
+            format!("{live} live, {rows} total"),
+        )),
+        Err(err) => {
+            checks.push(Check::new("paths", Level::Fail, format!("cannot count paths: {err}")));
+            return Section { title: "index", checks };
+        }
+    }
 
     let generations: Result<(i64, i64), _> = conn.query_row(
         "SELECT current_generation, last_complete_generation FROM run_state WHERE id = 1",
@@ -338,7 +357,7 @@ fn index_section(home: Option<&Path>) -> Section {
             } else {
                 format!(
                     "generation {current} started but never completed; generation {complete} \
-                     still serves — re-run 'scout index'"
+                     still serves - re-run 'scout index'"
                 )
             };
             checks.push(Check::new("generation", level, detail));
@@ -402,7 +421,7 @@ fn environment_section(home: Option<&Path>) -> Section {
             None if var == "EDITOR" => checks.push(Check::new(
                 var,
                 Level::Warn,
-                "unset — the built-in edit action falls back to a compiled default",
+                "unset - the built-in edit action falls back to a compiled default",
             )),
             None => checks.push(Check::new(var, Level::Ok, "unset")),
         }
@@ -451,11 +470,14 @@ fn logs_section(home: Option<&Path>) -> Section {
                 checks.push(Check::new("tail", Level::Ok, crate::ui::strip::clean(line)));
             }
         }
-        Err(_) => checks.push(Check::new(
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => checks.push(Check::new(
             "lines",
             Level::Ok,
-            "no log yet — the picker writes it, the CLI logs to stderr",
+            "no log yet - the picker writes it, the CLI logs to stderr",
         )),
+        // Anything else is a real fault, and reporting it as "absent"
+        // hid it in the one subcommand whose job is to find faults.
+        Err(err) => checks.push(Check::new("lines", Level::Warn, format!("unreadable: {err}"))),
     }
 
     Section { title: "logs", checks }

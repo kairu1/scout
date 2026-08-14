@@ -5,21 +5,12 @@ use std::fs;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
+use crate::O_NOFOLLOW;
+
 use rusqlite::Connection;
 
 use super::schema::apply_migrations;
 use super::{IndexError, Result};
-
-// Not on the ADR-002 roster: `libc`. The single flag we need is stable
-// kernel ABI per OS/arch; hand-pinning it is the ~200-line-rule answer.
-// Linux x86 family defines its own value; every other Linux arch uses
-// the asm-generic one.
-#[cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "x86")))]
-const O_NOFOLLOW: i32 = 0o400000;
-#[cfg(all(target_os = "linux", not(any(target_arch = "x86_64", target_arch = "x86"))))]
-const O_NOFOLLOW: i32 = 0o100000;
-#[cfg(target_os = "macos")]
-const O_NOFOLLOW: i32 = 0x0100;
 
 /// Open (creating if absent) the index database at `path`, enforce
 /// ADR-003 §4 file discipline, configure ADR-001 PRAGMAs, and run

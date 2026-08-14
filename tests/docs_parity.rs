@@ -32,3 +32,36 @@ fn readme_carries_the_canonical_wrapper() {
     let wrapper = include_str!("../shell/scout.bash");
     assert!(readme.contains(wrapper), "README.md wrapper block has drifted from shell/scout.bash");
 }
+
+/// The transitive-crate ceiling is dual-encoded: CI enforces a number,
+/// ADR-002 §Decision states one. They drifted — CI moved to 150 while
+/// the ADR's normative line still said 120, and nothing noticed.
+///
+/// CI is the source of truth because it is the thing that actually
+/// fails; this asserts the ADR quotes the same number.
+#[test]
+fn transitive_ceiling_matches_between_ci_and_adr() {
+    let ci = include_str!("../.github/workflows/ci.yml");
+    let adr = include_str!("../docs/adr/002-dependency-roster.md");
+
+    let enforced: u32 = ci
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("test \"$count\" -lt "))
+        .expect("CI must enforce a ceiling")
+        .trim()
+        .parse()
+        .expect("ceiling is a number");
+
+    let stated: u32 = adr
+        .lines()
+        .find_map(|l| {
+            let at = l.find("Target **< ")? + "Target **< ".len();
+            l[at..].split_whitespace().next()?.parse().ok()
+        })
+        .expect("ADR-002 must state the ceiling in its Decision");
+
+    assert_eq!(
+        enforced, stated,
+        "CI enforces < {enforced} but ADR-002 states < {stated}; one of them is lying to a reader"
+    );
+}

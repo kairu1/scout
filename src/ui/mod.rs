@@ -1,8 +1,8 @@
 //! TUI sector (3rd Rifles). ratatui + crossterm on STDERR — stdout is
 //! reserved for the print seam so `eval "$(scout)"` works (ADR-003 §2).
 //! Banners are first-class render states, never popups (ADR-001
-//! §Degradation). Every rendered string passes the strip filter (the
-//! path cells strip inline; chrome strings pass strip::clean).
+//! §Degradation). Every rendered string passes the strip filter —
+//! one rule, `strip::keep`, called by both the row builder and chrome.
 //!
 //! Visual grammar (see render.rs for the testable core, glyph.rs for
 //! every character it emits): one amber accent, name-first rows with
@@ -88,7 +88,13 @@ impl App<'_> {
         }
     }
 
+    /// The selection, but only if it is a row that was actually drawn.
+    /// Every dispatch path goes through here, so a row the user cannot
+    /// see cannot be acted on.
     fn selected_result(&self) -> Option<&Ranked> {
+        if self.selected >= self.reachable() {
+            return None;
+        }
         self.results.get(self.selected)
     }
 
@@ -102,6 +108,16 @@ impl App<'_> {
         let at = self.caret_byte();
         self.query.insert(at, c);
         self.caret += 1;
+        self.retarget();
+    }
+
+    /// A changed query means a different result set. Keeping the row
+    /// index would silently retarget the selection onto an unrelated
+    /// project at the same offset — and `enter` runs a command against
+    /// it. The top row is the only defensible selection after a filter
+    /// changes.
+    fn retarget(&mut self) {
+        self.selected = 0;
         self.refresh();
     }
 
@@ -113,7 +129,7 @@ impl App<'_> {
         self.caret -= 1;
         let at = self.caret_byte();
         self.query.remove(at);
-        self.refresh();
+        self.retarget();
     }
 
     /// Delete: remove the character *under* the caret.
@@ -121,14 +137,20 @@ impl App<'_> {
         let at = self.caret_byte();
         if at < self.query.len() {
             self.query.remove(at);
-            self.refresh();
+            self.retarget();
         }
     }
 
     /// How many result rows are reachable: what fits, never more than
     /// what is drawn.
+    ///
+    /// No `.max(1)` floor. A floor keeps row 0 selectable when the pane
+    /// draws nothing at all (a terminal too short for a single row),
+    /// which reopens the exact defect ADR-007 rev 2 closed: `enter`
+    /// dispatching against a row the user never saw. Verified at 14 and
+    /// 24 rows and not below, which is how it survived.
     fn reachable(&self) -> usize {
-        self.results.len().min(self.capacity.max(1))
+        self.results.len().min(self.capacity)
     }
 
     /// Actions matching the pane's filter, as indices into
@@ -207,6 +229,10 @@ pub fn run(
 /// putting the terminal into raw mode.
 fn restore_terminal() {
     let _ = disable_raw_mode();
+    // ratatui hides the cursor on every frame and only shows it again
+    // in `Terminal`'s Drop — which `panic = "abort"` never runs. Without
+    // this the panic path returns a terminal with no cursor.
+    let _ = crossterm::execute!(std::io::stderr(), crossterm::cursor::Show);
     let _ = crossterm::execute!(std::io::stderr(), LeaveAlternateScreen);
 }
 
@@ -248,7 +274,10 @@ fn event_loop(
         }
         terminal.draw(|frame| draw(frame, app))?;
         let Event::Key(key) = event::read()? else { continue };
-        if key.kind != KeyEventKind::Press {
+        // Repeat as well as Press: under the kitty protocol and Windows
+        // conhost a held key reports Repeat, and dropping it killed
+        // auto-repeat for arrows and backspace.
+        if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
             continue;
         }
         tracing::debug!(code = ?key.code, mods = ?key.modifiers, "key");
@@ -260,6 +289,13 @@ fn event_loop(
         }
 
         if let Some(menu_index) = app.menu {
+            // Quit is quit, from every surface. The action pane's own
+            // Char arm excludes CONTROL, so without this Ctrl-C fell to
+            // `_ => {}` and the built-in quit below was unreachable —
+            // and raw mode clears ISIG, so there was no SIGINT either.
+            if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                return Ok(None);
+            }
             let matches = app.filtered_actions();
             match key.code {
                 KeyCode::Esc | KeyCode::Tab => {
@@ -346,6 +382,16 @@ fn event_loop(
     }
 }
 
+/// Columns the row prefix always spends: selection marker, a space,
+/// the kind marker, a space. Derived rather than written as a literal so
+/// a change to either glyph cannot leave the layout arithmetic behind.
+const ROW_PREFIX_COLS: usize = 4;
+/// Columns between the name column and the context column.
+const NAME_GAP_COLS: usize = 2;
+/// Share of the usable width the name column may take before it is
+/// truncated, so context always has somewhere to go.
+const NAME_COLUMN_PERCENT: usize = 60;
+
 /// Display cap. The pane shows what fits; this stops a very tall
 /// terminal turning the picker back into a scrolling window (ADR-007
 /// §Decision 3).
@@ -393,7 +439,12 @@ fn regions(area: Rect, has_banner: bool) -> (Rect, Option<Rect>, Rect, Rect) {
 /// selection to this, so the cursor can never leave the drawn list.
 fn results_capacity(area: Rect, has_banner: bool) -> usize {
     let (_, _, body, _) = regions(panel(area), has_banner);
-    (body.height.saturating_sub(2) as usize).min(DISPLAY_CAP)
+    body_rows(body)
+}
+
+/// Rows a results pane of this size can show. The single definition.
+fn body_rows(area: Rect) -> usize {
+    (area.height.saturating_sub(2) as usize).min(DISPLAY_CAP)
 }
 
 /// The action whose `keybinding` matches this key press, if any.
@@ -482,7 +533,8 @@ fn draw_search(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
         .direction(Direction::Horizontal)
         .constraints([Constraint::Min(1), Constraint::Length(counter.len() as u16)])
         .split(inner);
-    frame.render_widget(Paragraph::new(Line::from(query_spans(app))), row[0]);
+    frame
+        .render_widget(Paragraph::new(Line::from(query_spans(app, row[0].width as usize))), row[0]);
     frame.render_widget(
         Paragraph::new(Span::styled(counter, Style::default().fg(CHROME)))
             .alignment(ratatui::layout::Alignment::Right),
@@ -494,9 +546,23 @@ fn draw_search(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
 /// stripped separately: `strip::clean` can remove characters, so
 /// cleaning the whole string and then slicing by the caret would put the
 /// cursor in the wrong place after a paste containing a control byte.
-fn query_spans<'a>(app: &App<'_>) -> Vec<Span<'a>> {
+fn query_spans<'a>(app: &App<'_>, width: usize) -> Vec<Span<'a>> {
     let at = app.caret_byte();
     let (before, after) = app.query.split_at(at);
+    // Scroll horizontally so the caret is always on screen. Without
+    // this, typing past the field width moved the caret off the right
+    // edge and further keystrokes produced no visible change at all.
+    let room = width.saturating_sub(3).max(1); // prompt, space, caret
+    let before: String = {
+        let cols = before.chars().count();
+        if cols > room {
+            before.chars().skip(cols - room).collect()
+        } else {
+            before.to_string()
+        }
+    };
+    let after: String = after.chars().take(room.saturating_sub(before.chars().count())).collect();
+    let (before, after) = (before.as_str(), after.as_str());
     let text = Style::default().add_modifier(Modifier::BOLD);
     let mut spans = vec![
         Span::styled(
@@ -514,9 +580,11 @@ fn query_spans<'a>(app: &App<'_>) -> Vec<Span<'a>> {
     spans
 }
 
-/// Rows the picker will actually draw.
+/// Rows the picker will actually draw. `room` is derived from the same
+/// helper the event loop clamps against, so the drawn list and the
+/// reachable list are one fact rather than two that happen to agree.
 fn visible<'a>(app: &'a App<'_>, area: Rect) -> &'a [Ranked] {
-    let room = (area.height.saturating_sub(2) as usize).min(DISPLAY_CAP);
+    let room = body_rows(area);
     &app.results[..app.results.len().min(room)]
 }
 
@@ -545,25 +613,28 @@ fn draw_results(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
     let hits: Vec<&[u32]> = shown.iter().map(|r| r.match_indices.as_slice()).collect();
     let rows = render::rows(&paths, &hits, &app.home);
 
-    let name_col = rows.iter().map(|r| render::display_width(&r.name)).max().unwrap_or(0);
-    let context_room = (inner.width as usize).saturating_sub(name_col + 6);
+    // The name column is bounded. Unbounded, a single long basename
+    // clipped itself with no marker AND drove `context_room` to zero,
+    // which removed the disambiguating context from every *other* row —
+    // one long name silently disabled the feature for the whole list.
+    let widest = rows.iter().map(|r| render::display_width(&r.name)).max().unwrap_or(0);
+    let usable = (inner.width as usize).saturating_sub(ROW_PREFIX_COLS + NAME_GAP_COLS);
+    let name_col = widest.min(usable * NAME_COLUMN_PERCENT / 100);
+    let context_room = usable.saturating_sub(name_col);
 
+    // One clamped value drives both the row marker and ratatui's
+    // highlight; two independent expressions could disagree on a resize.
+    let selected = app.selected.min(shown.len().saturating_sub(1));
     let items: Vec<ListItem> = rows
         .iter()
         .enumerate()
         .map(|(i, row)| {
-            ListItem::new(result_line(
-                row,
-                &shown[i].path,
-                i == app.selected,
-                name_col,
-                context_room,
-            ))
+            ListItem::new(result_line(row, &shown[i].path, i == selected, name_col, context_room))
         })
         .collect();
 
     let mut state = ListState::default();
-    state.select(Some(app.selected.min(shown.len().saturating_sub(1))));
+    state.select(Some(selected));
     frame.render_stateful_widget(List::new(items), inner, &mut state);
 }
 
@@ -729,10 +800,12 @@ fn result_line<'a>(
     });
     spans.push(Span::styled(format!("{} ", kind_marker(path)), Style::default().fg(CHROME)));
 
-    push_cells(&mut spans, &row.name, name_style, name_style, match_style);
+    let mut name = row.name.clone();
+    render::truncate_right(&mut name, name_col);
+    push_cells(&mut spans, &name, name_style, name_style, match_style);
 
     if !row.context.is_empty() && context_room > 2 {
-        let pad = name_col.saturating_sub(render::display_width(&row.name)) + 2;
+        let pad = name_col.saturating_sub(render::display_width(&name)) + NAME_GAP_COLS;
         spans.push(Span::raw(" ".repeat(pad)));
         let mut context = row.context.clone();
         truncate_left(&mut context, context_room);
@@ -791,9 +864,14 @@ fn draw_footer(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
     spans.push(Span::styled(format!("  {}  ", glyph::SEPARATOR), label));
     spans.push(Span::styled("esc", key));
     spans.push(Span::styled(" quit", label));
-    spans.push(Span::styled(format!("  {}  ", glyph::SEPARATOR), label));
-    spans.push(Span::styled("?", key));
-    spans.push(Span::styled(" keys", label));
+    // `?` opens help only on an empty query — otherwise it is a literal
+    // character in the search. Advertising it unconditionally promised a
+    // key that inserts a `?` the moment you have typed anything.
+    if app.query.is_empty() {
+        spans.push(Span::styled(format!("  {}  ", glyph::SEPARATOR), label));
+        spans.push(Span::styled("?", key));
+        spans.push(Span::styled(" keys", label));
+    }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
