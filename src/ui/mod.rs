@@ -233,7 +233,7 @@ fn draw(frame: &mut ratatui::Frame, app: &App<'_>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(constraints)
-        .split(frame.size());
+        .split(frame.area());
 
     draw_query_row(frame, app, chunks[0]);
 
@@ -426,7 +426,7 @@ fn banner_text(app: &App<'_>) -> Option<(String, Style)> {
 fn draw_action_menu(frame: &mut ratatui::Frame, app: &App<'_>, menu_index: usize) {
     let width = 56u16;
     let height = (app.config.actions.len() as u16 + 2).min(12);
-    let area = centered(frame.size(), width, height);
+    let area = centered(frame.area(), width, height);
 
     let items: Vec<ListItem> = app
         .config
