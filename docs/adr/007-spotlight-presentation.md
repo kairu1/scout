@@ -236,6 +236,48 @@ fixed here.
 8. Every ornament glyph must be checked against East Asian Width before
 it is used.
 
+## Revision 2 — 2026-08-14, commander-directed
+
+Three corrections from driving the built surface. Each supersedes part
+of §Decision above; the original text stands so the change is legible.
+
+**1. The surface is a framed panel, not a bare card (supersedes
+§Decision 4's "occupies the space it needs").** Minimal was the wrong
+target. A small unbordered block adrift in an empty alternate screen
+reads as unfinished, and a one-line query row reads as a terminal that
+happens to echo rather than as something you type into. The panel is now
+bordered and titled, sized to the terminal with a margin (capped at
+120x30), the search is a bordered field, and the results are a titled
+pane. The border is what makes the surrounding space read as margin
+instead of void — the same pixels, differently framed.
+
+**2. The action launcher is a searchable column, not a popup
+(supersedes §Decision 1's "no second column is added in its place").**
+The commander's reasoning is decisive and I had it backwards: a popup
+covers the very results you are choosing an action *for*, and it has
+nowhere to put a filter row except over more of them. A column sits
+beside them. It carries its own prompt and filters on name *and*
+description, so a user who remembers "git" finds `status` without
+knowing its name. §Decision 1's principle — a result should not need a
+second panel to explain it — is intact: this panel explains the
+*action*, not the result, and only exists while you are choosing one.
+
+**3. Display depth follows the pane (supersedes §Decision 8a's flat
+eight).** Eight was the right answer for a minimal card and the wrong
+one for a framed pane, where it left a bordered box two-thirds empty.
+The pane now shows what fits, capped at 16 — the cap is what keeps
+§Decision 3's "not a scrollable window" true on a tall terminal.
+
+**Defect fixed in the same pass.** `down` clamped the selection to
+`results.len()` (up to 200 ranked) while the pane drew far fewer, so
+past the last drawn row the highlight stuck to the bottom while the real
+selection kept moving — the cursor appeared to vanish, and `enter` would
+have run against a row the user could not see. Movement is now clamped
+to drawn capacity, computed by the same `regions` function the renderer
+uses, so the two cannot disagree. Verified on a 24-row terminal (11
+results, 20 `down` presses, cursor rests on the last row) and on a
+14-row terminal where only four rows fit.
+
 ## Reviews
 
 _Appended by peer reviewers._
