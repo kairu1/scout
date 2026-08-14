@@ -698,3 +698,68 @@ started; each needs its ADR first.
 
 OPORD moved to Phase 5 and closed. All ten officer state files updated
 with the closure and their promotions. Operation SCOUT v1 complete.
+
+## 2026-08-14 — FROM chief-of-staff TO commander — Ceiling raised; ADR-007 signed and implemented
+
+### Ceiling raised to 150 (ADR-002 revision)
+
+At 119 against a limit enforced as `< 120` the gate had zero headroom
+and would have failed the next addition regardless of merit. It was also
+measuring the wrong thing: `ratatui` 0.30 split one library into four
+crates of the same code from the same maintainers, and 22 of the 119
+entries are rust-lang/BurntSushi/dtolnay/tokio crates a supply-chain
+review treats as one risk each at most. 150 restores about 25% headroom
+— enough for the remaining v2 objectives, still tight enough that an
+async runtime or an embedded interpreter blows straight through it,
+which is the class of addition this gate exists to stop.
+
+### ADR-007 signed and implemented
+
+All eight decisions are in the picker. The substance — decision 2 —
+works as specified, verified by PTY capture over a tree built to
+exercise it:
+
+    ❙ ‣ tree
+      ‣ beta
+      ‣ alpha
+      ‣ src          beta
+      ‣ src          alpha
+      ‣ plainname
+      ‣ wraptious
+      ⑂ service-hub
+
+Context appears on the two colliding `src` rows and nowhere else. Names
+that are already unique on screen carry no path at all. `⑂` marks the
+one directory holding a `.git`. Compare the frame in ADR-007 §Context,
+where eighty columns of every row were the same string.
+
+Decision 4 verified separately: the card occupies rows 4–15 of a
+24-row terminal with clear space above and below — a card, not an
+application. Decision 7 verified by driving `?` through the PTY.
+
+Implementation notes worth carrying:
+
+- `render::context_depths` and `render::rows` are pure and take the
+  whole result set, because ADR-007 §Consequences demanded it: a row
+  correct alone and ambiguous in company is the failure being prevented.
+  Eight set-based tests, including the case where name *and* parent
+  collide and context must deepen to two segments.
+- Matched characters are classified in the context as well as the name.
+  A query can match on location alone, and decision 6's point is telling
+  the user why a row matched.
+- The kind marker is a `.git` stat on displayed rows only — at most
+  eight per frame. Putting it in the indexer would add a stat per path
+  to a walk with a 100k budget to answer a question about eight rows.
+- `path_cells` and `signal_level` are deleted rather than left dormant
+  (§Consequences). **The C0/C1 strip-parity guard moved with the strip**
+  — it had been pinned to `path_cells`, and a drift guard left pointing
+  at deleted code is worse than no guard, because it still passes.
+- Two of my first three test failures were my own arithmetic, not the
+  code. The third was real: the home-collapse condition tested
+  `from == 0`, which is never true for an absolute path, whose first
+  segment starts at index 1 after the leading slash.
+
+### Verification
+
+76 tests, fmt, clippy, `cargo deny`, `cargo audit` (zero findings) and
+the 100k perf gate all green. Ceiling 119 of 150.

@@ -35,15 +35,6 @@ pub const SELECTED: &str = "\u{2759}"; // ❙ MEDIUM VERTICAL BAR
 /// Unselected rows pay the same width, so rows align.
 pub const UNSELECTED: &str = " ";
 
-/// Frecency signal meter, 0-3. A light/medium/heavy weight ramp,
-/// replacing the block-element ramp `▁▄█` (all Ambiguous).
-pub const SIGNAL: [&str; 4] = [
-    "   ",
-    "\u{2758}  ",               // ❘
-    "\u{2758}\u{2759} ",        // ❘❙
-    "\u{2758}\u{2759}\u{275A}", // ❘❙❚
-];
-
 /// Query prompt.
 pub const PROMPT: &str = "\u{276F}"; // ❯
 
@@ -67,7 +58,7 @@ mod tests {
     /// invisible in local testing and only breaks for someone else.
     #[test]
     fn ornaments_are_width_unambiguous() {
-        let mut sources: Vec<(&str, String)> = vec![
+        let sources: Vec<(&str, String)> = vec![
             ("ELLIPSIS", ELLIPSIS.to_string()),
             ("SELECTED", SELECTED.to_string()),
             ("UNSELECTED", UNSELECTED.to_string()),
@@ -76,10 +67,6 @@ mod tests {
             ("KIND_DIR", KIND_DIR.to_string()),
             ("KIND_FILE", KIND_FILE.to_string()),
         ];
-        for (i, level) in SIGNAL.iter().enumerate() {
-            sources.push(("SIGNAL", format!("[{i}] {level}")));
-        }
-
         for (name, text) in &sources {
             for c in text.chars() {
                 let narrow = c.width().unwrap_or(0);
@@ -95,16 +82,6 @@ mod tests {
     }
 
     /// The meter is positioned by padding computed elsewhere, so every
-    /// level must occupy the same number of columns as every other.
-    #[test]
-    fn signal_levels_are_equal_width() {
-        let widths: Vec<usize> = SIGNAL
-            .iter()
-            .map(|level| level.chars().map(|c| c.width().unwrap_or(0)).sum())
-            .collect();
-        assert_eq!(widths, vec![3, 3, 3, 3], "signal ramp levels differ in width: {widths:?}");
-    }
-
     /// Selected and unselected rows must start at the same column, or
     /// the list shifts by a column as the cursor moves.
     #[test]

@@ -14,45 +14,6 @@ pub enum CellKind {
     Match,
 }
 
-/// Classify `path` into displayable cells: `$HOME` prefix collapses to
-/// `~`, C0/C1 control chars are stripped at this boundary (ADR-003 §6;
-/// tab becomes a plain space), `match_indices` (char positions in the
-/// ORIGINAL path) win over dir/base classification. Matches that fall
-/// inside the collapsed `~` prefix are dropped with it.
-pub fn path_cells(path: &str, home: &str, match_indices: &[u32]) -> Vec<(char, CellKind)> {
-    let chars: Vec<char> = path.chars().collect();
-    let home_chars = home.chars().count();
-    let collapse_home = !home.is_empty()
-        && path.starts_with(home)
-        && (chars.len() == home_chars || chars.get(home_chars) == Some(&'/'));
-
-    let base_start = path.rfind('/').map(|byte| path[..byte].chars().count() + 1).unwrap_or(0);
-
-    let mut cells = Vec::with_capacity(chars.len());
-    let mut start = 0;
-    if collapse_home {
-        cells.push(('~', CellKind::Dir));
-        start = home_chars;
-    }
-    for (i, &c) in chars.iter().enumerate().skip(start) {
-        let code = c as u32;
-        let c = match code {
-            0x09 => ' ',
-            0x00..=0x1f | 0x80..=0x9f => continue,
-            _ => c,
-        };
-        let kind = if match_indices.contains(&(i as u32)) {
-            CellKind::Match
-        } else if i >= base_start {
-            CellKind::Base
-        } else {
-            CellKind::Dir
-        };
-        cells.push((c, kind));
-    }
-    cells
-}
-
 /// Terminal columns these cells occupy (ADR-005). The single source of
 /// truth for every layout calculation downstream.
 ///
@@ -106,23 +67,6 @@ pub fn truncate_left(cells: &mut Vec<(char, CellKind)>, width: usize) {
     }
 }
 
-/// Frecency signal meter: 0-3 strength levels derived from ranking's
-/// `K_FREC` (level 3 = saturation ~ a daily driver, level 2 ~ 0.3·K,
-/// level 1 ~ 0.05·K ~ touched this week). Deriving from the exported
-/// constant keeps the meter in step with any ranking re-tune.
-pub fn signal_level(s_now: f64) -> usize {
-    let k = crate::search::ranking::K_FREC;
-    if s_now >= k {
-        3
-    } else if s_now >= 0.3 * k {
-        2
-    } else if s_now >= 0.05 * k {
-        1
-    } else {
-        0
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,44 +75,29 @@ mod tests {
         cells.iter().map(|(c, _)| *c).collect()
     }
 
-    #[test]
-    fn home_collapses_and_base_is_classified() {
-        let cells = path_cells("/home/agent/projects/scout", "/home/agent", &[]);
-        assert_eq!(render(&cells), "~/projects/scout");
-        // "scout" chars are Base, the rest Dir.
-        let kinds: Vec<CellKind> = cells.iter().map(|(_, k)| *k).collect();
-        assert!(kinds[..11].iter().all(|k| *k == CellKind::Dir));
-        assert!(kinds[11..].iter().all(|k| *k == CellKind::Base));
-        // Not a prefix match on a sibling dir: /home/agentx must not collapse.
-        let cells = path_cells("/home/agentx/f", "/home/agent", &[]);
-        assert_eq!(render(&cells), "/home/agentx/f");
+    fn text(cells: &[(char, CellKind)]) -> String {
+        cells.iter().map(|(c, _)| *c).collect()
     }
 
-    #[test]
-    fn match_indices_survive_home_collapse_shift() {
-        // Match on "scout" at original char positions 21..26.
-        let path = "/home/agent/projects/scout";
-        let indices: Vec<u32> = (21..26).collect();
-        let cells = path_cells(path, "/home/agent", &indices);
-        let matched: String =
-            cells.iter().filter(|(_, k)| *k == CellKind::Match).map(|(c, _)| *c).collect();
-        assert_eq!(matched, "scout");
+    /// Cells for a plain string, for the width/truncation tests.
+    fn make_cells(path: &str) -> Vec<(char, CellKind)> {
+        path.chars().map(|c| (c, CellKind::Dir)).collect()
     }
 
     #[test]
     fn control_chars_strip_without_breaking_match_alignment() {
-        // ESC at char index 4; match on "abc" at indices 5..8.
-        let path = "/tmp\u{1b}abc";
-        let cells = path_cells(path, "", &[5, 6, 7]);
-        assert_eq!(render(&cells), "/tmpabc");
+        // ESC at char index 5; match on "abc" at indices 6..9.
+        let path = "/tmp/\u{1b}abc";
+        let rows = rows(&[path], &[&[6, 7, 8]], "");
+        assert_eq!(render(&rows[0].name), "abc");
         let matched: String =
-            cells.iter().filter(|(_, k)| *k == CellKind::Match).map(|(c, _)| *c).collect();
+            rows[0].name.iter().filter(|(_, k)| *k == CellKind::Match).map(|(c, _)| *c).collect();
         assert_eq!(matched, "abc");
     }
 
     #[test]
     fn truncation_keeps_tail() {
-        let mut cells = path_cells("/very/long/dir/base", "", &[]);
+        let mut cells = make_cells("/very/long/dir/base");
         truncate_left(&mut cells, 9);
         assert_eq!(render(&cells), "..ir/base");
         assert_eq!(cells.len(), 9);
@@ -180,12 +109,12 @@ mod tests {
         // ADR-005. CJK ideographs are two columns each, so this path is
         // 1 + 4*2 + 1 + 3 = 13 columns across 9 chars. A char count
         // would say 9 and misplace everything to its right.
-        let cells = path_cells("/日本語版/abc", "", &[]);
+        let cells = make_cells("/日本語版/abc");
         assert_eq!(cells.len(), 9);
         assert_eq!(display_width(&cells), 13);
 
         // Combining marks add characters but no columns.
-        let combining = path_cells("/e\u{301}", "", &[]);
+        let combining = make_cells("/e\u{301}");
         assert_eq!(combining.len(), 3);
         assert_eq!(display_width(&combining), 2);
     }
@@ -196,7 +125,7 @@ mod tests {
         // COLUMNS. Asserting cells.len() here would pass even with the
         // pre-ADR-005 char-counting bug fully present, which is exactly
         // how that bug survived the original suite.
-        let mut cells = path_cells("/日本語版/abc", "", &[]);
+        let mut cells = make_cells("/日本語版/abc");
         truncate_left(&mut cells, 9);
         assert!(
             display_width(&cells) <= 9,
@@ -214,7 +143,7 @@ mod tests {
         // A two-column glyph straddling the boundary cannot be half
         // rendered. Dropping it undershoots by one column; keeping it
         // would push the meta column off the pane.
-        let mut cells = path_cells("日日日", "", &[]); // 6 columns, 3 chars
+        let mut cells = make_cells("日日日"); // 6 columns, 3 chars
         truncate_left(&mut cells, 4); // ellipsis (1) + budget 3 -> one glyph fits
                                       // marker (2 cols) + one wide glyph (2) would be 4; budget is 4.
         assert_eq!(display_width(&cells), 4);
@@ -223,7 +152,7 @@ mod tests {
 
     #[test]
     fn narrow_and_exact_widths_are_left_alone() {
-        let mut cells = path_cells("/abc", "", &[]);
+        let mut cells = make_cells("/abc");
         truncate_left(&mut cells, 4); // exactly fits: untouched
         assert_eq!(render(&cells), "/abc");
         truncate_left(&mut cells, 0); // degenerate width: untouched
@@ -231,24 +160,246 @@ mod tests {
     }
 
     #[test]
-    fn signal_levels_derive_from_k_frec() {
-        let k = crate::search::ranking::K_FREC;
-        // Saturation is exactly K_FREC, so a ranking re-tune moves both
-        // the blend and the meter together (drift guard).
-        assert_eq!(signal_level(k), 3);
-        assert_eq!(signal_level(k - 0.01), 2);
-        assert_eq!(signal_level(0.0), 0);
-        assert_eq!(signal_level(0.06 * k), 1);
-        assert_eq!(crate::ui::glyph::SIGNAL.len(), 4);
+    fn unique_names_carry_no_context() {
+        let paths = ["/home/u/projects/scout", "/home/u/projects/wraptious"];
+        assert_eq!(context_depths(&paths), vec![0, 0]);
+        let rows = rows(&paths, &[&[], &[]], "/home/u");
+        assert_eq!(text(&rows[0].name), "scout");
+        assert!(rows[0].context.is_empty(), "unique name should show no path");
     }
 
     #[test]
-    fn path_cells_strip_matches_strip_clean() {
-        // The inline C0/C1 strip in path_cells must stay equivalent to
-        // the canonical strip::clean over a control-char corpus
-        // (ADR-003 §6 lives in one place, guarded here).
-        let corpus = "plain\tpath\x00\x1b\x07\u{85}\u{9f}end/base\u{1b}]0;x\u{7}z";
-        let rendered: String = path_cells(corpus, "", &[]).iter().map(|(c, _)| *c).collect();
+    fn shared_basename_grows_context_until_it_distinguishes() {
+        let paths = ["/home/u/service-hub/api", "/home/u/wraptious/api"];
+        assert_eq!(context_depths(&paths), vec![1, 1]);
+        let rows = rows(&paths, &[&[], &[]], "/home/u");
+        assert_eq!(text(&rows[0].name), "api");
+        assert_eq!(text(&rows[0].context), "service-hub");
+        assert_eq!(text(&rows[1].context), "wraptious");
+    }
+
+    #[test]
+    fn context_deepens_when_the_parent_also_collides() {
+        // Same name AND same parent: one segment is not enough.
+        let paths = ["/home/u/alpha/src/mod.rs", "/home/u/beta/src/mod.rs"];
+        assert_eq!(context_depths(&paths), vec![2, 2]);
+        let rows = rows(&paths, &[&[], &[]], "/home/u");
+        assert_eq!(text(&rows[0].context), "alpha/src");
+        assert_eq!(text(&rows[1].context), "beta/src");
+    }
+
+    #[test]
+    fn depth_is_per_row_not_per_set() {
+        // Only the colliding rows pay for context; the unique one does not.
+        let paths = ["/home/u/a/api", "/home/u/b/api", "/home/u/c/unique"];
+        assert_eq!(context_depths(&paths), vec![1, 1, 0]);
+    }
+
+    #[test]
+    fn a_single_result_needs_nothing() {
+        let paths = ["/home/u/projects/scout"];
+        assert_eq!(context_depths(&paths), vec![0]);
+        assert!(rows(&paths, &[&[]], "/home/u")[0].context.is_empty());
+    }
+
+    #[test]
+    fn matches_are_classified_in_name_and_in_context() {
+        // Decision 6: the highlight says WHY a row matched, and a query
+        // can match on location alone — so context must carry hits too.
+        let paths = ["/home/u/wraptious/api", "/home/u/service-hub/api"];
+        // "wrap" at char positions 8..12, inside the parent segment.
+        let hits: Vec<u32> = (8..12).collect();
+        let rows = rows(&paths, &[&hits, &[]], "/home/u");
+        let matched: String = rows[0]
+            .context
+            .iter()
+            .filter(|(_, k)| *k == CellKind::Match)
+            .map(|(c, _)| *c)
+            .collect();
+        assert_eq!(matched, "wrap");
+    }
+
+    #[test]
+    fn a_full_parent_context_collapses_home() {
+        // Depth reaching the whole parent path is the one place a long
+        // location can still appear; ~ keeps it from being a full path.
+        // Collides at every shallower depth, so depth reaches the whole
+        // parent — the only case where a long location can still appear.
+        let paths = ["/home/u/api", "/x/home/u/api"];
+        let rows = rows(&paths, &[&[], &[]], "/home/u");
+        assert_eq!(text(&rows[0].context), "~");
+        assert_eq!(text(&rows[1].context), "x/home/u");
+    }
+
+    #[test]
+    fn wide_glyph_names_measure_in_columns() {
+        // ADR-005 is load-bearing here: the name is now the aligned
+        // element, so its width must be columns, not chars.
+        let paths = ["/p/日本語", "/q/日本語"];
+        let rows = rows(&paths, &[&[], &[]], "");
+        assert_eq!(rows[0].name.len(), 3);
+        assert_eq!(display_width(&rows[0].name), 6);
+        assert_eq!(text(&rows[0].context), "p");
+    }
+
+    #[test]
+    fn rows_strip_matches_strip_clean() {
+        // The inline C0/C1 strip in `rows` must stay equivalent to the
+        // canonical strip::clean (ADR-003 §6 lives in one place, guarded
+        // here). This guard moved with the strip when `path_cells` was
+        // superseded — a drift guard left pointing at deleted code is
+        // worse than no guard, because it still passes.
+        let corpus = "plain\tpath\x00\x1b\x07\u{85}\u{9f}base\u{1b}]0;x\u{7}z";
+        let path = format!("/dir/{corpus}");
+        let rendered: String = rows(&[&path], &[&[]], "")[0].name.iter().map(|(c, _)| *c).collect();
         assert_eq!(rendered, crate::ui::strip::clean(corpus));
     }
+}
+
+// ---------------------------------------------------------------------
+// ADR-007 — Spotlight presentation
+// ---------------------------------------------------------------------
+
+/// One displayed result, split into the two things a Spotlight row shows:
+/// the name, and just enough location to tell it from its neighbours.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Row {
+    /// Final path component, with matcher hits classified.
+    pub name: Vec<(char, CellKind)>,
+    /// Shortest parent-path suffix that distinguishes this row from the
+    /// others on screen. Empty when the name is already unique.
+    pub context: Vec<(char, CellKind)>,
+}
+
+/// Half-open char-index range of one path segment.
+type Span = (usize, usize);
+/// A path split into its parent segments and its final component.
+type Split = (Vec<Span>, Span);
+
+/// Split a path into its parent segments and its final component, by
+/// char index. Trailing slashes are ignored; a root path has no parent.
+fn segments(path: &str) -> Split {
+    let chars: Vec<char> = path.chars().collect();
+    let mut bounds = Vec::new();
+    let mut start = 0usize;
+    for (i, &c) in chars.iter().enumerate() {
+        if c == '/' {
+            if i > start {
+                bounds.push((start, i));
+            }
+            start = i + 1;
+        }
+    }
+    if start < chars.len() {
+        bounds.push((start, chars.len()));
+    }
+    match bounds.pop() {
+        Some(base) => (bounds, base),
+        None => (Vec::new(), (0, 0)),
+    }
+}
+
+/// How many trailing parent segments each row needs in order to be
+/// distinguishable from every other row sharing its name (ADR-007
+/// §Decision 2).
+///
+/// Computed against the set actually on screen, not by a fixed rule: a
+/// unique name needs nothing, and three candidates sharing both name and
+/// parent need two segments. A fixed "show the last N" is noisy at one
+/// end and insufficient at the other, and the user is only ever
+/// experiencing the ambiguity that is actually in front of them.
+pub fn context_depths(paths: &[&str]) -> Vec<usize> {
+    let parsed: Vec<Split> = paths.iter().map(|p| segments(p)).collect();
+    let chars: Vec<Vec<char>> = paths.iter().map(|p| p.chars().collect()).collect();
+
+    let slice = |i: usize, (a, b): Span| -> String { chars[i][a..b].iter().collect() };
+    // Key at depth k: the name plus its k nearest parent segments.
+    let key = |i: usize, k: usize| -> String {
+        let (parents, base) = &parsed[i];
+        let take = k.min(parents.len());
+        let mut parts: Vec<String> =
+            parents[parents.len() - take..].iter().map(|&b| slice(i, b)).collect();
+        parts.push(slice(i, *base));
+        parts.join("/")
+    };
+
+    let max_depth = parsed.iter().map(|(p, _)| p.len()).max().unwrap_or(0);
+    let mut depths = vec![0usize; paths.len()];
+
+    for i in 0..paths.len() {
+        for k in 0..=max_depth {
+            let mine = key(i, k);
+            let collides = (0..paths.len()).any(|j| j != i && key(j, k) == mine);
+            if !collides {
+                depths[i] = k;
+                break;
+            }
+            // Ran out of parents and still colliding: identical paths.
+            if k == max_depth {
+                depths[i] = parsed[i].0.len();
+            }
+        }
+    }
+    depths
+}
+
+/// Build the displayable rows for a result set (ADR-007 §Decision 2).
+///
+/// `match_indices` are char positions in the ORIGINAL path, as the
+/// matcher reports them, so hits are classified in both the name and the
+/// context — decision 6's point is telling the user *why* a row matched,
+/// and a query can match on location alone.
+pub fn rows(paths: &[&str], match_indices: &[&[u32]], home: &str) -> Vec<Row> {
+    let depths = context_depths(paths);
+    paths
+        .iter()
+        .enumerate()
+        .map(|(i, path)| {
+            let chars: Vec<char> = path.chars().collect();
+            let (parents, base) = segments(path);
+            let hits: &[u32] = match_indices.get(i).copied().unwrap_or(&[]);
+
+            let cell = |idx: usize, plain: CellKind| -> Option<(char, CellKind)> {
+                let c = chars[idx];
+                let c = match c as u32 {
+                    0x09 => ' ',
+                    0x00..=0x1f | 0x80..=0x9f => return None,
+                    _ => c,
+                };
+                Some((c, if hits.contains(&(idx as u32)) { CellKind::Match } else { plain }))
+            };
+
+            let name: Vec<(char, CellKind)> =
+                (base.0..base.1).filter_map(|i| cell(i, CellKind::Base)).collect();
+
+            let depth = depths[i].min(parents.len());
+            let context = if depth == 0 {
+                Vec::new()
+            } else {
+                let first = parents[parents.len() - depth];
+                let last = parents[parents.len() - 1];
+                let (from, to) = (first.0, last.1);
+                // A context that spans the whole parent path collapses
+                // $HOME to `~`, the one place a full path can still show.
+                // The test is "took every parent segment", NOT `from == 0`:
+                // an absolute path's first segment starts at index 1,
+                // after the leading slash, so `from` is never 0.
+                let home_chars = home.chars().count();
+                let collapse = depth >= parents.len()
+                    && !home.is_empty()
+                    && path.starts_with(home)
+                    && chars.get(home_chars).is_some_and(|c| *c == '/');
+                let mut out: Vec<(char, CellKind)> = Vec::new();
+                if collapse {
+                    out.push(('~', CellKind::Dir));
+                    out.extend((home_chars..to).filter_map(|i| cell(i, CellKind::Dir)));
+                } else {
+                    out.extend((from..to).filter_map(|i| cell(i, CellKind::Dir)));
+                }
+                out
+            };
+
+            Row { name, context }
+        })
+        .collect()
 }

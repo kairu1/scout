@@ -37,11 +37,11 @@ jobs:
           tool: cargo-audit,cargo-deny
       - run: cargo audit
       - run: cargo deny check
-      - name: transitive ceiling (<120 shipped-target crates, ADR-002)
+      - name: transitive ceiling (<150 shipped-target crates, ADR-002)
         run: |
           count=$(cargo tree --prefix none | sed 's/ .*//' | sort -u | wc -l)
           echo "transitive crates: $count"
-          test "$count" -lt 120
+          test "$count" -lt 150
 
   # The Phase 2 checkpoint (100k paths under 30 s wall, RSS under 100 MB)
   # is #[ignore]d, so `cargo test` never ran it and CI has never enforced

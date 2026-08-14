@@ -31,9 +31,13 @@ use crate::config::Config;
 use crate::search::matcher::NucleoMatcher;
 use crate::search::{search, CandidateRow, IndexState, Ranked};
 
-use render::{path_cells, signal_level, truncate_left, CellKind};
+use render::{truncate_left, CellKind};
 
+/// Ranking depth — how deep the matcher scores. Not what is shown.
 const RESULT_LIMIT: usize = 200;
+/// Display depth (ADR-007 §Decision 8a). If the answer is not in the
+/// first few, the move is another keystroke, not a scroll.
+const DISPLAY_LIMIT: usize = 8;
 
 const ACCENT: Color = Color::Yellow;
 const CHROME: Color = Color::DarkGray;
@@ -58,6 +62,8 @@ struct App<'a> {
     selected: usize,
     /// Some(index into config.actions) = action menu open.
     menu: Option<usize>,
+    /// `?` help overlay (ADR-007 §Decision 7).
+    help: bool,
     /// One-shot banner shown when no config file was found (ADR-004 §7);
     /// dismissed on the first keystroke.
     no_config_banner: bool,
@@ -103,6 +109,7 @@ pub fn run(
         results: Vec::new(),
         selected: 0,
         menu: None,
+        help: false,
         no_config_banner: config.source.is_none(),
     };
     app.refresh();
@@ -168,6 +175,11 @@ fn event_loop(
         }
         app.no_config_banner = false;
 
+        if app.help {
+            app.help = false;
+            continue;
+        }
+
         if let Some(menu_index) = app.menu {
             match key.code {
                 KeyCode::Esc | KeyCode::Tab => app.menu = None,
@@ -213,12 +225,33 @@ fn event_loop(
                 app.query.pop();
                 app.refresh();
             }
+            // `?` opens the cheatsheet rather than searching for "?" —
+            // a query that begins with it is the discoverability case
+            // this exists for, and `esc` closes it without losing state.
+            KeyCode::Char('?') if app.query.is_empty() => app.help = true,
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 app.query.push(c);
                 app.refresh();
             }
             _ => {}
         }
+    }
+}
+
+/// The surface is a card, not an application (ADR-007 §Decision 4): it
+/// occupies the space it needs — query row, hairline, at most
+/// DISPLAY_LIMIT results, a hint line — centred in the terminal, rather
+/// than stretching to the corners with the list padded out by blanks.
+fn card(area: Rect, app: &App<'_>, has_banner: bool) -> Rect {
+    let rows = app.results.len().clamp(1, DISPLAY_LIMIT) as u16;
+    let chrome = 2 + 1 + u16::from(has_banner); // query + hairline + hint
+    let height = (rows + chrome).min(area.height);
+    let width = area.width.min(96);
+    Rect {
+        x: area.x + (area.width.saturating_sub(width)) / 2,
+        y: area.y + (area.height.saturating_sub(height)) / 3,
+        width,
+        height,
     }
 }
 
@@ -233,7 +266,7 @@ fn draw(frame: &mut ratatui::Frame, app: &App<'_>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(constraints)
-        .split(frame.area());
+        .split(card(frame.area(), app, banner.is_some()));
 
     draw_query_row(frame, app, chunks[0]);
 
@@ -260,6 +293,42 @@ fn draw(frame: &mut ratatui::Frame, app: &App<'_>) {
     if let Some(menu_index) = app.menu {
         draw_action_menu(frame, app, menu_index);
     }
+    if app.help {
+        draw_help(frame);
+    }
+}
+
+/// The cheatsheet (ADR-007 §Decision 7). Until now `tab` was
+/// discoverable only by reading the README.
+fn draw_help(frame: &mut ratatui::Frame) {
+    const ROWS: [(&str, &str); 6] = [
+        ("type", "filter — results rank by match quality and frecency"),
+        ("up / down", "move the selection"),
+        ("enter", "run the default action on the selection"),
+        ("tab", "open the action menu"),
+        ("?", "this help"),
+        ("esc", "close this, or quit"),
+    ];
+    let key = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
+    let label = Style::default().fg(CHROME);
+    let lines: Vec<Line> = ROWS
+        .iter()
+        .map(|(k, v)| {
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled(format!("{k:>10}"), key),
+                Span::styled(format!("  {v}"), label),
+            ])
+        })
+        .collect();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(CHROME))
+        .title(Span::styled(" keys ", Style::default().fg(CHROME)));
+    let area = centered(frame.area(), 72, ROWS.len() as u16 + 2);
+    frame.render_widget(Clear, area);
+    frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 fn draw_query_row(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
@@ -282,45 +351,78 @@ fn draw_query_row(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
     );
 }
 
+/// Rows the picker will actually draw (ADR-007 §Decision 8a).
+fn visible<'a>(app: &'a App<'_>, area: Rect) -> &'a [Ranked] {
+    let room = (area.height as usize).min(DISPLAY_LIMIT);
+    &app.results[..app.results.len().min(room)]
+}
+
 fn draw_results(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
-    if app.results.is_empty() {
-        if !app.query.is_empty() {
-            frame.render_widget(
-                Paragraph::new(Span::styled("  no matches", Style::default().fg(CHROME))),
-                area,
-            );
-        }
+    let shown = visible(app, area);
+    if shown.is_empty() {
         return;
     }
 
-    // pointer(2) + path + gap(1) + meter(3) + gap(1) + visits(4)
-    let meta_width = 9usize;
-    let path_width = (area.width as usize).saturating_sub(2 + meta_width);
+    let paths: Vec<&str> = shown.iter().map(|r| r.path.as_str()).collect();
+    let hits: Vec<&[u32]> = shown.iter().map(|r| r.match_indices.as_slice()).collect();
+    let rows = render::rows(&paths, &hits, &app.home);
 
-    let items: Vec<ListItem> = app
-        .results
+    // Name column is as wide as the widest name on screen, so contexts
+    // line up — measured in columns (ADR-005), since the name is now the
+    // aligned element.
+    let name_col = rows.iter().map(|r| render::display_width(&r.name)).max().unwrap_or(0);
+    // 2 marker + 2 kind + gap; leave the context whatever remains.
+    let context_room = (area.width as usize).saturating_sub(name_col + 6);
+
+    let items: Vec<ListItem> = rows
         .iter()
         .enumerate()
-        .map(|(i, r)| ListItem::new(result_line(app, r, i == app.selected, path_width)))
+        .map(|(i, row)| {
+            ListItem::new(result_line(
+                row,
+                &shown[i].path,
+                i == app.selected,
+                name_col,
+                context_room,
+            ))
+        })
         .collect();
 
     let mut state = ListState::default();
-    state.select(Some(app.selected));
-    // Selection is styled inside result_line (rows light up from gray to
-    // full); the List only supplies scroll-follow behaviour.
+    state.select(Some(app.selected.min(shown.len().saturating_sub(1))));
     frame.render_stateful_widget(List::new(items), area, &mut state);
 }
 
-fn result_line<'a>(app: &App<'_>, r: &Ranked, selected: bool, path_width: usize) -> Line<'a> {
-    let mut cells = path_cells(&r.path, &app.home, &r.match_indices);
-    truncate_left(&mut cells, path_width);
+/// The kind marker (ADR-007 §Decision 8c). A `.git` stat, and only for
+/// the handful of rows on screen — never in the indexer, which walks
+/// 100k paths under a budget.
+fn kind_marker(path: &str) -> char {
+    let p = std::path::Path::new(path);
+    match p.metadata() {
+        Ok(meta) if meta.is_dir() => {
+            if p.join(".git").exists() {
+                glyph::KIND_REPO
+            } else {
+                glyph::KIND_DIR
+            }
+        }
+        _ => glyph::KIND_FILE,
+    }
+}
 
-    let dir_style = if selected {
+fn result_line<'a>(
+    row: &render::Row,
+    path: &str,
+    selected: bool,
+    name_col: usize,
+    context_room: usize,
+) -> Line<'a> {
+    let dim = if selected {
         Style::default().add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(CHROME)
     };
-    let base_style =
+    let name_style =
         if selected { Style::default().add_modifier(Modifier::BOLD) } else { Style::default() };
     let match_style = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
 
@@ -333,19 +435,37 @@ fn result_line<'a>(app: &App<'_>, r: &Ranked, selected: bool, path_width: usize)
     } else {
         Span::raw(format!("{} ", glyph::UNSELECTED))
     });
+    spans.push(Span::styled(format!("{} ", kind_marker(path)), Style::default().fg(CHROME)));
 
-    // Group consecutive same-kind cells into spans.
+    push_cells(&mut spans, &row.name, name_style, name_style, match_style);
+
+    if !row.context.is_empty() && context_room > 2 {
+        let pad = name_col.saturating_sub(render::display_width(&row.name)) + 2;
+        spans.push(Span::raw(" ".repeat(pad)));
+        let mut context = row.context.clone();
+        truncate_left(&mut context, context_room);
+        push_cells(&mut spans, &context, dim, dim, match_style);
+    }
+
+    Line::from(spans)
+}
+
+/// Group consecutive same-kind cells into styled spans.
+fn push_cells<'a>(
+    spans: &mut Vec<Span<'a>>,
+    cells: &[(char, CellKind)],
+    dir: Style,
+    base: Style,
+    matched: Style,
+) {
     let mut run = String::new();
     let mut run_kind: Option<CellKind> = None;
-    // Columns, not cells (ADR-005): the pad that reaches the meta column
-    // must be measured in what the terminal will actually spend.
-    let filled = render::display_width(&cells);
-    for (c, kind) in cells {
+    for &(c, kind) in cells {
         if run_kind != Some(kind) {
             if let Some(prev) = run_kind {
                 spans.push(Span::styled(
                     std::mem::take(&mut run),
-                    style_for(prev, dir_style, base_style, match_style),
+                    style_for(prev, dir, base, matched),
                 ));
             }
             run_kind = Some(kind);
@@ -353,20 +473,8 @@ fn result_line<'a>(app: &App<'_>, r: &Ranked, selected: bool, path_width: usize)
         run.push(c);
     }
     if let Some(prev) = run_kind {
-        spans.push(Span::styled(run, style_for(prev, dir_style, base_style, match_style)));
+        spans.push(Span::styled(run, style_for(prev, dir, base, matched)));
     }
-
-    // Pad to the meta column, then the signal meter + visit count.
-    spans.push(Span::raw(" ".repeat(path_width.saturating_sub(filled) + 1)));
-    spans.push(Span::styled(
-        glyph::SIGNAL[signal_level(r.s_now)],
-        Style::default().fg(ACCENT).add_modifier(Modifier::DIM),
-    ));
-    let visits =
-        if r.visits_total > 0 { format!(" {:>4}", r.visits_total) } else { "     ".into() };
-    spans.push(Span::styled(visits, Style::default().fg(CHROME)));
-
-    Line::from(spans)
 }
 
 fn style_for(kind: CellKind, dir: Style, base: Style, matched: Style) -> Style {
@@ -391,6 +499,9 @@ fn draw_footer(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
     spans.push(Span::styled("  \u{00b7}  ", label));
     spans.push(Span::styled("esc", key));
     spans.push(Span::styled(" quit", label));
+    spans.push(Span::styled("  \u{00b7}  ", label));
+    spans.push(Span::styled("?", key));
+    spans.push(Span::styled(" keys", label));
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 

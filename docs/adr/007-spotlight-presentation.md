@@ -1,10 +1,10 @@
 # ADR-007 — Spotlight Presentation
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Authored:** chief-of-staff
 - **Date authored:** 2026-08-14
-- **Reviewers:** _pending_
-- **Signed by commander:** _pending_
+- **Reviewers:** none convened (see §Reviews)
+- **Signed by commander:** 2026-08-14
 - **Depends on:** ADR-005 (display width) — landed
 - **Partially executed ahead of signature:** the preview pane was removed by direct commander order on 2026-08-14, before this ADR was drafted. Recorded in §Decision 1 rather than left implicit.
 
@@ -240,7 +240,17 @@ it is used.
 
 _Appended by peer reviewers._
 
+None convened. Signed on the commander's direct approval after the three
+open questions in §Decision 8 were answered. As with ADR-005 and
+ADR-006, the reasoning here has not been read adversarially by another
+officer — and unlike those two, this ADR changes what every user sees on
+every invocation. 3rd Rifles holds the sector under the AAR §5
+promotion; council-security's standing review (AAR §5) covers the render
+boundary, which decision 8c touches by introducing a filesystem stat
+into the draw path.
+
 ## Revision history
 
 - 2026-08-14 — drafted by chief-of-staff at commander's direction. Preview-pane removal already executed under separate order.
-- 2026-08-14 — the three open questions answered by the commander and folded into §Decision 8: eight results, the counter stays, the kind marker ships. Marker glyphs selected for unambiguous width, which surfaced the ellipsis gap now filed against ADR-005. Status remains Draft pending signature.
+- 2026-08-14 — the three open questions answered by the commander and folded into §Decision 8: eight results, the counter stays, the kind marker ships. Marker glyphs selected for unambiguous width, which surfaced the ellipsis gap now filed against ADR-005.
+- 2026-08-14 — **signed by the commander. Status: Accepted.** 3rd Rifles cleared to implement.
