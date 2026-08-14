@@ -608,3 +608,93 @@ prohibited. Only the drill did.
 `cargo deny check` clean, ceiling 105 of 120 (ADR-006 adds no
 dependency). `doctor` exercised against four real states: healthy,
 fresh machine, symlinked config, corrupt index.
+
+## 2026-08-14 — FROM chief-of-staff TO commander — Preview pane removed, ADR-007 drafted, ADR-006 ratified, PHASE 5 CLOSED
+
+### Preview pane removed
+
+Executed on the commander's ruling. `src/ui/preview.rs` deleted (248
+lines), and with it the `App::preview` cache, `ensure_preview`, the
+per-frame preview read in the event loop, the horizontal layout split,
+and `draw_preview`. The result list now owns the full width.
+
+This ran ahead of ADR-007's signature. It was directly ordered, which
+CLAUDE.md §Forbidden permits, and ADR-007 §Decision 1 records it rather
+than leaving it implicit in a diff.
+
+### ADR-007 — Spotlight Presentation — DRAFTED, awaiting signature
+
+The ADR opens with a captured frame, because the argument is visual: at
+90 columns, roughly eighty columns of every row carry a path, the rows
+are identical for seventy of them, and the part the user is choosing
+between is the last word. Truncating from the left means the *most*
+redundant text is what survives longest.
+
+Seven decisions. The substantive one is decision 2: **name first, with
+location shown only as far as it disambiguates** — the shortest suffix
+of the parent path that distinguishes a result from the others currently
+on screen, computed against the visible set rather than by a fixed rule.
+Two results named `api` show as `api — service-hub` and `api —
+wraptious`; a unique name shows no context at all. Everything else in
+the ADR follows from that: no second panel, a short list rather than a
+scrollable window, a compact centred surface, and ranking metadata off
+the row entirely (order already communicates rank; a meter restating it
+is decoration on every row forever).
+
+Note for the record: ADR-005 landing first was the correct sequence, and
+more so than I argued at the time. A name-first row needs *more*
+accurate width measurement than a path row, because the name becomes the
+aligned element and the thing whose truncation is visible.
+
+Three open questions are left to the commander deliberately rather than
+decided in the draft: how many results (8 proposed), whether the query
+row keeps its `5/5` counter, and whether a kind marker distinguishing a
+git repo from a plain directory earns its character.
+
+### ADR-006 — three decisions ratified
+
+The environment allowlist, the warn/FAIL severity split, and resolving
+config through `loader::discover` rather than re-deriving it are
+green-lit and recorded in ADR-006 §Reviews and its revision history.
+
+Recorded honestly there: ratification settles the *decision*, not the
+*implementation*. Whether four variables is the right allowlist — and
+whether `TERM`, the one entry that is neither a scout setting nor an XDG
+path, belongs in it — is a narrower question that still wants
+council-security, and it is carried in the AAR.
+
+### PHASE 5 CLOSED — `docs/aar/v1.md`
+
+Seven lessons, ordered by how much they should change future behaviour.
+The one I would put in front of the commander first is §3.1: three
+separate gates — the 100k perf budget, `rustfmt`, and `cargo audit`'s
+schedule — were each correct, and each wired to nothing. A gate never
+observed failing is indistinguishable from a gate not wired up, and
+Pioneers' expanded sector now carries that as a standing obligation.
+
+The AAR's structural finding is §3.2 read together with §5: on every
+occasion in this campaign where a mechanical check and a human review
+disagreed about a matter of fact, the mechanical check was right — and
+the checks kept finding holes in the doctrine that had mandated them.
+`cargo deny` found that a *signed roster crate* was missing from
+ADR-002's own licence allow-list, after four officers and the commander
+signed it.
+
+Promotions: **Pioneers** (all gates, plus the observed-failing
+obligation), **3rd Rifles** (ADR-007 and its disambiguation logic), and
+**council-security reinstated as a standing officer rather than a
+phase-bound one** — the correction the AAR most insists on, because a
+council that dissolves at phase close cannot review the work that
+follows the phase, and Security's absence is felt in three separate
+places. Engineers and Quartermaster commended, not promoted, with the
+reasons stated plainly in both directions.
+
+Five ADR revisions are owed and assigned in AAR §4. The five Phase 3
+deviations are ratified. The `standdown`/`standby` typo flagged at Phase
+1 close, and carried for three months, is fixed.
+
+v2 opens with five objectives in dependency order (AAR §6). Nothing is
+started; each needs its ADR first.
+
+OPORD moved to Phase 5 and closed. All ten officer state files updated
+with the closure and their promotions. Operation SCOUT v1 complete.

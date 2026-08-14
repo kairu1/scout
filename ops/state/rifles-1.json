@@ -5,7 +5,7 @@
   "branch": "sector/search",
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-07-05T18:20:00Z",
+  "last_update": "2026-08-14T00:00:00Z",
   "blockers": [],
-  "notes": "Phase 3 closed 2026-07-05. Search sector shipped on sector/search, merged --no-ff: Matcher/QueryScorer trait over nucleo-matcher, ranking::blend (tanh, K_match 100, K_frec 10, 0.6/0.4), total tie-break order, zero-query frecency mode, generation+tombstone candidate scope, typed degradation states, QUERY_ACTIVE stamping. 6 tests. Note: streaming multi-worker pipeline simplified to synchronous in-memory ranking; budgets hold at 100k rows; the worker pipeline seam (ipc GEN counter) is preserved for a later phase if partial streaming becomes necessary."
+  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). No revision owed; campaign closed."
 }

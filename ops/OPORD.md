@@ -1,10 +1,10 @@
 # OPORD — Active Operation Order
 
-**Phase:** 4 — Consolidation: Portability
-**Status:** CLOSED 2026-07-05 — "Phase 4 green" filed in HANDOFF. v0.1.0 tagged and pushed; first CI run green (the musl smoke finally executed). Phase 5 AAR is the only phase still awaiting the commander.
-**Issued:** 2026-07-05
+**Phase:** 5 — AAR & Promotions
+**Status:** CLOSED 2026-08-14 — `docs/aar/v1.md` filed. Operation SCOUT v1 complete; every phase closed. v2 opening objectives are listed in AAR §6 and each needs its own ADR before code (CLAUDE.md §4).
+**Issued:** 2026-08-14 (Phase 4 issued 2026-07-05, closed the same day)
 **Signed:** Chief of Staff, under commander goal directive 2026-07-05 ("add the preview pane then do phase 4")
-**Previous phase:** 3 — Main Assault — CLOSED 2026-07-05 (HANDOFF "Phase 3 green"); post-close enhancements: TUI visual pass, preview pane (HANDOFF 2026-07-05 20:10 and Phase 4 entry).
+**Previous phase:** 4 — Consolidation: Portability — CLOSED 2026-07-05 ("Phase 4 green"), released v0.1.0. Before that: 3 — Main Assault — CLOSED 2026-07-05 (HANDOFF "Phase 3 green"); post-close enhancements: TUI visual pass, preview pane (HANDOFF 2026-07-05 20:10 and Phase 4 entry).
 
 ---
 

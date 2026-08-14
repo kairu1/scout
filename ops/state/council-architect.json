@@ -5,8 +5,11 @@
   "branch": null,
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-04-24T16:00:00Z",
+  "last_update": "2026-08-14T00:00:00Z",
   "blockers": [],
-  "primary_outputs": ["docs/adr/001-ranking-doctrine.md", "docs/adr/004-action-config-schema.md"],
-  "notes": "Wave 3 batched review filed: 2 ADRs reviewed. Phase 1 closed 2026-04-24; ADR-001 and ADR-004 signed by commander. Revision owed before Phase 3: ADR-001 §Visit credit one-sentence alignment citing ADR-004 §5."
+  "primary_outputs": [
+    "docs/adr/001-ranking-doctrine.md",
+    "docs/adr/004-action-config-schema.md"
+  ],
+  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). No revision owed; campaign closed."
 }

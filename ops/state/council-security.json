@@ -5,8 +5,11 @@
   "branch": null,
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-04-24T16:00:00Z",
+  "last_update": "2026-08-14T00:00:00Z",
   "blockers": [],
-  "primary_outputs": ["docs/adr/positions/council-security.md", "docs/adr/003-threat-model.md"],
-  "notes": "Wave 3 batched review filed: 3 ADRs reviewed. ADR-001 non-blocking (security-lens endorsement of canonical-path visit credit and tanh streaming-stability; thirded tidying item 2 — visit-credit ambiguity under on_failure=abort, request one sentence citing ADR-004 §5). ADR-002 endorsement (rusqlite bundled closes system-libsqlite3 supply surface; embedded interpreter + reqwest + notify + arboard + chrono refusals close injection/network/live-reload/clipboard/timezone vectors; cargo audit + cargo-deny + <120-transitive + MSRV pinning satisfy the supply-chain deferral ADR-003 §Dependencies makes to this ADR; flagged two cross-ADR tidies landing on my own ADR-003 revision — the dirs citation and the keybinding-omission in §3's inline enumeration). ADR-004 endorsement (every security-load-bearing ADR-003 contract realised as enforcement shape: closed 8-placeholder set, single-slot rule with metacharacter reject, env-step all-or-nothing bindings on undefined-env abort, print-step POSIX-single-quoting with NUL/newline refusal, unsafe_shell_template attestation, compiled-in defaults resolving the packager-bypass hazard, canonical-JSON hash including keybinding; §Alternatives 10 refusal of dynamic placeholders closes shell-as-template-syntax back door; flagged tidying item 1 — ADR-001 cited as accepted, it is Draft). Standing by for commander sign-off or Wave 4 directives. On ADR-003 revision: I owe the dirs-citation alignment to ADR-002's hand-rolled resolver decision, and the §3 inline-enumeration replacement with pointer to ADR-004 §9 per HANDOFF 2026-04-24 12:12 item 3. Phase 1 closed 2026-04-24; ADR-003 signed by commander — pre-Phase-3 revision owed for dirs-citation and keybinding-list pointer."
+  "primary_outputs": [
+    "docs/adr/positions/council-security.md",
+    "docs/adr/003-threat-model.md"
+  ],
+  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). REINSTATED AS STANDING OFFICER (AAR v1 \u00a75), not phase-bound. Reviews every ADR and every change touching the print seam, trust store, or render boundary, regardless of phase. Owes two revisions: ADR-003 display integrity (bidi/zero-width), and ADR-006's environment allowlist."
 }

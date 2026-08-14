@@ -5,8 +5,11 @@
   "branch": null,
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-04-24T16:00:00Z",
+  "last_update": "2026-08-14T00:00:00Z",
   "blockers": [],
-  "primary_outputs": ["docs/adr/positions/council-intel.md", "Embedded findings in all four ADRs"],
-  "notes": "Wave 3 batched review filed: 4 ADRs reviewed. Phase 1 closed 2026-04-24; all four ADRs signed by commander."
+  "primary_outputs": [
+    "docs/adr/positions/council-intel.md",
+    "Embedded findings in all four ADRs"
+  ],
+  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). Owes an ADR-001 revision (AAR v1 \u00a74): K_match = 100 was never calibrated against real query data \u2014 calibrate, or record it as an accepted arbitrary."
 }

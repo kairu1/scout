@@ -876,7 +876,7 @@ git commit -m "Phase 1: War Council I ADRs signed"
 - [ ] Each ADR has `Status: Accepted` and a commander signature date.
 - [ ] Each ADR has ≥2 non-blocking or endorsing reviews.
 - [ ] `ops/HANDOFF.md` contains your `Phase 1 signed` closing entry.
-- [ ] Council state files show `status: "standdown"` with a last-update timestamp.
+- [ ] Council state files show `status: "standby"` with a last-update timestamp.
 - [ ] `git log --oneline` shows at least one ADR-signing commit.
 
 When all green, return to the Chief of Staff with **"Phase 1 green"**. I will:

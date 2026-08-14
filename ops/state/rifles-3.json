@@ -5,7 +5,7 @@
   "branch": "sector/tui",
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-07-05T18:20:00Z",
+  "last_update": "2026-08-14T00:00:00Z",
   "blockers": [],
-  "notes": "Phase 3 closed 2026-07-05. TUI shipped on sector/tui, merged --no-ff: ratatui/crossterm on stderr (stdout reserved for the print seam), query bar + ranked list + action menu overlay, empty-index/first-scan banners as render states, no-config banner, C0/C1 strip filter at the render boundary, trust prompt before alt-screen, tracing to $XDG_STATE_HOME/scout/scout.log in TUI mode. clap CLI wiring (default TUI, index, open-db, query). PTY-driven e2e drill green."
+  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). PROMOTED (AAR v1 \u00a75): takes ADR-007 (Spotlight presentation) for v2, including the minimal-disambiguating-context logic that is the substance of that ADR."
 }

@@ -168,11 +168,22 @@ not claim to know whether the function is loaded.
 
 _Appended by peer reviewers._
 
-None. Commander-directed and authored in the same sortie as the
-implementation, so the environment allowlist in §Decision — the one
-decision here with a security consequence — has not been read by
-council-security. Flagged for the Phase 5 AAR.
+**Commander, 2026-08-14 — three decisions ratified.** The environment
+allowlist, the warn/FAIL severity split, and calling `loader::discover`
+rather than re-deriving discovery were each put to the commander
+explicitly and green-lit. That closes the gap flagged when this ADR was
+first filed: it was authored in the same sortie as its implementation
+with no council convened, and the allowlist in particular carries a
+security consequence that had been read by nobody.
+
+Ratification is not the same as review. A commander's green light
+settles the *decision*; it does not substitute for council-security
+reading the *implementation* against ADR-003. The narrower question
+remains open and is carried to the AAR: whether four variables is the
+right allowlist, and whether `TERM` — the one entry that is neither a
+scout setting nor an XDG path — belongs there at all.
 
 ## Revision history
 
 - 2026-08-14 — drafted by chief-of-staff under direct commander order.
+- 2026-08-14 — the three decisions in §Decision (environment allowlist, severity split, discovery via `loader::discover`) ratified by the commander. Status remains Accepted.

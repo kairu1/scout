@@ -5,7 +5,7 @@
   "branch": "sector/ops",
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-07-05T21:20:00Z",
+  "last_update": "2026-08-14T00:00:00Z",
   "blockers": [],
-  "notes": "Phase 4 closed 2026-07-05. Shipped: MSRV pin 1.96.1, v0.1.0, deny.toml + ci.yml (test/clippy/audit/deny/ceiling/musl-smoke) + release.yml (v* tag -> musl tarballs), install.sh (never writes a config \u2014 ADR-003), shell/scout.bash canonical wrapper, examples/config.toml, README. Fresh-HOME day-one drill green (shell PWD moved via wrapper). Open items in HANDOFF: ceiling metric ratification (124 --target all vs 104 shipped), musl smoke runs on first CI push."
+  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). PROMOTED (AAR v1 \u00a75): sector expands to own every gate \u2014 fmt check, perf gate, supply-chain schedule, release workflow \u2014 plus the standing obligation that each gate be observed failing at least once before it is trusted (AAR \u00a73.1)."
 }

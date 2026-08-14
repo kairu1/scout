@@ -5,8 +5,11 @@
   "branch": null,
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-04-24T16:00:00Z",
+  "last_update": "2026-08-14T00:00:00Z",
   "blockers": [],
-  "primary_outputs": ["docs/adr/002-dependency-roster.md", "docs/adr/positions/council-quartermaster.md"],
-  "notes": "Wave 3 batched review filed: 3 ADRs reviewed. ADR-001 non-blocking (seconded Surgeon on visit-credit alignment per HANDOFF 2026-04-24 12:12 item 2; endorsed nucleo-matcher + rusqlite-bundled supply alignment and the ranking::BLEND code-const discipline). ADR-003 non-blocking (filed HANDOFF items 1 and 3; plus portfolio-lens item 2: §4 still cites `dirs` for macOS $XDG_DATA_HOME fallback but ADR-002 rejected `dirs` in favour of hand-rolled resolver under src/config/paths.rs — Engineers must not chase two answers). ADR-004 endorsement (filed HANDOFF item 1; endorsed toml+serde-only parser surface, arboard drop honoured, {repo_root} via std::fs::metadata avoids a git2 dep, dynamic-placeholder refusal closes the back door into the roster). Did not commit — per CLAUDE.md Forbidden, commit is the commander's act. Phase 1 closed 2026-04-24; ADR-002 signed by commander."
+  "primary_outputs": [
+    "docs/adr/002-dependency-roster.md",
+    "docs/adr/positions/council-quartermaster.md"
+  ],
+  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). COMMENDED (AAR v1 \u00a75): ADR-002 is the most-cited document of the campaign. The MPL-2.0 allow-list gap is a finding about review method, not about the officer."
 }
