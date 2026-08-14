@@ -30,6 +30,9 @@ enum Cmd {
     },
     /// Open (and if needed recover) an index DB, print its vitals.
     OpenDb { path: PathBuf },
+    /// Print the state scout resolves at startup: config discovery,
+    /// trust, index, environment (ADR-006). Read-only; never prompts.
+    Doctor,
     /// Rank candidates for a query and print them, best first.
     Query {
         query: String,
@@ -43,6 +46,7 @@ fn main() -> ExitCode {
     match cli.command {
         Some(Cmd::Index { path, hidden, follow }) => cmd_index(path, hidden, follow),
         Some(Cmd::OpenDb { path }) => cmd_open_db(path),
+        Some(Cmd::Doctor) => cmd_doctor(),
         Some(Cmd::Query { query, limit }) => cmd_query(&query, limit),
         None => cmd_tui(),
     }
@@ -127,6 +131,15 @@ fn init_tracing(to_state_file: bool) {
         .with_env_filter(log_filter())
         .with_writer(std::io::stderr)
         .try_init();
+}
+
+/// `doctor` logs to stderr like the other CLI paths, and prints its
+/// report on stdout so it can be piped into a bug report.
+fn cmd_doctor() -> ExitCode {
+    init_tracing(false);
+    let report = scout::doctor::report();
+    print!("{}", report.render());
+    ExitCode::from(report.exit_code())
 }
 
 fn open_default_db() -> Result<rusqlite::Connection, ExitCode> {

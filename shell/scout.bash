@@ -9,8 +9,8 @@
 # Install: source this file from your shell rc, e.g.
 #   source /path/to/scout/shell/scout.bash
 #
-# Bare `scout` runs the picker; subcommands (index, query, open-db)
-# pass through to the binary untouched.
+# Bare `scout` runs the picker; subcommands (index, query, doctor,
+# open-db) pass through to the binary untouched.
 scout() {
   if [ $# -eq 0 ]; then
     local out line

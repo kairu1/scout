@@ -35,6 +35,7 @@ scout
 | `scout` | Interactive picker. Type to filter, `Up`/`Down` to move, `Enter` runs the default action, `Tab` opens the action menu, `Esc` or `Ctrl-C` quits. |
 | `scout index <path>` | Walk a tree into the index. Streaming and gitignore-aware; safe to re-run. |
 | `scout query <query>` | Print ranked results, best first — non-interactive, for scripts and pipes. |
+| `scout doctor` | Print the state scout resolves at startup — config, trust, index, environment — each line marked `ok`, `warn` or `FAIL`. Read-only. |
 | `scout open-db <path>` | Open an index database, print its vitals, and recover it if it needs recovering. |
 
 Flags:
@@ -84,8 +85,8 @@ Source it from your rc, or paste the function directly:
 # Install: source this file from your shell rc, e.g.
 #   source /path/to/scout/shell/scout.bash
 #
-# Bare `scout` runs the picker; subcommands (index, query, open-db)
-# pass through to the binary untouched.
+# Bare `scout` runs the picker; subcommands (index, query, doctor,
+# open-db) pass through to the binary untouched.
 scout() {
   if [ $# -eq 0 ]; then
     local out line
@@ -147,8 +148,30 @@ default for a shared machine.
 
 ## When something goes wrong
 
-Raise the log level with `SCOUT_LOG`, which takes a level or a
-per-module filter:
+Start with `scout doctor`. It prints what scout actually resolved —
+which config won the discovery chain, whether it is trusted, what the
+index holds, how your environment reads — rather than what you expect it
+to have resolved:
+
+```sh
+scout doctor
+```
+
+It exits 0 when nothing failed and 1 when something did, so it works in
+a script. It never prompts and never writes: it will not create a
+database, re-trust a config, or repair a corrupt index, because a
+diagnostic that fixes things destroys the evidence you called it to see.
+The environment section prints a fixed short list of variables and never
+your whole environment, so the output is safe to paste into a bug
+report.
+
+Most failures are one of four things, and `doctor` names all four: the
+config you edited is not the one that loaded (a symlinked config is
+skipped — it says so), the trust hash is stale, the index predates the
+thing you are searching for, or `$EDITOR` is unset.
+
+For anything deeper, raise the log level with `SCOUT_LOG`, which takes a
+level or a per-module filter:
 
 ```sh
 SCOUT_LOG=debug scout index ~/projects     # why was a path skipped?
@@ -164,12 +187,10 @@ warns when you do that.
 In the picker, logs go to `$XDG_STATE_HOME/scout/scout.log` rather than
 the screen, because the picker owns the terminal.
 
-Other useful moves:
-
-```sh
-scout query <term>                         # skip the TUI; errors go to stderr
-scout open-db ~/.local/share/scout/index.db # vitals, integrity check, recovery
-```
+`scout query <term>` is also useful on its own: it skips the TUI
+entirely, so errors go to stderr where you can read them. And
+`scout open-db <path>` opens a database directly — unlike `doctor`, it
+*will* recover a damaged one.
 
 If a path you expect is missing, the usual causes are that it is
 gitignored, hidden (re-run `scout index --hidden`), behind a symlink

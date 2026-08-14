@@ -85,7 +85,10 @@ pub fn load(
 /// Discovery (ADR-004 §8): first entry whose final component opens
 /// O_NOFOLLOW as a regular file. Symlinks fall through; absence falls
 /// through; anything that opens is taken.
-fn discover(chain: &[PathBuf]) -> Result<Option<PathBuf>, LoadError> {
+/// Public so `scout doctor` can report which link of the chain wins
+/// (ADR-006 §Decision) by asking the loader rather than re-implementing
+/// the `O_NOFOLLOW` rules and eventually disagreeing with it.
+pub fn discover(chain: &[PathBuf]) -> Result<Option<PathBuf>, LoadError> {
     for candidate in chain {
         match open_nofollow(candidate) {
             Ok(Some(_)) => return Ok(Some(candidate.clone())),

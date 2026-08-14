@@ -520,3 +520,91 @@ opened:
   roadmap) is endorsed by the commander and stays on the list.
 
 Neither the UI work nor `doctor` is started. Both need their ADRs.
+
+## 2026-08-14 — FROM chief-of-staff TO commander — ADR-006 `scout doctor` shipped; tree scrubbed
+
+### Files removed, each checked before removal
+
+- `ops/logs/` and its `.gitkeep` — nothing in the repository has ever
+  written to that directory and no document references it. Phase 0
+  scaffolding that never acquired a user. The two `.gitignore` rules
+  that existed only to preserve it went with it.
+- `docs/adr/.gitkeep`, `tests/.gitkeep` — both directories carry tracked
+  files, so neither placeholder does anything.
+- `.DS_Store` x3 (one inside `.git/`), and the empty `worktrees/`
+  directory, which `git worktree add` recreates on demand.
+
+Checked and KEPT, since "unused" was the wrong reading in each case:
+`src/ipc` looks like a leftover of the abandoned worker pipeline but is
+live — `search` stores `QUERY_ACTIVE`, the index writer loads it to pace
+checkpoints, and `tests/index_pragma.rs` covers both ends.
+`docs/adr/.template.md` is the house ADR shape. `ops/state/*.json` is
+required by CLAUDE.md §3 even while every officer is on standby.
+
+### Formatting
+
+The tree had never been rustfmt-clean: every source file differed from
+every rustfmt configuration, no `rustfmt.toml` existed, and CI had no
+`fmt` step, so nothing held the line. `use_small_heuristics = "Max"` is
+the configuration nearest to how the code was actually written; the
+whole tree is now formatted to it and `cargo fmt --all --check` runs in
+CI.
+
+The reformat earned its keep immediately by surfacing a real defect: the
+long `SCOUT_LOG` doc comment had come to sit on the `LOG_LEVELS`
+constant rather than on `log_filter`, because the constant was inserted
+between a comment and the function it documented. Moved back.
+
+### ADR-006 — `scout doctor`
+
+A read-only snapshot of the state scout resolves at startup: config
+discovery chain and which link wins, trust, index vitals, environment,
+log tail. Each line marked `ok` / `warn` / `FAIL`; exit 0 unless
+something failed.
+
+Three decisions worth reading in the ADR rather than the diff.
+
+**The environment allowlist.** `doctor` prints four named variables and
+never the environment. Diagnostic output exists to be pasted, and
+ADR-003's deliberate refusal to strip `AWS_*` / `GITHUB_TOKEN` from a
+*spawned action's* environment does not extend to *displaying* them. An
+env-dumping `doctor` is a credential-exfiltration convenience, one paste
+at a time.
+
+**Severity is not uniform.** A missing index is `warn`, a corrupt one is
+`FAIL`. Conflating them makes the exit code useless on a fresh machine,
+which is the machine most likely to run `doctor` first.
+
+**`doctor` asks the loader which config wins** rather than
+re-implementing the `O_NOFOLLOW` walk. A diagnostic with its own copy of
+the rules eventually disagrees with the real ones, and it will disagree
+precisely when someone is trusting it to be right. `loader::discover` is
+now public for this and nothing else.
+
+### A defect I introduced and caught in the drill
+
+The first implementation called `index::pragma::open` to read the index.
+That path creates the parent directory, creates the file, runs
+migrations, and — on a corrupt database — renames it aside and rebuilds
+it. So `doctor` was *repairing the fault while reporting it*: exactly
+the behaviour ADR-006 §Alternatives 4 rejects, written into the code by
+the same person who wrote the rejection. The corrupt-index drill is what
+exposed it — the run reported a healthy empty database, because the open
+had just fabricated one.
+
+It now opens read-only, which cannot create, migrate, or recover.
+`tests/doctor.rs` guards the promise from outside the process: a fresh
+sandbox must come back with no database, no data directory and no state
+directory created, and a corrupt database must still be byte-identical
+after the run, with no rebuilt sibling.
+
+Lesson for the AAR, and it is not a small one: writing the prohibition
+into doctrine does not stop you from implementing the thing you
+prohibited. Only the drill did.
+
+### Verification
+
+69 tests across 12 suites, `cargo fmt --check` clean, clippy clean,
+`cargo deny check` clean, ceiling 105 of 120 (ADR-006 adds no
+dependency). `doctor` exercised against four real states: healthy,
+fresh machine, symlinked config, corrupt index.
