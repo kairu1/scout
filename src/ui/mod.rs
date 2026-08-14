@@ -4,10 +4,12 @@
 //! §Degradation). Every rendered string passes the strip filter (the
 //! path cells strip inline; chrome strings pass strip::clean).
 //!
-//! Visual grammar (see render.rs for the testable core): one amber
-//! accent, dim directory / bold basename path typography, matcher hits
-//! in the accent, and a per-row frecency signal meter — ranking made
-//! visible, not decorated.
+//! Visual grammar (see render.rs for the testable core, glyph.rs for
+//! every character it emits): one amber accent, name-first rows with
+//! location shown only as far as it disambiguates, matcher hits in the
+//! accent, and a kind marker separating repositories from directories
+//! from files (ADR-007). Rank is carried by order, not by per-row
+//! ornament.
 
 pub mod glyph;
 pub mod render;
@@ -273,7 +275,7 @@ fn draw(frame: &mut ratatui::Frame, app: &App<'_>) {
     // Hairline separator: quiet structure instead of boxed chrome.
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "\u{2500}".repeat(chunks[1].width as usize),
+            glyph::HAIRLINE.repeat(chunks[1].width as usize),
             Style::default().fg(CHROME),
         )),
         chunks[1],
@@ -302,7 +304,7 @@ fn draw(frame: &mut ratatui::Frame, app: &App<'_>) {
 /// discoverable only by reading the README.
 fn draw_help(frame: &mut ratatui::Frame) {
     const ROWS: [(&str, &str); 6] = [
-        ("type", "filter — results rank by match quality and frecency"),
+        ("type", "filter - results rank by match quality and frecency"),
         ("up / down", "move the selection"),
         ("enter", "run the default action on the selection"),
         ("tab", "open the action menu"),
@@ -341,7 +343,7 @@ fn draw_query_row(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
     let query_line = Line::from(vec![
         Span::styled("\u{276f} ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
         Span::raw(strip::clean(&app.query)),
-        Span::styled("\u{2588}", Style::default().fg(ACCENT)),
+        Span::styled(glyph::CURSOR, Style::default().fg(ACCENT)),
     ]);
     frame.render_widget(Paragraph::new(query_line), row[0]);
     frame.render_widget(
@@ -492,14 +494,14 @@ fn draw_footer(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
     if let Some(action) = app.config.enter_action() {
         spans.push(Span::styled("enter", key));
         spans.push(Span::styled(format!(" {}", strip::clean(&action.name)), label));
-        spans.push(Span::styled("  \u{00b7}  ", label));
+        spans.push(Span::styled(format!("  {}  ", glyph::SEPARATOR), label));
     }
     spans.push(Span::styled("tab", key));
     spans.push(Span::styled(" actions", label));
-    spans.push(Span::styled("  \u{00b7}  ", label));
+    spans.push(Span::styled(format!("  {}  ", glyph::SEPARATOR), label));
     spans.push(Span::styled("esc", key));
     spans.push(Span::styled(" quit", label));
-    spans.push(Span::styled("  \u{00b7}  ", label));
+    spans.push(Span::styled(format!("  {}  ", glyph::SEPARATOR), label));
     spans.push(Span::styled("?", key));
     spans.push(Span::styled(" keys", label));
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
@@ -510,19 +512,19 @@ fn banner_text(app: &App<'_>) -> Option<(String, Style)> {
     let info = Style::default().fg(CHROME);
     match app.index_state {
         IndexState::Empty => Some((
-            "no paths indexed \u{2014} run 'scout index <path>' to populate".into(),
+            "no paths indexed - run 'scout index <path>' to populate".into(),
             warn,
         )),
         IndexState::FirstScanInProgress { rows_so_far } => Some((
             format!(
-                "indexing in progress ({rows_so_far} paths so far) \u{2014} results will appear when the first scan completes"
+                "indexing in progress ({rows_so_far} paths so far) - results will appear when the first scan completes"
             ),
             warn,
         )),
         IndexState::Ready { .. } => {
             if app.no_config_banner {
                 Some((
-                    "no config loaded \u{2014} using built-in defaults; write \
+                    "no config loaded - using built-in defaults; write \
                      $XDG_CONFIG_HOME/scout/config.toml to customise"
                         .into(),
                     info,
@@ -547,7 +549,10 @@ fn draw_action_menu(frame: &mut ratatui::Frame, app: &App<'_>, menu_index: usize
         .map(|(i, a)| {
             let selected = i == menu_index;
             let mut spans = vec![if selected {
-                Span::styled("\u{258c} ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    format!("{} ", glyph::SELECTED),
+                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                )
             } else {
                 Span::raw("  ")
             }];

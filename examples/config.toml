@@ -3,13 +3,32 @@
 # Copy to $XDG_CONFIG_HOME/scout/config.toml (usually
 # ~/.config/scout/config.toml) — the installer deliberately never does
 # this for you: the first interactive launch shows a trust prompt for
-# exactly what these actions run, and you consent with `y`.
+# exactly what these actions run, and you consent with `y`. Every later
+# edit re-prompts, because the file is hashed.
 #
-# Under the shell wrapper (shell/scout.bash), every action must PRINT a
-# command for your shell to run — that is what makes `cd` stick and
-# lets your editor own the terminal.
+# ---------------------------------------------------------------------
+# THE ONE RULE THAT SHAPES EVERYTHING BELOW
+# ---------------------------------------------------------------------
+# scout cannot change your shell's directory — no child process can. So
+# actions PRINT a command on stdout and the wrapper function
+# (shell/scout.bash) evals it in your shell.
+#
+# The wrapper only evals lines that START WITH `cd `, `printf `,
+# `${EDITOR` or `${VISUAL`. Anything else is shown, never run.
+#
+# That is why almost every useful action below begins `cd {path} && ...`.
+# It is not a workaround: it is the shape that lets an action run *in the
+# right directory, in your shell*, which is the whole point.
+#
+# Placeholders: {path} {parent} {name} {ext} {repo_root} {home} {query}
+# and {env.VAR}. Every one is quoted at the print seam, so a directory
+# called `proj $(rm -rf ~)` is a filename, not an instruction.
+#
+# Only `enter` is dispatched in v1; reach everything else with `tab`.
 
 schema_version = 1
+
+# --- the default ------------------------------------------------------
 
 [[action]]
 name = "go"
@@ -17,12 +36,78 @@ description = "cd into the selection (or its parent, for files)"
 keybinding = "enter"
 steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}" } ]
 
+# --- editing ----------------------------------------------------------
+
 [[action]]
 name = "edit"
-description = "Open in $EDITOR (runs in your shell, not inside scout)"
+description = "Open in $EDITOR, in your shell so it owns the terminal"
 steps = [ { kind = "print", format = "${{EDITOR:-vi}} {path}" } ]
+
+[[action]]
+name = "edit-here"
+description = "cd to the selection, then open it — leaves you in the project"
+steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; ${{EDITOR:-vi}} ." } ]
+
+[[action]]
+name = "edit-repo"
+description = "Open the whole repository, not just the file you found"
+steps = [ { kind = "print", format = "cd {repo_root} && ${{EDITOR:-vi}} ." } ]
+
+# --- git --------------------------------------------------------------
+#
+# {repo_root} walks up for a .git directory, so these work whether you
+# selected the repository or a file three levels inside it.
+
+[[action]]
+name = "status"
+description = "git status, short form, at the repository root"
+steps = [ { kind = "print", format = "cd {repo_root} && git status -sb" } ]
+
+[[action]]
+name = "log"
+description = "Last 20 commits, one line each"
+steps = [ { kind = "print", format = "cd {repo_root} && git log --oneline -20" } ]
+
+[[action]]
+name = "diff"
+description = "Uncommitted changes"
+steps = [ { kind = "print", format = "cd {repo_root} && git diff" } ]
+
+# --- shell ------------------------------------------------------------
+
+[[action]]
+name = "ls"
+description = "cd in and list, so you land oriented"
+steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; ls -lah" } ]
+
+[[action]]
+name = "here"
+description = "Run the last command you typed, in the selection"
+# {query} is what you typed in the picker — quoted, so it is an argument
+# and never a second command.
+steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; grep -rn {query} . | head -40" } ]
+
+# --- plumbing ---------------------------------------------------------
 
 [[action]]
 name = "print-path"
 description = "Print the selection's absolute path"
 steps = [ { kind = "print", format = "printf '%s\\n' {path}" } ]
+
+[[action]]
+name = "copy-path"
+description = "Copy the path to the clipboard (edit the tool for your OS)"
+# scout has no clipboard of its own by design (ADR-002 dropped arboard),
+# so this hands off to whatever your machine already has: pbcopy on
+# macOS, wl-copy or xclip -sel clip on Linux.
+steps = [ { kind = "print", format = "printf '%s' {path} | pbcopy" } ]
+
+# --- terminal multiplexer --------------------------------------------
+#
+# Uncomment if you use tmux. The window opens in the selection, and your
+# current shell stays where it is.
+#
+# [[action]]
+# name = "tmux"
+# description = "Open a tmux window in the selection"
+# steps = [ { kind = "print", format = "cd {path} && tmux new-window -c {path}" } ]

@@ -38,6 +38,26 @@ pub const UNSELECTED: &str = " ";
 /// Query prompt.
 pub const PROMPT: &str = "\u{276F}"; // ❯
 
+/// Query-row cursor. Replaces `█` (U+2588, Ambiguous).
+pub const CURSOR: &str = "\u{275A}"; // ❚ HEAVY VERTICAL BAR
+
+/// Separator between hints in the footer. Replaces `·` (U+00B7,
+/// Ambiguous).
+pub const SEPARATOR: &str = "\u{2758}"; // ❘ LIGHT VERTICAL BAR
+
+/// Dash inside prose banners. Replaces `—` (U+2014, Ambiguous). Banner
+/// text is wrapped and clipped by ratatui rather than measured by us,
+/// but it shares a line with nothing, so the cheap ASCII form costs
+/// nothing and keeps the rule uniform.
+pub const DASH: &str = "-";
+
+/// The hairline rule. Ambiguous by nature — every box-drawing character
+/// is — and exempt for the reason in this module's header: it is a solid
+/// fill that ratatui clips to the area, so a double-width render still
+/// spans the width and no arithmetic depends on it. Named here so the
+/// exemption is visible rather than buried in a call site.
+pub const HAIRLINE: &str = "\u{2500}"; // ─
+
 /// Kind markers (ADR-007 §Decision 8c).
 pub const KIND_REPO: char = '\u{2442}'; // ⑂ OCR FORK — a git repository
 pub const KIND_DIR: char = '\u{2023}'; // ‣ TRIANGULAR BULLET — a directory
@@ -63,6 +83,9 @@ mod tests {
             ("SELECTED", SELECTED.to_string()),
             ("UNSELECTED", UNSELECTED.to_string()),
             ("PROMPT", PROMPT.to_string()),
+            ("CURSOR", CURSOR.to_string()),
+            ("SEPARATOR", SEPARATOR.to_string()),
+            ("DASH", DASH.to_string()),
             ("KIND_REPO", KIND_REPO.to_string()),
             ("KIND_DIR", KIND_DIR.to_string()),
             ("KIND_FILE", KIND_FILE.to_string()),
@@ -82,6 +105,32 @@ mod tests {
     }
 
     /// The meter is positioned by padding computed elsewhere, so every
+    /// The guard above only sees the constants in this module. It saw
+    /// nothing for weeks while five Ambiguous glyphs sat as inline
+    /// literals in `ui/mod.rs` — the query cursor, the menu marker, the
+    /// footer separator and two em dashes. A gate that covers the
+    /// declarations and not the call sites covers the easy half.
+    ///
+    /// This closes the class: no ornament may be written inline. Every
+    /// glyph scout emits is declared here, where the width guard can
+    /// see it.
+    #[test]
+    fn no_glyph_literals_outside_this_module() {
+        let source = include_str!("mod.rs");
+        let offenders: Vec<String> = source
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .flat_map(|l| l.chars())
+            .filter(|c| !c.is_ascii())
+            .map(|c| format!("U+{:04X} {c}", c as u32))
+            .collect();
+        assert!(
+            offenders.is_empty(),
+            "ui/mod.rs contains inline non-ASCII glyphs: {offenders:?} — declare them in glyph.rs \
+             so the width guard covers them"
+        );
+    }
+
     /// Selected and unselected rows must start at the same column, or
     /// the list shifts by a column as the cursor moves.
     #[test]

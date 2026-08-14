@@ -203,9 +203,60 @@ The paragraphs above handle the major seams. Three smaller rules complete the mo
 - **Weakened `umask` by the user.** If the user sets `umask 000`, SCOUT still creates the DB at `0600` via explicit mode (not umask-derived), but SCOUT does not fight the user's umask on other files.
 - **Audit logging of every action execution.** Surgeon's `actions_spawned_total{name}` counter is what we ship; a per-execution audit log is not a security feature for a single-user tool and can be recovered from shell history and `tracing` spans.
 
+## Revision 2026-08-14 — Display integrity: bidirectional and zero-width controls
+
+§6 stripped C0 and C1 on the reasoning that a directory named
+`\x1b]0;owned\x07` must not rewrite the terminal title. That reasoning
+was right and its scope was too narrow. It treated the threat as
+*terminal control* when the underlying threat is *the rendered string
+disagreeing with the real one*.
+
+Two families do that without a single control byte:
+
+- **Bidirectional overrides** (`U+202E` and the embedding/isolate
+  family). A path containing one renders its tail in reversed order, so
+  the user reads `invoice.jpg` and the action receives
+  `invoiceexe.gpj`-shaped bytes. This is the Trojan Source class
+  (CVE-2021-42574), and a picker is a near-perfect target for it: its
+  entire job is showing a human a string and then acting on it.
+- **Zero-width characters** (`U+200B`–`U+200D`, `U+FEFF`, the marks).
+  These make two genuinely different paths render identically, so "is
+  this the project I meant?" stops being answerable by looking.
+
+Both are now stripped at the render boundary, on the same reasoning and
+in the same place as C0/C1. Stripping — rather than escaping or refusing
+— is deliberate and consistent with §6: the display is already a lossy
+derivation, the database keeps canonical bytes, and stripping returns
+the rendered string to *logical* order, which is the order that will
+actually execute. Escaping would show the user a string no filesystem
+contains; refusing would make a legal filename unopenable.
+
+**Implementation note that is part of the decision.** The rule lives in
+`strip::keep` and every render site calls it. It had been duplicated in
+the row builder and kept honest by a parity test — an arrangement that
+passed for weeks against a corpus containing no bidi or zero-width
+characters, which is to say the guard was measuring agreement on inputs
+the two implementations already agreed about. Not duplicating the rule
+is stronger than guarding a duplicate, and where duplication is
+unavoidable the corpus must contain the cases the rules could disagree
+on.
+
+**Still out of scope.** Homoglyph and confusable-script attacks
+(`раypal` in Cyrillic). Those need a confusables table, they have real
+false-positive costs on legitimate non-Latin filenames, and unlike bidi
+they do not make the display disagree with itself — the string shown *is*
+the string that executes. A future ADR may revisit with `unicode-security`
+on the roster.
+
 ## Reviews
 
 _Appended by peer reviewers._
+
+**2026-08-14 revision — authored by chief-of-staff, not by
+council-security,** who holds this ADR and was reinstated as a standing
+officer precisely to review changes at this boundary (AAR §5). The
+revision is filed and implemented because the defect is live; the review
+is owed and outstanding.
 
 > **council-intel, 2026-04-24 — non-blocking**
 >

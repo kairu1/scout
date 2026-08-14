@@ -244,12 +244,14 @@ mod tests {
 
     #[test]
     fn rows_strip_matches_strip_clean() {
-        // The inline C0/C1 strip in `rows` must stay equivalent to the
-        // canonical strip::clean (ADR-003 §6 lives in one place, guarded
-        // here). This guard moved with the strip when `path_cells` was
-        // superseded — a drift guard left pointing at deleted code is
-        // worse than no guard, because it still passes.
-        let corpus = "plain\tpath\x00\x1b\x07\u{85}\u{9f}base\u{1b}]0;x\u{7}z";
+        // `rows` now CALLS strip::keep rather than repeating it, so this
+        // is a regression guard rather than a drift guard. The corpus
+        // carries a bidi override, a zero-width space and a BOM
+        // alongside the C0/C1 cases: when the rules were duplicated, a
+        // corpus without them let the guard pass while the two
+        // implementations genuinely disagreed (AAR §3.5).
+        let corpus =
+            "plain\tpath\x00\x1b\x07\u{85}\u{9f}ba\u{202E}s\u{200B}e\u{feff}\u{1b}]0;x\u{7}z";
         let path = format!("/dir/{corpus}");
         let rendered: String = rows(&[&path], &[&[]], "")[0].name.iter().map(|(c, _)| *c).collect();
         assert_eq!(rendered, crate::ui::strip::clean(corpus));
@@ -359,13 +361,12 @@ pub fn rows(paths: &[&str], match_indices: &[&[u32]], home: &str) -> Vec<Row> {
             let (parents, base) = segments(path);
             let hits: &[u32] = match_indices.get(i).copied().unwrap_or(&[]);
 
+            // The strip rule lives in `strip::keep` and is called, not
+            // copied. It used to be duplicated here and kept honest by a
+            // parity test — which passed for weeks against a corpus that
+            // predated the characters the rules had come to disagree on.
             let cell = |idx: usize, plain: CellKind| -> Option<(char, CellKind)> {
-                let c = chars[idx];
-                let c = match c as u32 {
-                    0x09 => ' ',
-                    0x00..=0x1f | 0x80..=0x9f => return None,
-                    _ => c,
-                };
+                let c = super::strip::keep(chars[idx])?;
                 Some((c, if hits.contains(&(idx as u32)) { CellKind::Match } else { plain }))
             };
 

@@ -763,3 +763,74 @@ Implementation notes worth carrying:
 
 76 tests, fmt, clippy, `cargo deny`, `cargo audit` (zero findings) and
 the 100k perf gate all green. Ceiling 119 of 150.
+
+## 2026-08-14 — FROM chief-of-staff TO commander — ADR-003 display integrity; launcher reference config
+
+### ADR-003 revision: bidi and zero-width controls (v2 objective 3)
+
+§6 stripped C0/C1 on the reasoning that a directory named
+`\x1b]0;owned\x07` must not rewrite the terminal title. Right reasoning,
+too narrow a scope: it treated the threat as *terminal control* when the
+threat is *the rendered string disagreeing with the real one*.
+
+A path containing `U+202E` renders its tail reversed — the user reads
+one filename and the action receives another. That is the Trojan Source
+class (CVE-2021-42574), and a picker is close to the ideal target for
+it: its entire job is showing a human a string and then acting on it.
+Zero-width characters are the quieter half — they make two genuinely
+different paths render identically, so "is this the one I meant?" stops
+being answerable by looking. Sixteen characters now stripped at the
+render boundary, on the same reasoning and in the same place as C0/C1.
+
+Homoglyphs remain out of scope, and the ADR says why: they need a
+confusables table, they carry real false-positive cost on legitimate
+non-Latin filenames, and unlike bidi they do not make the display
+disagree with itself.
+
+### Two guards that were weaker than they looked
+
+**The strip-parity guard passed while the rules disagreed.** `rows` held
+a copy of the strip rule, kept honest by a parity test whose corpus
+contained no bidi or zero-width characters — so it was asserting
+agreement on inputs the two implementations already agreed about. I
+strengthened the corpus first and watched it fail, then removed the
+duplicate: `strip::keep` is now the single rule and `rows` calls it. Not
+duplicating beats guarding a duplicate.
+
+**The width guard covered the declarations, not the call sites.** It
+checked the constants in `glyph.rs` and saw nothing while five
+Ambiguous-width glyphs sat as inline literals in `ui/mod.rs` — the query
+cursor `█`, the action-menu marker `▌`, the footer separator `·` and two
+em dashes. All are now declared in `glyph.rs`, and a second guard
+asserts that `ui/mod.rs` contains no non-ASCII character at all outside
+comments, which closes the class rather than these five instances.
+
+That is the same shape as AAR §3.1 in a smaller register: both gates
+existed, both were correct about what they measured, and both were
+measuring the easy half.
+
+### Launcher: the reference config
+
+The commander asked for better actions. The reference config now ships
+eleven instead of three, organised around the constraint that actually
+governs the launcher: the wrapper evals only lines beginning `cd `,
+`printf `, `${EDITOR` or `${VISUAL`, so a useful action is nearly always
+`cd {path} && ...`. The comment block says so in those words, because
+that shape reads like a workaround until you understand it is the thing
+that lets an action run *in the right directory, in your shell*.
+
+Added: `edit-here` and `edit-repo` (the second uses `{repo_root}`, so it
+works whether you selected the repository or a file inside it), `status`
+/ `log` / `diff` at the repository root, `ls`, a `{query}`-driven `grep`,
+`copy-path`, and a commented tmux window.
+
+Verified rather than asserted: the config parses and loads (checked
+through `scout doctor`, which correctly reports the untrusted-no-TTY
+state), and all twelve print steps pass the wrapper allowlist when
+expanded — my first check reported `edit` as refused, which was my
+checker failing to unescape `${{...}}`, not the config.
+
+### Verification
+
+81 tests, fmt, clippy, `cargo deny`, `cargo audit` clean; ceiling 119 of
+150.
