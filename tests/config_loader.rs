@@ -188,16 +188,84 @@ fn attested_sh_c_loads() {
 }
 
 #[test]
-fn unknown_keybinding_warns_but_loads() {
+fn chord_bindings_load_without_warning() {
+    // ADR-009 connected the chords ADR-004 §6 reserved, so the old
+    // "recognised but not dispatched in v1" warning must be gone — its
+    // presence would now be a lie to the user.
     let dir = temp_dir("keybind");
     let config = load_pretrusted(
         &dir,
         "schema_version = 1\n[[action]]\nname = \"a\"\nkeybinding = \"alt-e\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
     )
     .unwrap();
-    assert!(config.warnings.iter().any(|w| w.contains("alt-e") && w.contains("not dispatched")));
+    assert!(
+        !config.warnings.iter().any(|w| w.contains("alt-e")),
+        "alt-e dispatches now; warnings: {:?}",
+        config.warnings
+    );
     // The compiled default still owns enter.
     assert_eq!(config.enter_action().unwrap().name, "edit");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn tab_warns_and_says_why() {
+    // ADR-009: permanent, not a deferral — `tab` opens the action pane,
+    // the only route to every unbound action.
+    let dir = temp_dir("keybind-tab");
+    let config = load_pretrusted(
+        &dir,
+        "schema_version = 1\n[[action]]\nname = \"a\"\nkeybinding = \"tab\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+    )
+    .unwrap();
+    assert!(
+        config.warnings.iter().any(|w| w.contains("tab") && w.contains("action pane")),
+        "{:?}",
+        config.warnings
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn unknown_keybinding_still_warns() {
+    let dir = temp_dir("keybind-unknown");
+    let config = load_pretrusted(
+        &dir,
+        "schema_version = 1\n[[action]]\nname = \"a\"\nkeybinding = \"f7\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+    )
+    .unwrap();
+    assert!(config.warnings.iter().any(|w| w.contains("f7")), "{:?}", config.warnings);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn duplicate_chord_is_refused_not_resolved() {
+    // ADR-009: choosing either makes the other silently dead, which is
+    // the worst outcome available.
+    let dir = temp_dir("keybind-dup");
+    let err = load_pretrusted(
+        &dir,
+        "schema_version = 1\n         [[action]]\nname = \"a\"\nkeybinding = \"alt-e\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n         [[action]]\nname = \"b\"\nkeybinding = \"alt-e\"\nsteps = [ { kind = \"print\", format = \"y\" } ]\n",
+    )
+    .unwrap_err();
+    let message = err.to_string();
+    assert!(message.contains("alt-e"), "{message}");
+    assert!(message.contains("more than one action"), "{message}");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn picker_owned_chord_is_refused() {
+    // ctrl-c quits. Shadowing it silently would mean one of the two
+    // behaviours wins without the user ever being told (ADR-009).
+    let dir = temp_dir("keybind-owned");
+    let err = load_pretrusted(
+        &dir,
+        "schema_version = 1\n[[action]]\nname = \"a\"\nkeybinding = \"ctrl-c\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+    )
+    .unwrap_err();
+    let message = err.to_string();
+    assert!(message.contains("ctrl-c") && message.contains("reserved"), "{message}");
     fs::remove_dir_all(&dir).unwrap();
 }
 

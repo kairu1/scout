@@ -68,6 +68,9 @@ struct RawAction {
     steps: Vec<toml::Table>,
 }
 
+/// Chords the picker itself uses; an action may not claim them.
+const PICKER_OWNED: [&str; 2] = ["ctrl-c", "ctrl-o"];
+
 /// Full load: discovery → gates → trust → merge. `interactive` controls
 /// whether a trust prompt may be rendered (the caller has already
 /// decided the UI mode); a required prompt without a TTY refuses.
@@ -176,6 +179,21 @@ pub fn load_file(
             });
         }
     }
+    // Two actions on one chord has no correct resolution: choosing
+    // either makes the other silently dead (ADR-009).
+    let mut seen: Vec<&str> = Vec::new();
+    for action in &actions {
+        if let Some(binding) = action.keybinding.as_deref() {
+            if binding != "enter" && seen.contains(&binding) {
+                return Err(LoadError::Validation {
+                    path: config_path.to_path_buf(),
+                    message: format!("keybinding `{binding}` is claimed by more than one action"),
+                });
+            }
+            seen.push(binding);
+        }
+    }
+
     let enter_count = actions.iter().filter(|a| a.keybinding.as_deref() == Some("enter")).count();
     if enter_count > 1 {
         return Err(LoadError::Validation {
@@ -247,17 +265,30 @@ fn validate_action(
 
     if let Some(binding) = raw.keybinding.as_deref() {
         if binding != "enter" {
-            let reserved = binding == "tab"
-                || binding
-                    .strip_prefix("alt-")
-                    .or_else(|| binding.strip_prefix("ctrl-"))
-                    .map(|rest| rest.len() == 1 && rest.chars().all(|c| c.is_ascii_alphabetic()))
-                    .unwrap_or(false);
-            if reserved {
+            let chord = binding
+                .strip_prefix("alt-")
+                .or_else(|| binding.strip_prefix("ctrl-"))
+                .map(|rest| rest.len() == 1 && rest.chars().all(|c| c.is_ascii_alphabetic()))
+                .unwrap_or(false);
+            if binding == "tab" {
+                // ADR-009: permanent, not a deferral. `tab` opens the
+                // action pane, which is the only route to every action
+                // without a binding — one action must not be able to
+                // capture the route to all of them.
                 warnings.push(format!(
-                    "action `{name}`: binding `{binding}` recognised but not dispatched in v1"
+                    "action `{name}`: `tab` is reserved for the action pane and will not \
+                     dispatch; use an alt- or ctrl- chord"
                 ));
-            } else {
+            } else if PICKER_OWNED.contains(&binding) {
+                // Refused rather than silently shadowed (ADR-009).
+                return Err(validation(
+                    path,
+                    format!(
+                        "action `{name}`: binding `{binding}` is reserved by the picker; \
+                         choose another chord"
+                    ),
+                ));
+            } else if !chord {
                 warnings.push(format!(
                     "action `{name}`: unknown keybinding `{binding}`; it will not dispatch"
                 ));

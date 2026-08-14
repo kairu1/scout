@@ -834,3 +834,78 @@ checker failing to unescape `${{...}}`, not the config.
 
 81 tests, fmt, clippy, `cargo deny`, `cargo audit` clean; ceiling 119 of
 150.
+
+## 2026-08-14 — FROM chief-of-staff TO commander — v2 COMPLETE
+
+All five v2 objectives from AAR §6 are closed, plus three defects the
+commander reported from driving the tool.
+
+### The three reported defects
+
+**The vanishing cursor.** `down` clamped the selection to
+`results.len()` — up to 200 ranked — while the pane drew far fewer rows.
+Past the last drawn row the highlight stuck to the bottom while the real
+selection kept moving, so `enter` would have run against a row the user
+could not see. Movement is now clamped to drawn capacity, computed by
+the same `regions` function the renderer uses so the two cannot
+disagree. Verified at 24 rows (11 results, 20 presses) and 14 rows (4
+rows fit).
+
+**The action launcher is a column, not a popup.** The commander's
+reasoning was decisive and my ADR had it backwards: a popup covers the
+results you are choosing an action *for*, and has nowhere to put a
+filter row except over more of them. The pane filters on name *and*
+description, so `git` finds `status` without knowing its name.
+
+**The surface looks deliberate now.** A bordered, titled panel sized to
+the terminal, a search drawn as a field rather than a bare echoing line,
+a titled results pane, results filling the pane instead of a flat eight.
+Minimal was the wrong target: a small unbordered block adrift in an
+empty alternate screen reads as unfinished.
+
+All three recorded as ADR-007 revision 2, superseding parts of the
+signed decision rather than quietly diverging from it.
+
+### v2 objectives 4 and 5
+
+**ADR-008 machine-readable output.** `--format tsv` and `--print0` on
+`query`, `--format tsv` on `doctor`, and `query` now exits 1 on no
+match. The substantive decision is field order: paths may contain tabs
+(the indexer refuses NUL and newline, not tab), so the unconstrained
+field goes *last* and a consumer splits on the first N tabs. That is a
+property of the format rather than a rule consumers must remember. No
+JSON and therefore no `serde_json`: the data is three scalars and a
+string, and a roster slot buys nesting we do not have.
+
+**ADR-009 keybinding dispatch.** `alt-<letter>` and `ctrl-<letter>`
+chords fire from the picker, realising the reservation ADR-004 §6 made
+and the loader has been promising in a warning for months. `tab` stays
+reserved permanently rather than deferred — it opens the action pane,
+which is the only route to every unbound action, so one action must not
+be able to capture the route to all of them. Duplicate bindings and
+picker-owned chords are refused at load rather than silently shadowed.
+
+### A defect the verification found
+
+Driving `ctrl-g` on a directory outside a git repository exposed that a
+failed action exits non-zero **in silence**: the reason
+(`undefined_placeholder:repo_root`) went only to the log file, which is
+written in picker mode, so the user had no reason to look there and no
+way to know why nothing happened. `ExecOutcome` now carries the failing
+step and reason, and the caller says it:
+
+    scout: action `status` failed at step 1 (undefined_placeholder:repo_root)
+    scout: the selection is not inside a git repository, so {repo_root}
+           has nothing to resolve to
+
+What, why, next. This is the second time this sortie that verification
+found something no amount of reading would have: the first was the
+strip-parity corpus, this one only appeared because the drill picked a
+row that happened not to be a repository.
+
+### Verification
+
+91 tests, fmt, clippy, `cargo deny`, `cargo audit` (zero findings) and
+the 100k perf gate all green. Ceiling 119 of 150. Chord dispatch,
+the action pane filter, the framed layout and the cursor clamp each
+verified by PTY capture with frame reconstruction.

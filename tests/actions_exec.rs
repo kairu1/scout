@@ -272,3 +272,34 @@ fn repo_root_resolves_through_git_file_or_dir() {
     fs::remove_dir_all(&dir).unwrap();
     fs::remove_dir_all(&bare).unwrap();
 }
+
+/// The reason a step failed used to exist only as a log line, written
+/// in picker mode, so a user whose action silently did nothing had no
+/// way to reach it. `ExecOutcome` carries it out so the caller can say
+/// what happened.
+#[test]
+fn exec_outcome_carries_the_failure_reason() {
+    let dir = temp_dir("failreason");
+    let target = dir.join("not-a-repo");
+    fs::create_dir_all(&target).unwrap();
+
+    let action = Action {
+        name: "status".into(),
+        description: String::new(),
+        keybinding: None,
+        on_failure: OnFailure::Abort,
+        unsafe_shell_template: false,
+        steps: vec![Step::Print { format: Template::parse("cd {repo_root}").unwrap() }],
+        from_user_config: true,
+    };
+    let ctx =
+        ActionCtx { path: target.clone(), query: String::new(), home: dir.display().to_string() };
+
+    let outcome = execute(&action, &ctx, None);
+    assert!(!outcome.any_success);
+    let (step, reason) = outcome.failure.expect("a failed action must report why");
+    assert_eq!(step, 0, "first step failed");
+    assert!(reason.contains("repo_root"), "reason names the placeholder: {reason}");
+
+    fs::remove_dir_all(&dir).unwrap();
+}

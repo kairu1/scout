@@ -32,12 +32,24 @@ enum Cmd {
     OpenDb { path: PathBuf },
     /// Print the state scout resolves at startup: config discovery,
     /// trust, index, environment (ADR-006). Read-only; never prompts.
-    Doctor,
+    Doctor {
+        /// `human` (default) or `tsv` (ADR-008).
+        #[arg(long, default_value = "human")]
+        format: String,
+    },
     /// Rank candidates for a query and print them, best first.
+    /// Exits 1 when nothing matched (ADR-008).
     Query {
         query: String,
         #[arg(long, default_value_t = 20)]
         limit: usize,
+        /// `paths` (default) or `tsv`: rank, visits, path — path last,
+        /// so an embedded tab cannot shift a field (ADR-008).
+        #[arg(long, default_value = "paths")]
+        format: String,
+        /// Separate paths with NUL instead of newline, for `xargs -0`.
+        #[arg(long)]
+        print0: bool,
     },
 }
 
@@ -46,8 +58,10 @@ fn main() -> ExitCode {
     match cli.command {
         Some(Cmd::Index { path, hidden, follow }) => cmd_index(path, hidden, follow),
         Some(Cmd::OpenDb { path }) => cmd_open_db(path),
-        Some(Cmd::Doctor) => cmd_doctor(),
-        Some(Cmd::Query { query, limit }) => cmd_query(&query, limit),
+        Some(Cmd::Doctor { format }) => cmd_doctor(&format),
+        Some(Cmd::Query { query, limit, format, print0 }) => {
+            cmd_query(&query, limit, &format, print0)
+        }
         None => cmd_tui(),
     }
 }
@@ -135,10 +149,38 @@ fn init_tracing(to_state_file: bool) {
 
 /// `doctor` logs to stderr like the other CLI paths, and prints its
 /// report on stdout so it can be piped into a bug report.
-fn cmd_doctor() -> ExitCode {
+/// Plain-language next step for the failures a user can actually act on.
+fn failure_hint(reason: &str) -> Option<String> {
+    match reason {
+        r if r.starts_with("undefined_placeholder:repo_root") => Some(
+            "the selection is not inside a git repository, so {repo_root} has nothing to resolve to"
+                .into(),
+        ),
+        r if r.starts_with("undefined_placeholder:") => {
+            let name = r.split_once(':').map(|(_, n)| n).unwrap_or(r);
+            Some(format!("`{name}` could not be resolved for this selection"))
+        }
+        "no_editor" => {
+            Some("set $EDITOR or $VISUAL, or install a vi-family editor on PATH".into())
+        }
+        "hazardous_path" => {
+            Some("the path contains NUL or newline and cannot be passed to a shell safely".into())
+        }
+        _ => None,
+    }
+}
+
+fn cmd_doctor(format: &str) -> ExitCode {
     init_tracing(false);
     let report = scout::doctor::report();
-    print!("{}", report.render());
+    match format {
+        "tsv" => print!("{}", report.render_tsv()),
+        "human" => print!("{}", report.render()),
+        other => {
+            eprintln!("scout: unknown --format `{other}` (want human|tsv)");
+            return ExitCode::from(2);
+        }
+    }
     ExitCode::from(report.exit_code())
 }
 
@@ -220,7 +262,11 @@ fn cmd_open_db(db_path: PathBuf) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn cmd_query(query: &str, limit: usize) -> ExitCode {
+fn cmd_query(query: &str, limit: usize, format: &str, print0: bool) -> ExitCode {
+    if !matches!(format, "paths" | "tsv") {
+        eprintln!("scout: unknown --format `{format}` (want paths|tsv)");
+        return ExitCode::from(2);
+    }
     init_tracing(false);
     let conn = match open_default_db() {
         Ok(conn) => conn,
@@ -256,11 +302,23 @@ fn cmd_query(query: &str, limit: usize) -> ExitCode {
     };
     let mut matcher = scout::search::matcher::NucleoMatcher::new();
     let now = scout::index::unix_now();
-    for ranked in scout::search::search(&mut matcher, &candidates, query, now, limit) {
-        println!("{}", ranked.path);
+    let results = scout::search::search(&mut matcher, &candidates, query, now, limit);
+    for ranked in &results {
+        match (format, print0) {
+            // Path last in every mode: it is the only field whose bytes
+            // are not under our control (ADR-008).
+            ("tsv", _) => println!("{:.4}\t{}\t{}", ranked.rank, ranked.visits_total, ranked.path),
+            (_, true) => print!("{}\0", ranked.path),
+            _ => println!("{}", ranked.path),
+        }
     }
     let _ = scout::index::recovery::shutdown(conn);
-    ExitCode::SUCCESS
+    // An exit code that never varies carries no information (ADR-008).
+    if results.is_empty() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 fn cmd_tui() -> ExitCode {
@@ -348,5 +406,14 @@ fn cmd_tui() -> ExitCode {
     };
     let outcome = scout::actions::execute(action, &ctx, Some((&conn, request.candidate_id)));
     let _ = scout::index::recovery::shutdown(conn);
+    // Say what failed, why, and what to do. Previously this path exited
+    // non-zero in silence and wrote the reason to a log file the user
+    // had no reason to look in.
+    if let Some((step, reason)) = &outcome.failure {
+        eprintln!("scout: action `{}` failed at step {} ({reason})", action.name, step + 1);
+        if let Some(hint) = failure_hint(reason) {
+            eprintln!("scout: {hint}");
+        }
+    }
     ExitCode::from(outcome.exit_code.clamp(0, 255) as u8)
 }

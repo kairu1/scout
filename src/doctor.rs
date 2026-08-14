@@ -78,6 +78,25 @@ impl Report {
         }
     }
 
+    /// Tab-separated, one check per line: level, section, name, detail
+    /// — detail last (ADR-008), because it is the only field whose
+    /// content is unconstrained.
+    pub fn render_tsv(&self) -> String {
+        let mut out = String::new();
+        for section in &self.sections {
+            for check in &section.checks {
+                out.push_str(&format!(
+                    "{}\t{}\t{}\t{}\n",
+                    check.level.as_str(),
+                    section.title,
+                    check.name,
+                    check.detail.replace(['\t', '\n'], " ")
+                ));
+            }
+        }
+        out
+    }
+
     pub fn render(&self) -> String {
         let width = self
             .sections

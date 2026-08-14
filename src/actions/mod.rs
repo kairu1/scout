@@ -34,6 +34,11 @@ pub struct ActionCtx {
 #[derive(Debug)]
 pub struct ExecOutcome {
     pub any_success: bool,
+    /// Why the first failing step failed, and which step it was. The
+    /// reason was previously written only to the log — and the log is
+    /// written in picker mode, so a user whose action did nothing had
+    /// no way to find out why. Carried out so the caller can say it.
+    pub failure: Option<(usize, String)>,
     /// Chain exit code (ADR-004 §5): 0 if any step succeeded; first
     /// failing step's code under abort; 2 under continue if all failed.
     pub exit_code: i32,
@@ -49,6 +54,7 @@ pub fn execute(action: &Action, ctx: &ActionCtx, visit: Option<(&Connection, i64
     let mut any_success = false;
     let mut credited = false;
     let mut first_fail_code: Option<i32> = None;
+    let mut failure: Option<(usize, String)> = None;
     let mut steps_run = 0;
 
     for (index, step) in action.steps.iter().enumerate() {
@@ -74,6 +80,7 @@ pub fn execute(action: &Action, ctx: &ActionCtx, visit: Option<(&Connection, i64
                 );
                 if first_fail_code.is_none() {
                     first_fail_code = Some(code);
+                    failure = Some((index, kind.clone()));
                 }
                 if action.on_failure == OnFailure::Abort {
                     break;
@@ -89,7 +96,7 @@ pub fn execute(action: &Action, ctx: &ActionCtx, visit: Option<(&Connection, i64
     } else {
         2
     };
-    ExecOutcome { any_success, exit_code, credited, steps_run }
+    ExecOutcome { any_success, failure, exit_code, credited, steps_run }
 }
 
 /// Run one step. Err carries (failure kind for tracing, exit code).

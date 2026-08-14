@@ -213,6 +213,7 @@ fn event_loop(
         if key.kind != KeyEventKind::Press {
             continue;
         }
+        tracing::debug!(code = ?key.code, mods = ?key.modifiers, "key");
         app.no_config_banner = false;
 
         if app.help {
@@ -250,6 +251,16 @@ fn event_loop(
                     app.menu = Some(0);
                 }
                 _ => {}
+            }
+            continue;
+        }
+
+        // Actions claim their chord before any built-in handling
+        // (ADR-009). The loader has already refused picker-owned chords
+        // and duplicates, so a match here is unambiguous.
+        if let Some(name) = chord_action(app, &key) {
+            if let Some(request) = app.dispatch(&name) {
+                return Ok(Some(request));
             }
             continue;
         }
@@ -342,6 +353,26 @@ fn regions(area: Rect, has_banner: bool) -> (Rect, Option<Rect>, Rect, Rect) {
 fn results_capacity(area: Rect, has_banner: bool) -> usize {
     let (_, _, body, _) = regions(panel(area), has_banner);
     (body.height.saturating_sub(2) as usize).min(DISPLAY_CAP)
+}
+
+/// The action whose `keybinding` matches this key press, if any.
+/// `alt-<letter>` and `ctrl-<letter>` only — the closed set ADR-004 §6
+/// reserved and ADR-009 connected.
+fn chord_action(app: &App<'_>, key: &crossterm::event::KeyEvent) -> Option<String> {
+    let KeyCode::Char(c) = key.code else { return None };
+    let prefix = if key.modifiers.contains(KeyModifiers::ALT) {
+        "alt-"
+    } else if key.modifiers.contains(KeyModifiers::CONTROL) {
+        "ctrl-"
+    } else {
+        return None;
+    };
+    let wanted = format!("{prefix}{}", c.to_ascii_lowercase());
+    app.config
+        .actions
+        .iter()
+        .find(|a| a.keybinding.as_deref() == Some(wanted.as_str()))
+        .map(|a| a.name.clone())
 }
 
 fn draw(frame: &mut ratatui::Frame, app: &App<'_>) {
@@ -553,8 +584,9 @@ fn draw_action_pane(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
                     Style::default()
                 },
             ));
-            if a.keybinding.as_deref() == Some("enter") {
-                spans.push(Span::styled("  enter", Style::default().fg(ACCENT)));
+            // A binding nobody can see is a binding nobody uses.
+            if let Some(binding) = a.keybinding.as_deref() {
+                spans.push(Span::styled(format!("  {binding}"), Style::default().fg(ACCENT)));
             }
             ListItem::new(Line::from(spans))
         })

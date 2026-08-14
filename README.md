@@ -32,7 +32,7 @@ scout
 
 | Command | What it does |
 |---|---|
-| `scout` | Interactive picker. Type to filter, `Up`/`Down` to move, `Enter` runs the default action, `Tab` opens the action menu, `?` shows the keys, `Esc` or `Ctrl-C` quits. |
+| `scout` | Interactive picker. Type to filter, `Up`/`Down` to move, `Enter` runs the default action, `Tab` opens the searchable action pane, `?` shows the keys, `Esc` or `Ctrl-C` quits. |
 | `scout index <path>` | Walk a tree into the index. Streaming and gitignore-aware; safe to re-run. |
 | `scout query <query>` | Print ranked results, best first — non-interactive, for scripts and pipes. |
 | `scout doctor` | Print the state scout resolves at startup — config, trust, index, environment — each line marked `ok`, `warn` or `FAIL`. Read-only. |
@@ -43,7 +43,15 @@ Flags:
 - `scout index --hidden` — include dotfiles and dot-directories (excluded by default).
 - `scout index --follow` — follow symlinks while walking (off by default).
 - `scout query --limit <n>` — how many results to print (default 20).
+- `scout query --format tsv` — `rank`, `visits`, `path`, tab-separated.
+  The path comes last, so a tab inside a path cannot shift a field:
+  split on the first two tabs and take the rest whole.
+- `scout query --print0` — NUL-separated paths, for `xargs -0`.
+- `scout doctor --format tsv` — `level`, `section`, `name`, `detail`.
 - `scout --version`, `scout --help`, `scout <command> --help`.
+
+`scout query` **exits 1 when nothing matched**, so a script can branch
+without inspecting the output.
 
 Re-running `scout index` on the same tree is the normal way to refresh:
 it starts a new scan generation and tombstones paths that have gone
@@ -64,8 +72,14 @@ order; matched characters are highlighted so you can see why a row
 matched. A visit is credited only when an action actually executes —
 appearing in a result list is not a visit.
 
-The picker shows the best eight matches rather than a scrollable window.
-If what you want is not there, type another character.
+The picker shows what fits the pane rather than a scrollable window. If
+what you want is not there, type another character.
+
+`Tab` opens the action pane beside the results — a column, not a popup,
+so it never covers what you are choosing an action for. It has its own
+filter: with a dozen actions configured, type `git` to narrow to the git
+ones. Actions can also carry their own key, `alt-<letter>` or
+`ctrl-<letter>`, and fire straight from the picker.
 
 The picker draws on **stderr**. Stdout is reserved for `print` steps, so
 `scout` composes inside command substitution without the UI polluting
