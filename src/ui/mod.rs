@@ -484,6 +484,29 @@ fn draw(frame: &mut ratatui::Frame, app: &App<'_>) {
     );
 
     let (search, banner_area, body, footer) = regions(outer, banner.is_some());
+
+    // Too short to draw a single result row. Say so at the panel level:
+    // the message cannot live inside the results pane, because at these
+    // sizes that pane's interior is itself zero rows high — which is how
+    // the first version of this signal came to be invisible at exactly
+    // the sizes it was written for.
+    if body_rows(body) == 0 {
+        let inner = Rect {
+            x: outer.x + 2,
+            y: outer.y + 1,
+            width: outer.width.saturating_sub(4),
+            height: outer.height.saturating_sub(2).min(2),
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "terminal too short - make the window taller",
+                Style::default().fg(ACCENT),
+            )),
+            inner,
+        );
+        return;
+    }
+
     draw_search(frame, app, search);
     if let (Some(area), Some((text, style))) = (banner_area, banner) {
         frame.render_widget(
@@ -636,19 +659,11 @@ fn draw_results(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
 
     let shown = visible(app, area);
     if shown.is_empty() {
-        // Distinguish "nothing matched" from "no room to draw anything".
-        // Below a certain height the pane shows zero rows, and with no
-        // drawn row nothing can be selected or run — reporting that as
-        // "no matches" told the user their query was wrong when their
-        // window was.
-        let message = if body_rows(area) == 0 {
-            "  terminal too short - make the window taller"
-        } else {
-            "  no matches"
-        };
+        // The zero-room case is handled at the panel level in `draw`,
+        // where there is somewhere to put the message.
         frame.render_widget(
             Paragraph::new(Span::styled(
-                message,
+                "  no matches",
                 Style::default().fg(CHROME).add_modifier(Modifier::DIM),
             )),
             inner,
