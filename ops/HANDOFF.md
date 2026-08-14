@@ -983,3 +983,24 @@ points at `scout doctor` for "my edit did not take".
 94 tests, fmt, clippy, deny, audit and the 100k perf gate green. Caret
 editing, the help overlay, the action pane and the ranking fix each
 verified by PTY capture or against the live index.
+
+## 2026-08-14 — FROM chief-of-staff TO commander — v0.2.0 tagged
+
+Version bumped 0.1.0 -> 0.2.0 and tagged `v0.2.0` on the commander's
+order. The release workflow's guard (`release.yml:24`) requires the tag
+to equal `v${crate_version}`, so the bump had to land first; simulated
+locally before tagging rather than discovering it in CI.
+
+What the tag carries, over v0.1.0: the whole of v2 (all five AAR §6
+objectives), the Spotlight presentation and its two revisions, the
+dependency refresh, and two rounds of blind shadow-review — roughly
+thirty-four defects found and fixed, several of them in the fixes
+themselves.
+
+Release gates at the tag: 113 tests, `cargo fmt --check`, `clippy -D
+warnings`, `cargo deny check`, `cargo audit` (zero findings), the
+transitive ceiling at 119 of 150, and the 100k perf gate under budget.
+
+Pushing the tag fires `release.yml`, which builds the musl artifacts for
+both arches and attaches them with sha256 sums. That push is the
+commander's act; this box stays credential-free.
