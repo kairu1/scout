@@ -146,3 +146,26 @@ fn secrets_in_the_environment_are_never_printed() {
     assert!(!text.contains("AWS_SECRET"), "doctor printed a secret name:\n{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// ADR-006 says this output exists to be pasted. Environment values and
+/// config paths are attacker-influenceable, so a terminal escape in one
+/// must not reach the terminal that renders the report.
+#[test]
+fn terminal_escapes_never_reach_the_report() {
+    let dir = sandbox("escapes");
+    let out = Command::new(env!("CARGO_BIN_EXE_scout"))
+        .arg("doctor")
+        .env("HOME", dir.join("home"))
+        .env("XDG_CONFIG_HOME", dir.join("cfg"))
+        .env("XDG_DATA_HOME", dir.join("data"))
+        .env("XDG_STATE_HOME", dir.join("state"))
+        .env("EDITOR", "vi\u{1b}]0;HIJACKED\u{7}")
+        .output()
+        .expect("run scout doctor");
+    let text = stdout(&out);
+
+    assert!(text.contains("HIJACKED"), "the value should still be reported: {text}");
+    assert!(!text.contains('\u{1b}'), "ESC reached the report");
+    assert!(!text.contains('\u{7}'), "BEL reached the report");
+    let _ = std::fs::remove_dir_all(&dir);
+}

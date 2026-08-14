@@ -41,8 +41,13 @@ pub struct Check {
 }
 
 impl Check {
+    /// Details carry config paths, environment values and log lines —
+    /// all of them attacker-influenceable, and all of them printed to a
+    /// terminal by a command whose whole purpose is that the output gets
+    /// pasted somewhere. Stripping here covers every construction site
+    /// rather than asking each one to remember (ADR-003 section 6).
     fn new(name: &str, level: Level, detail: impl Into<String>) -> Check {
-        Check { name: name.to_string(), level, detail: detail.into() }
+        Check { name: name.to_string(), level, detail: crate::ui::strip::clean(&detail.into()) }
     }
 }
 
@@ -467,7 +472,7 @@ fn logs_section(home: Option<&Path>) -> Section {
             let lines: Vec<&str> = body.lines().collect();
             checks.push(Check::new("lines", Level::Ok, lines.len().to_string()));
             for line in lines.iter().rev().take(LOG_TAIL_LINES).rev() {
-                checks.push(Check::new("tail", Level::Ok, crate::ui::strip::clean(line)));
+                checks.push(Check::new("tail", Level::Ok, *line));
             }
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => checks.push(Check::new(
