@@ -325,3 +325,127 @@ All six escalated findings actioned under commander authorisation ("go with your
 Meta-lesson for the AAR: the CI supply-chain tripwire earned its keep before it ever ran in CI — cargo-deny surfaced the MPL-2.0 roster/allow-list inconsistency that four council reviewers and the commander missed when ADR-002 was signed. The gate found a hole in the doctrine that authored it.
 
 58 tests green; clippy clean; cargo deny clean. Ready for a v0.1.0 tag when the commander chooses.
+
+## 2026-08-14 — FROM chief-of-staff TO commander — Maintenance sortie: supply chain, crash recovery, log control, CI gates
+
+Commander-directed maintenance under explicit authorisation ("proceed with
+the changes"). Executed on `main` as a staff action rather than through
+sector worktrees: the change spans Pioneers (CI, README), 3rd Rifles (TUI
+teardown), and the Quartermaster's file (Cargo.toml), and standing up three
+worktrees for four small fixes costs more than it protects. CLAUDE.md
+§Forbidden items touched under the "unless explicitly ordered" clause:
+touching `main`, and a `Cargo.toml` change. Recorded here so the deviation
+is on the books, not implied.
+
+### 1. Supply chain — CI was red and nobody knew
+
+`cargo audit` and `cargo deny check` both failed on `main`:
+RUSTSEC-2026-0204, an invalid pointer dereference in `crossbeam-epoch`
+0.9.18, reached via `crossbeam-deque` -> `ignore`. The advisory was
+published 2026-07-06 — the day after the last push. CI had been green
+because the advisory did not yet exist, and `ci.yml` triggered only on
+push and pull_request, so nothing re-evaluated the lockfile afterwards.
+
+Fixed by `cargo update -p crossbeam-epoch` (0.9.18 -> 0.9.20). Lockfile
+only; no roster change, so no successor ADR is owed. A weekly `schedule:`
+trigger now runs the tripwires against an unchanged lockfile, which is the
+condition under which this class of finding appears.
+
+Second lesson for the AAR docket, and it rhymes with the first: the
+supply-chain gate was correct and still silent, because it was wired to
+the wrong event. A tripwire that only fires when *we* move cannot see a
+world that moves on its own.
+
+### 2. Crash recovery — the picker left dead terminals
+
+`ui::run` restored the terminal only on the normal exit path, and the
+release profile sets `panic = "abort"`, so no unwind and no Drop guard
+could cover a panic either. Proven under a PTY with an injected panic:
+without a hook the capture shows `ESC[?1049h` (enter alternate screen),
+the panic text written inside that screen, no `ESC[?1049l`, and no `^M`
+line endings — that last detail is the tell that raw mode was never
+disabled. On a real terminal the operator loses the panic message *and*
+their line discipline, and the only recovery is `reset`.
+
+`install_panic_hook` now restores the terminal before the default hook
+prints, and also writes the panic to the log file, which is the only
+durable copy when the TUI owned stderr. The hook runs under
+`panic = "abort"` (hooks execute before the abort), so the release profile
+needs no change. Re-run of the same drill shows `ESC[?1049l` ahead of the
+panic text and `^M` line endings restored.
+
+Also fixed while in there: teardown took `?` on `disable_raw_mode`, so a
+failure there skipped `LeaveAlternateScreen` entirely, contradicting the
+comment above it. Teardown is now unconditional and best-effort.
+
+### 3. Log control — the debug logs existed and could not be switched on
+
+`init_tracing` built a subscriber with no `EnvFilter`, so the default
+INFO ceiling was fixed at compile time and no environment variable could
+lift it. Every `debug!` in the walker — canonicalisation failures,
+boundary refusals, skipped entries, i.e. the entire answer to "why is my
+project missing from the index" — was compiled in and permanently
+unreachable.
+
+`SCOUT_LOG` now takes a level or a per-module filter. Scout-specific
+rather than `RUST_LOG`, so a developer who exports `RUST_LOG=debug` for
+another tool does not silently start filling scout's log file.
+
+Cost against the ADR-002 ceiling: the `env-filter` feature added exactly
+one crate (104 -> 105 of 120). `matchers`, `regex-automata`, and
+`thread_local` were already in the graph under ratatui and ignore. No new
+roster entry; the feature is enabled on a crate already in slot.
+
+One trap found and closed during verification: a bare directive that is
+not a level name parses cleanly as a *target*, so `SCOUT_LOG=dbug`
+silences all output. The user asks for more logging and gets less, with
+nothing to explain it. Bare non-level directives are now called out on
+stderr, while still being honoured — targeting a module is legitimate.
+
+### 4. The 100k gate had never run in CI
+
+`smoke_100k_paths_under_budget` is `#[ignore]`d and CI ran plain
+`cargo test`, so the Phase 2 checkpoint — 100k paths under 30 s wall,
+RSS under 100 MB — has never been enforced anywhere but by hand. That is
+the budget the streaming indexer exists to hold, and it is the gate that
+will catch a future size-rollup feature regressing indexing. Now a
+separate `perf-gate` job on the release profile, so it does not serialise
+behind clippy.
+
+### 5. README rewritten to the commander's specification
+
+Product documentation only: what scout is, install, a commands table
+covering every subcommand and flag, picker behaviour, shell integration,
+configuration, the files scout owns, and troubleshooting. The campaign
+status section, the internal documents table, and "Execute next" are
+gone — ops docs are for us, not for a reader who wants to use the tool.
+Two errors it carried are corrected: the index DB lives under
+`$XDG_DATA_HOME`, not `$XDG_STATE_HOME`, and the trust store is
+`trusted-config.sha256`, not a JSON file. `docs_parity` still pins the
+wrapper block to `shell/scout.bash` verbatim.
+
+### Standing decisions from the commander this sortie
+
+- **Remote/mounted filesystems are struck from the roadmap.** No ADR is
+  owed and none should be drafted. The concern that motivated it is on
+  record — `walk.rs` canonicalises every entry, one round-trip per path,
+  which would make a network mount unusable rather than failing loudly —
+  but the feature is not wanted, so the analysis is archival only.
+- **unicode-width is promoted from cosmetic to prerequisite.** It is
+  currently a single-column display-width bug (`src/ui/render.rs:61`,
+  chars counted rather than grapheme clusters). Any multi-pane or
+  columnar UI work makes it structural instead: one CJK or emoji
+  filename misaligns every column on its row. The successor ADR to
+  ADR-002 admitting `unicode-width` must therefore land *before* the UI
+  engagement opens, not alongside it.
+
+### Verification
+
+60 tests pass (1 ignored — the 100k gate, run separately), `clippy
+-D warnings` clean, `cargo audit` clean, `cargo deny check` reports
+advisories/bans/licenses/sources all ok, transitive ceiling 105 of 120.
+SCOUT_LOG verified end-to-end against a tree containing a broken symlink:
+default prints INFO only, `debug` and `scout=debug` surface the
+canonicalisation skip, `foo=notalevel` and `====` fall back to info with a
+message, `dbug` warns that it reads as a target. Panic path verified by
+PTY capture in both directions as described above.

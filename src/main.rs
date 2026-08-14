@@ -48,6 +48,60 @@ fn main() -> ExitCode {
     }
 }
 
+/// Runtime verbosity, from `SCOUT_LOG` (a `tracing` filter directive:
+/// `debug`, `scout::index=trace`, ...). Default `info` preserves the
+/// level the binary shipped with; the walker's `debug!` diagnostics —
+/// canonicalisation failures, boundary refusals, skipped entries — are
+/// only reachable by setting this.
+///
+/// Scout-specific rather than `RUST_LOG` on purpose: a developer with
+/// `RUST_LOG=debug` exported for another tool should not have scout
+/// start writing to their log file.
+const LOG_LEVELS: [&str; 6] = ["off", "error", "warn", "info", "debug", "trace"];
+
+/// A bare directive (no `=`) is a level if it names one, and a *target*
+/// otherwise — so `SCOUT_LOG=dbug` parses cleanly and then matches
+/// nothing, silencing the very output the user just asked for. The
+/// filter is still honoured (targeting a module is legitimate), but a
+/// bare non-level is called out, because "I raised the log level and got
+/// less output" is not a state anyone should have to debug.
+fn warn_on_bare_non_level(spec: &str) {
+    for directive in spec.split(',').map(str::trim).filter(|d| !d.is_empty()) {
+        if directive.contains('=') || directive.parse::<u8>().is_ok() {
+            continue;
+        }
+        if !LOG_LEVELS.iter().any(|lvl| lvl.eq_ignore_ascii_case(directive)) {
+            eprintln!(
+                "scout: SCOUT_LOG=`{directive}` reads as a target name, not a level, so scout's \
+                 own logs stay hidden. Levels are {}. To raise scout only: SCOUT_LOG=scout=debug",
+                LOG_LEVELS.join(", ")
+            );
+        }
+    }
+}
+
+/// Runtime verbosity, from `SCOUT_LOG`.
+fn log_filter() -> tracing_subscriber::EnvFilter {
+    const DEFAULT: &str = "info";
+    match std::env::var("SCOUT_LOG") {
+        Ok(spec) if !spec.is_empty() => {
+            match tracing_subscriber::EnvFilter::try_new(&spec) {
+                Ok(filter) => {
+                    warn_on_bare_non_level(&spec);
+                    filter
+                }
+                Err(err) => {
+                    eprintln!(
+                        "scout: SCOUT_LOG=`{spec}` is not a valid filter ({err}); using `{DEFAULT}`"
+                    );
+                    tracing_subscriber::EnvFilter::new(DEFAULT)
+                }
+            }
+        }
+        _ => tracing_subscriber::EnvFilter::new(DEFAULT),
+    }
+}
+
 fn init_tracing(to_state_file: bool) {
     if to_state_file {
         // The TUI owns stderr; tracing goes to the state dir (Surgeon §5).
@@ -60,6 +114,7 @@ fn init_tracing(to_state_file: bool) {
                     .open(dir.join("scout.log"))
                 {
                     let _ = tracing_subscriber::fmt()
+                        .with_env_filter(log_filter())
                         .with_writer(std::sync::Mutex::new(file))
                         .with_ansi(false)
                         .try_init();
@@ -70,7 +125,10 @@ fn init_tracing(to_state_file: bool) {
         // Fall back to silence rather than corrupting the alt-screen.
         return;
     }
-    let _ = tracing_subscriber::fmt().with_writer(std::io::stderr).try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(log_filter())
+        .with_writer(std::io::stderr)
+        .try_init();
 }
 
 fn open_default_db() -> Result<rusqlite::Connection, ExitCode> {

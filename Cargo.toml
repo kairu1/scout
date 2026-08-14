@@ -16,7 +16,10 @@ publish = false
 [dependencies]
 rusqlite = { version = "0.31", features = ["bundled", "functions"] }
 tracing = "0.1"
-tracing-subscriber = "0.3"
+# env-filter: SCOUT_LOG runtime verbosity control. No new crate joins the
+# roster (ADR-002 slot unchanged); the feature's transitives are counted
+# against the ADR-002 ceiling by the CI tripwire.
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ignore = "0.4"
 signal-hook = "0.3"
 nucleo-matcher = "0.3"

@@ -8,6 +8,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  # A new advisory lands against a lockfile that has not changed, so a
+  # push-only trigger reports supply-chain health as of the last commit,
+  # not as of today. RUSTSEC-2026-0204 (crossbeam-epoch, under `ignore`)
+  # was published the day after the last push and sat undetected until a
+  # local audit found it. Weekly means the tripwire fires on its own.
+  schedule:
+    - cron: "17 6 * * 1"
 
 jobs:
   test:
@@ -34,6 +41,18 @@ jobs:
           count=$(cargo tree --prefix none | sed 's/ .*//' | sort -u | wc -l)
           echo "transitive crates: $count"
           test "$count" -lt 120
+
+  # The Phase 2 checkpoint (100k paths under 30 s wall, RSS under 100 MB)
+  # is #[ignore]d, so `cargo test` never ran it and CI has never enforced
+  # the one budget the streaming indexer exists to hold. Release profile
+  # because the budget was set against an optimised build.
+  perf-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable (toolchain file pins the version)
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo test --locked --release --test index_walk -- --ignored --nocapture
 
   musl:
     uses: ./.github/workflows/musl-build.yml

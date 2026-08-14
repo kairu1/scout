@@ -121,6 +121,8 @@ pub fn run(
     };
     app.refresh();
 
+    install_panic_hook();
+
     enable_raw_mode()?;
     let mut stderr = std::io::stderr();
     crossterm::execute!(stderr, EnterAlternateScreen)?;
@@ -128,10 +130,44 @@ pub fn run(
 
     let outcome = event_loop(&mut terminal, &mut app);
 
-    // Teardown must run whatever the loop produced.
-    disable_raw_mode()?;
-    crossterm::execute!(std::io::stderr(), LeaveAlternateScreen)?;
+    // Teardown must run whatever the loop produced — including a failed
+    // disable_raw_mode, which previously took the `?` and left the user
+    // inside the alternate screen.
+    restore_terminal();
     outcome
+}
+
+/// Best-effort return to the user's shell: leave raw mode, leave the
+/// alternate screen. Every step is independent and ignores its error,
+/// because this runs on paths where there is nothing left to report the
+/// error to. Safe to call twice, and safe when setup never got as far as
+/// putting the terminal into raw mode.
+fn restore_terminal() {
+    let _ = disable_raw_mode();
+    let _ = crossterm::execute!(std::io::stderr(), LeaveAlternateScreen);
+}
+
+/// Restore the terminal before anything prints a panic.
+///
+/// Without this, a panic inside the picker leaves the terminal in raw
+/// mode inside the alternate screen: the default hook writes the message
+/// to a screen that is discarded on exit, and the user is dropped back
+/// into a shell that no longer echoes. The message is lost and the
+/// terminal needs `reset`.
+///
+/// This works under `panic = "abort"` (the release profile): the hook
+/// runs before the abort. The panic is also written to the log file,
+/// which is the only durable copy when the TUI owned stderr.
+fn install_panic_hook() {
+    static HOOK: std::sync::Once = std::sync::Once::new();
+    HOOK.call_once(|| {
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            restore_terminal();
+            tracing::error!(panic = %info, "picker panicked");
+            default_hook(info);
+        }));
+    });
 }
 
 fn event_loop(
