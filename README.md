@@ -1,55 +1,76 @@
 # SCOUT
 
-Fast project finder and action launcher. Heir to `pathexplorer`.
+A fast terminal project finder and action launcher. Type a few
+characters, get your projects ranked by fuzzy-match quality blended with
+frecency (how often and how recently you have used them), press Enter,
+and something happens — your shell cds there, your editor opens, a
+command runs.
 
-## Status
-
-**Phase 4 complete — portable.** Index, ranked search, TUI (match
-highlighting, frecency signal meter, preview pane), action executor,
-installer, shell integration, CI tripwires, release machinery.
+Offline, single-binary, no network. The index and the frecency store are
+one SQLite file; the config is portable TOML meant to live in your
+dotfiles.
 
 ## Install
 
 ```sh
 git clone <this-repo> && cd scout
-./install.sh                                  # builds, installs to ~/.local/bin
-echo "source $PWD/shell/scout.bash" >> ~/.bashrc   # guarded eval wrapper
+./install.sh                                       # builds, installs to ~/.local/bin
+echo "source $PWD/shell/scout.bash" >> ~/.bashrc    # guarded eval wrapper
 ```
 
-Or grab a musl release tarball (x86_64 / aarch64) once a release is
-tagged; it carries the binary, the shell snippet, and the example
-config.
+Or take a musl release tarball (x86_64 / aarch64), which carries the
+binary, the shell snippet, and the example config.
 
-## Use
+Then populate the index and run the picker:
 
 ```sh
-
-scout index ~/projects        # walk a tree into the index (gitignore-aware)
-scout                         # TUI picker: type to filter, Enter acts, Tab opens the action menu
-scout query hub               # non-interactive ranked results, best first
-scout open-db <path>          # inspect (and if needed recover) an index DB
+scout index ~/projects
+scout
 ```
 
-The TUI draws on stderr; stdout is reserved for `print` steps. The
-shipped wrapper (`shell/scout.bash`) evals that stdout under an
-allowlist — only `cd`/`printf`/`$EDITOR` line shapes ever execute — so
-actions that print commands make Enter cd your shell or open your
-editor, and anything unexpected is shown, never run. Start from
-[`examples/config.toml`](examples/config.toml) (the installer never
-copies it for you: your first config always goes through the trust
-prompt).
+## Commands
 
-Config lives at `$XDG_CONFIG_HOME/scout/config.toml` (see ADR-004 for the schema; ADR-003 for the first-run trust prompt). Without a config, compiled-in defaults apply: Enter opens the selection in `$EDITOR` **when you run the binary directly** (`command scout`). Under the shell wrapper — the recommended setup — use a print-based config like [`examples/config.toml`](examples/config.toml) instead: an editor spawned inside the wrapper's command substitution can't own the terminal, so the wrapped `edit` opens your editor by printing an `$EDITOR` command your shell runs.
+| Command | What it does |
+|---|---|
+| `scout` | Interactive picker. Type to filter, `Up`/`Down` to move, `Enter` runs the default action, `Tab` opens the action menu, `Esc` or `Ctrl-C` quits. |
+| `scout index <path>` | Walk a tree into the index. Streaming and gitignore-aware; safe to re-run. |
+| `scout query <query>` | Print ranked results, best first — non-interactive, for scripts and pipes. |
+| `scout open-db <path>` | Open an index database, print its vitals, and recover it if it needs recovering. |
 
-Ranking blends fuzzy match quality with frecency (7-day half-life); visits are credited only when an action executes (ADR-001).
+Flags:
+
+- `scout index --hidden` — include dotfiles and dot-directories (excluded by default).
+- `scout index --follow` — follow symlinks while walking (off by default).
+- `scout query --limit <n>` — how many results to print (default 20).
+- `scout --version`, `scout --help`, `scout <command> --help`.
+
+Re-running `scout index` on the same tree is the normal way to refresh:
+it starts a new scan generation and tombstones paths that have gone
+away. There is no filesystem watcher; the index is a snapshot.
+
+## How the picker behaves
+
+Results are ranked by fuzzy-match quality blended with frecency on a
+7-day half-life, so a project you opened this morning outranks an
+equally good match you last touched in March. Matched characters are
+highlighted, and a small signal meter shows each row's frecency weight.
+A visit is credited only when an action actually executes — appearing in
+a result list is not a visit.
+
+The picker draws on **stderr**. Stdout is reserved for `print` steps, so
+`scout` composes inside command substitution without the UI polluting
+the output.
 
 ## Shell integration
 
-The wrapper below is what makes Enter *do* things in your shell — a
-child process cannot `cd` its parent, so scout prints commands and this
-function evals them, behind an allowlist so nothing unexpected ever
-executes. Canonical copy: [`shell/scout.bash`](shell/scout.bash)
-(source it from your rc, or paste the function directly):
+A child process cannot `cd` its parent shell. So scout *prints* commands
+on stdout and a shell function evals them in your shell — behind an
+allowlist, so only `cd`, `printf`, and `$EDITOR`/`$VISUAL` line shapes
+ever execute. A bare path, a value-printing action, or corrupted output
+is shown to you, never run.
+
+The canonical copy ships as [`shell/scout.bash`](shell/scout.bash).
+Source it from your rc, or paste the function directly:
 
 ```bash
 # scout shell integration (canonical copy — ships with the product).
@@ -83,18 +104,78 @@ scout() {
 }
 ```
 
-## Orient
+## Configuration
 
-| Document | Purpose |
+Config lives at `$XDG_CONFIG_HOME/scout/config.toml`. Start from
+[`examples/config.toml`](examples/config.toml) — the installer
+deliberately does not copy it for you, because your first config goes
+through the trust prompt.
+
+Actions are declarative TOML: a name, a keybinding, and a list of steps
+that either spawn a process or print a command for your shell to run.
+Placeholders (`{path}`, `{parent}`, `{name}`, `{query}`, and friends)
+are quoted at the print seam, so a directory called `proj $(rm -rf ~)`
+is a filename, not an instruction.
+
+On first run — and on every subsequent change to the file — scout shows
+you the actions it is about to trust and asks for confirmation. It needs
+a TTY to ask; if there is no terminal it refuses rather than trusting
+silently, and tells you to use `scout query` instead.
+
+Without any config, compiled-in defaults apply: Enter opens the
+selection in `$EDITOR` **when you run the binary directly**
+(`command scout`). Under the shell wrapper — the recommended setup — use
+a print-based config like [`examples/config.toml`](examples/config.toml)
+instead, because an editor spawned inside the wrapper's command
+substitution cannot own the terminal. The wrapped `edit` action instead
+prints an `$EDITOR` command that your shell runs after scout exits.
+
+## Files scout owns
+
+| Path | Contents |
 |---|---|
-| [`ops/CAMPAIGN.md`](ops/CAMPAIGN.md) | Full campaign plan — five phases, force structure, decade-longevity doctrine |
-| [`ops/OPORD.md`](ops/OPORD.md) | Active operation order (current phase) |
-| [`ops/AGENTS.md`](ops/AGENTS.md) | Force structure and sector ownership |
-| [`ops/HANDOFF.md`](ops/HANDOFF.md) | Async comms between agents |
-| [`ops/playbook.md`](ops/playbook.md) | Runbook index across all phases |
-| [`CLAUDE.md`](CLAUDE.md) | Standing orders for every deployed agent |
-| [`docs/adr/`](docs/adr/) | Signed doctrine: ranking, dependencies, threat model, action schema |
+| `$XDG_CONFIG_HOME/scout/config.toml` | Your actions. Portable; commit it to your dotfiles. |
+| `$XDG_DATA_HOME/scout/index.db` | The index and frecency store (SQLite, WAL). |
+| `$XDG_STATE_HOME/scout/trusted-config.sha256` | Hash of the config you approved. |
+| `$XDG_STATE_HOME/scout/scout.log` | Picker log. |
 
-## Execute next
+Unset `XDG_*` variables fall back to `~/.config`, `~/.local/share`, and
+`~/.local/state`. The config is searched in that order:
+`$XDG_CONFIG_HOME/scout/config.toml`, then `~/.config/scout/config.toml`,
+then `/etc/scout/config.toml` — the last being an operator-provided
+default for a shared machine.
 
-Phase 5 — AAR & promotions (`docs/aar/v1.md`), then v2 objectives. Release itself is a commander act: push a `v*` tag and the release workflow attaches musl artifacts.
+## When something goes wrong
+
+Raise the log level with `SCOUT_LOG`, which takes a level or a
+per-module filter:
+
+```sh
+SCOUT_LOG=debug scout index ~/projects     # why was a path skipped?
+SCOUT_LOG=scout=debug scout query hub      # scout's own logs only
+SCOUT_LOG=scout::index=trace scout index ~/projects
+```
+
+Levels are `off`, `error`, `warn`, `info` (the default), `debug`,
+`trace`. A bare word that is not a level is read as a *module name*, so
+`SCOUT_LOG=dbug` would hide everything instead of showing more — scout
+warns when you do that.
+
+In the picker, logs go to `$XDG_STATE_HOME/scout/scout.log` rather than
+the screen, because the picker owns the terminal.
+
+Other useful moves:
+
+```sh
+scout query <term>                         # skip the TUI; errors go to stderr
+scout open-db ~/.local/share/scout/index.db # vitals, integrity check, recovery
+```
+
+If a path you expect is missing, the usual causes are that it is
+gitignored, hidden (re-run `scout index --hidden`), behind a symlink
+(`--follow`), or simply indexed before it existed — `scout index` is a
+snapshot, so re-run it.
+
+## Licence
+
+MIT.
