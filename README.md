@@ -32,7 +32,7 @@ scout
 
 | Command | What it does |
 |---|---|
-| `scout` | Interactive picker. Type to filter, `Up`/`Down` to move, `Enter` runs the default action, `Tab` opens the searchable action pane, `?` shows the keys, `Esc` or `Ctrl-C` quits. |
+| `scout` | Interactive picker. Type to filter, `Left`/`Right` to edit the search text, `Up`/`Down` to move the selection, `Enter` runs the default action, `Tab` opens the searchable action pane, `?` shows the keys, `Esc` or `Ctrl-C` quits. |
 | `scout index <path>` | Walk a tree into the index. Streaming and gitignore-aware; safe to re-run. |
 | `scout query <query>` | Print ranked results, best first — non-interactive, for scripts and pipes. |
 | `scout doctor` | Print the state scout resolves at startup — config, trust, index, environment — each line marked `ok`, `warn` or `FAIL`. Read-only. |
@@ -59,6 +59,12 @@ away. There is no filesystem watcher; the index is a snapshot.
 
 ## How the picker behaves
 
+Results are ranked by the **name** first. Searching `service-hub`
+returns the directories called `service-hub` — not the hundred files
+that happen to live inside one. A name that *is* your query outranks a
+longer name that merely contains it, so `service-hub` beats
+`service-hub-system`.
+
 A result leads with its **name**, not its path. Location appears only as
 far as it needs to: two projects both called `api` show as `api
 service-hub` and `api wraptious`, while a name that is already unique on
@@ -75,11 +81,19 @@ appearing in a result list is not a visit.
 The picker shows what fits the pane rather than a scrollable window. If
 what you want is not there, type another character.
 
+The search field is editable: `Left`/`Right` move the cursor through
+what you have typed, `Home`/`End` jump to either end, `Backspace`
+deletes before the cursor and `Delete` under it, and typing or pasting
+inserts at the cursor. `Up`/`Down` stay with the result list.
+
 `Tab` opens the action pane beside the results — a column, not a popup,
 so it never covers what you are choosing an action for. It has its own
 filter: with a dozen actions configured, type `git` to narrow to the git
 ones. Actions can also carry their own key, `alt-<letter>` or
-`ctrl-<letter>`, and fire straight from the picker.
+`ctrl-<letter>`, and fire straight from the picker — add
+`keybinding = "alt-s"` to an action and `Alt-S` runs it without opening
+the pane. `Tab` itself is reserved for the pane, and two actions
+claiming the same key is refused at load rather than silently resolved.
 
 The picker draws on **stderr**. Stdout is reserved for `print` steps, so
 `scout` composes inside command substitution without the UI polluting
@@ -134,6 +148,29 @@ Config lives at `$XDG_CONFIG_HOME/scout/config.toml`. Start from
 [`examples/config.toml`](examples/config.toml) — the installer
 deliberately does not copy it for you, because your first config goes
 through the trust prompt.
+
+### Loading the example actions
+
+The reference config ships eleven actions. To adopt them:
+
+```sh
+mkdir -p ~/.config/scout
+cp examples/config.toml ~/.config/scout/config.toml
+scout            # shows the trust prompt; read the actions, answer y
+```
+
+If you already have a config, that copy replaces it — diff first if you
+have edits worth keeping. Either way the **next interactive launch
+prompts again**, because the file is hashed and any change re-prompts;
+that is the design, not a nuisance. There is no reload command and none
+is needed: scout reads the config at startup, so the next run has your
+edits.
+
+`scout doctor` tells you which config actually loaded, whether it is
+trusted, and how many actions are active — start there if an edit does
+not seem to have taken.
+
+### Writing your own
 
 Actions are declarative TOML: a name, a keybinding, and a list of steps
 that either spawn a process or print a command for your shell to run.

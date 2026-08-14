@@ -131,19 +131,35 @@ pub fn search(
             })
             .collect()
     } else {
+        let query_chars = query.chars().count();
         let mut scorer = matcher.compile(query);
         candidates
             .iter()
             .filter_map(|c| {
                 scorer.score_with_indices(&c.path).map(|(m, match_indices)| {
+                    // The final path component, scored on its own. A
+                    // query is nearly always the name of the thing
+                    // wanted (ADR-001 rev 2026-08-14).
+                    let base = c.path.rsplit('/').next().unwrap_or(&c.path);
+                    let base_score = scorer.score(base);
                     // Calibration telemetry ADR-001 review chorus asked
                     // for: raw m_c per query, pre-normalisation.
-                    tracing::trace!(raw_match = m, path = %c.path, "match score");
+                    tracing::trace!(
+                        raw_match = m,
+                        raw_base = base_score,
+                        path = %c.path,
+                        "match score"
+                    );
                     let s = s_now(c.s_stored, c.last_update, now);
+                    let score = ranking::MatchScore {
+                        path: m,
+                        base: base_score,
+                        base_chars: base.chars().count(),
+                    };
                     Ranked {
                         id: c.id,
                         path: c.path.clone(),
-                        rank: ranking::blend(m, s),
+                        rank: ranking::blend(score, s, query_chars),
                         s_now: s,
                         visits_total: c.visits_total,
                         match_indices,

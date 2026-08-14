@@ -185,6 +185,67 @@ Miss of any budget at Phase 4 is a blocker, not a warning. `tracing` spans recor
 
 **Explicitly out of scope.** Live filesystem watching (Quartermaster `notify` AVOID), project-root filtering, cross-machine index sync, per-user frecency segmentation, multi-tenant modes.
 
+## Revision 2026-08-14 — Calibration against measured data, and a basename term
+
+Reported by the commander: searching `service-hub` returned the mindmap
+copy and a page of files *inside* `@projects/@service-hub`, but never
+the directory itself. Measured against the real index, that directory
+sat at **rank 317**.
+
+Two independent causes, both now fixed.
+
+**1. `K_match = 100` was wrong, and a fixed constant was the wrong
+shape.** §Rationale claimed "nucleo's high-relevance matches on
+path-typical strings sit in the 60–200 range". Measured over 317 real
+candidates for an 11-character query, they sit in **272–284**. Through
+`tanh`, that entire spread maps to 0.0018 — the match term was
+saturated, contributed nothing to ordering, and every result was
+effectively ranked by frecency and tie-breakers alone.
+
+This is precisely what council-intel's review predicted in this
+document: *"nucleo's raw score scale varies with query length, so I
+recommend Phase 2 calibration telemetry on raw `m_c` per query before
+Phase 3 locks the UX."* The telemetry was added; the calibration was
+never done. The AAR carried it as owed. It took a user-visible bug to
+close it.
+
+The constant is now **per character of query** — `k_match =
+25 × query_chars` — because the raw score scales with query length, so
+no single constant can serve a 3-character query and an 11-character
+one. 25 is the measured slope (272 ÷ 11 ≈ 24.7). This puts the working
+range near `tanh(1.0)`, where the derivative is ~0.42, against ~0.014 at
+the old operating point: roughly thirty times more discriminating.
+
+**2. Nothing preferred a candidate whose own name was the query.** The
+score was computed over the whole path, so
+`…/@service-hub/service-hub-system/tools/see` scored *higher* than
+`…/@service-hub` — a longer path contains more matchable material. But a
+query is nearly always the name of the thing wanted, not a description
+of where it lives.
+
+The match term is now a blend: `0.6 × basename + 0.4 × full path`. A
+basename that does not match at all contributes zero, which is what
+separates a directory named for the query from a file buried inside one.
+
+The basename term is scaled by **coverage** — `query_chars ÷
+basename_chars`, capped at 1. Without it `service-hub-system` still beat
+`service-hub`, because a longer name matching the same substring scores
+marginally higher. A name that *is* the query earns the whole bonus; a
+name three times longer earns a third of it.
+
+**Streaming stability is preserved.** Every term remains a pure function
+of the candidate and the query, never of the result set, so a
+late-arriving higher score still cannot reshuffle rows already rendered
+above it. That constraint is why relative normalisation — normalising
+against the best score seen so far, which would have been the easy fix —
+was not available.
+
+Result on the reported query: the two directories actually named
+`service-hub` now rank 1 and 2, and the unrelated files that filled the
+first page fall from 0.596 to 0.186. Regression-guarded in
+`tests/search_ranking.rs`, including the saturation case, since a future
+re-tune that re-saturates the match term would otherwise be invisible.
+
 ## Reviews
 
 _Appended by peer reviewers._

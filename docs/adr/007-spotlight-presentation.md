@@ -278,6 +278,29 @@ uses, so the two cannot disagree. Verified on a 24-row terminal (11
 results, 20 `down` presses, cursor rests on the last row) and on a
 14-row terminal where only four rows fit.
 
+## Revision 3 — 2026-08-14 — An editable search field
+
+The query was append-only: characters went on the end and backspace took
+them off the end. Correcting a typo three characters back meant deleting
+everything after it, and a pasted string could not be edited at all.
+
+The field now carries a caret. `left`/`right` move it, `home`/`end` jump
+to either edge, `backspace` deletes before it and `delete` under it, and
+typed or pasted characters insert at it. The caret is drawn where it
+actually sits rather than always at the end.
+
+Two implementation notes that are part of the decision. The caret is
+counted in **characters, not bytes** — a byte index would split a
+multi-byte character and panic on the next edit, and paths are exactly
+where non-ASCII shows up (verified: editing inside `日本語` behaves and
+does not panic). And the two halves of the query are passed through
+`strip::clean` **separately**, because cleaning the whole string and
+then slicing at the caret would misplace the cursor whenever a paste
+contained a stripped character.
+
+`up`/`down` remain the result list, so caret movement and selection
+movement never contend for the same key.
+
 ## Reviews
 
 _Appended by peer reviewers._

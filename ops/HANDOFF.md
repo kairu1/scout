@@ -909,3 +909,77 @@ row that happened not to be a repository.
 the 100k perf gate all green. Ceiling 119 of 150. Chord dispatch,
 the action pane filter, the framed layout and the cursor clamp each
 verified by PTY capture with frame reconstruction.
+
+## 2026-08-14 — FROM chief-of-staff TO commander — Ranking defect closed; editable search field
+
+### The reported defect, and what it actually was
+
+Searching `service-hub` returned the mindmap copy and a page of files
+*inside* `@projects/@service-hub`, never the directory itself. Measured
+against the real index, that directory sat at **rank 317**.
+
+`scout query --format tsv` — shipped an hour earlier under ADR-008 —
+was what made the diagnosis possible: it exposes the rank, and inverting
+the blend recovered the raw match scores. Two independent causes.
+
+**`K_match = 100` was wrong, and a fixed constant was the wrong shape.**
+ADR-001 claimed nucleo's scores "sit in the 60–200 range". Measured over
+317 real candidates for an 11-character query: **272–284**. Through
+`tanh` that entire spread maps to 0.0018. The match term was saturated;
+ordering fell through to frecency and tie-breakers.
+
+Council-intel predicted this in the ADR's own review section — *"nucleo's
+raw score scale varies with query length, so I recommend calibration
+telemetry before Phase 3 locks the UX"*. The telemetry was added. The
+calibration was never done. The AAR carried it as owed to council-intel,
+and it took a user-visible bug to close it. That is the third time this
+campaign a named, deferred risk has come back as a defect, and it is
+worth the AAR's §3.3 lesson being read once more: a deferral with no
+re-check trigger is a decision that quietly stops being true.
+
+`k_match` is now `25 × query_chars` — the measured slope — which puts
+the working range near `tanh(1.0)`, about thirty times more
+discriminating than the old operating point, and adapts to query length,
+which a fixed constant cannot.
+
+**Nothing preferred a candidate whose own name was the query.** Scoring
+the whole path meant `…/@service-hub/service-hub-system/tools/see` beat
+`…/@service-hub`, because a longer path holds more matchable material.
+The match term is now `0.6 × basename + 0.4 × path`, with the basename
+term scaled by coverage (`query_chars ÷ basename_chars`, capped) so a
+name that *is* the query beats one that merely contains it.
+
+Streaming stability holds: every term is still a pure function of the
+candidate and the query and never of the result set, which is why
+normalising against the best score seen — the easy fix — was unavailable.
+
+Result: both directories named `service-hub` now rank 1 and 2, and the
+files that filled the first page fall from 0.596 to 0.186. Spot-checked
+across other queries (`scout`, `mindmap`, `portfolio`, `turkey
+invaders`) — each now returns the named thing first. Three regression
+tests, including the saturation case, because a future re-tune that
+re-saturates the match term would otherwise be invisible.
+
+### Editable search field (ADR-007 revision 3)
+
+The query was append-only. It now carries a caret: `left`/`right`,
+`home`/`end`, `backspace` before it, `delete` under it, and typed or
+pasted characters insert at it. Counted in characters rather than bytes,
+because a byte index would split a multi-byte character and panic —
+verified by editing inside `日本語`. The two halves are stripped
+separately, since cleaning the whole string then slicing would misplace
+the caret after a paste containing a stripped character.
+
+### Documentation
+
+README covers the new ranking behaviour, the editable field, chord
+bindings, and — asked directly — how to load the example actions: copy
+to `~/.config/scout/config.toml`, answer the trust prompt, and note that
+there is no reload command because the config is read at startup. It
+points at `scout doctor` for "my edit did not take".
+
+### Verification
+
+94 tests, fmt, clippy, deny, audit and the 100k perf gate green. Caret
+editing, the help overlay, the action pane and the ranking fix each
+verified by PTY capture or against the live index.

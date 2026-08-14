@@ -61,6 +61,10 @@ struct App<'a> {
     selected: usize,
     /// Some(index into the FILTERED action list) = action pane open.
     menu: Option<usize>,
+    /// Caret position in the query, counted in CHARACTERS. Bytes would
+    /// split a multi-byte character and panic on the next slice; the
+    /// index is converted to a byte offset only at the edit site.
+    caret: usize,
     /// Filter text for the action pane (ADR-007 rev 2).
     action_query: String,
     /// Result rows the last frame had room for. The selection is clamped
@@ -86,6 +90,39 @@ impl App<'_> {
 
     fn selected_result(&self) -> Option<&Ranked> {
         self.results.get(self.selected)
+    }
+
+    /// Byte offset of the caret, for slicing. Derived rather than
+    /// stored, so the two can never disagree.
+    fn caret_byte(&self) -> usize {
+        self.query.char_indices().nth(self.caret).map(|(i, _)| i).unwrap_or(self.query.len())
+    }
+
+    fn insert(&mut self, c: char) {
+        let at = self.caret_byte();
+        self.query.insert(at, c);
+        self.caret += 1;
+        self.refresh();
+    }
+
+    /// Backspace: delete the character *before* the caret.
+    fn delete_back(&mut self) {
+        if self.caret == 0 {
+            return;
+        }
+        self.caret -= 1;
+        let at = self.caret_byte();
+        self.query.remove(at);
+        self.refresh();
+    }
+
+    /// Delete: remove the character *under* the caret.
+    fn delete_forward(&mut self) {
+        let at = self.caret_byte();
+        if at < self.query.len() {
+            self.query.remove(at);
+            self.refresh();
+        }
     }
 
     /// How many result rows are reachable: what fits, never more than
@@ -138,6 +175,7 @@ pub fn run(
         query: String::new(),
         results: Vec::new(),
         selected: 0,
+        caret: 0,
         menu: None,
         action_query: String::new(),
         capacity: DISPLAY_CAP,
@@ -281,6 +319,13 @@ fn event_loop(
                     app.menu = Some(0);
                 }
             }
+            // Left/Right move the caret; the result list is navigated
+            // with Up/Down, so the two never contend.
+            KeyCode::Left => app.caret = app.caret.saturating_sub(1),
+            KeyCode::Right => app.caret = (app.caret + 1).min(app.query.chars().count()),
+            KeyCode::Home => app.caret = 0,
+            KeyCode::End => app.caret = app.query.chars().count(),
+            KeyCode::Delete => app.delete_forward(),
             KeyCode::Up => app.selected = app.selected.saturating_sub(1),
             KeyCode::Down => {
                 // Clamped to what is drawn, not to how many were ranked.
@@ -288,18 +333,14 @@ fn event_loop(
                 // is not here, the move is another keystroke, not a scroll.
                 app.selected = (app.selected + 1).min(app.reachable().saturating_sub(1));
             }
-            KeyCode::Backspace => {
-                app.query.pop();
-                app.refresh();
-            }
+            KeyCode::Backspace => app.delete_back(),
             // `?` opens the cheatsheet rather than searching for "?" —
             // a query that begins with it is the discoverability case
             // this exists for, and `esc` closes it without losing state.
             KeyCode::Char('?') if app.query.is_empty() => app.help = true,
-            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                app.query.push(c);
-                app.refresh();
-            }
+            // A bracketed paste arrives as a run of Char events, so
+            // inserting at the caret handles pasting for free.
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => app.insert(c),
             _ => {}
         }
     }
@@ -441,25 +482,36 @@ fn draw_search(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
         .direction(Direction::Horizontal)
         .constraints([Constraint::Min(1), Constraint::Length(counter.len() as u16)])
         .split(inner);
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!("{} ", glyph::PROMPT),
-                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(strip::clean(&app.query), Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled(
-                if app.menu.is_none() { glyph::CURSOR } else { "" },
-                Style::default().fg(ACCENT),
-            ),
-        ])),
-        row[0],
-    );
+    frame.render_widget(Paragraph::new(Line::from(query_spans(app))), row[0]);
     frame.render_widget(
         Paragraph::new(Span::styled(counter, Style::default().fg(CHROME)))
             .alignment(ratatui::layout::Alignment::Right),
         row[1],
     );
+}
+
+/// The query, with the caret drawn where it actually is. Each half is
+/// stripped separately: `strip::clean` can remove characters, so
+/// cleaning the whole string and then slicing by the caret would put the
+/// cursor in the wrong place after a paste containing a control byte.
+fn query_spans<'a>(app: &App<'_>) -> Vec<Span<'a>> {
+    let at = app.caret_byte();
+    let (before, after) = app.query.split_at(at);
+    let text = Style::default().add_modifier(Modifier::BOLD);
+    let mut spans = vec![
+        Span::styled(
+            format!("{} ", glyph::PROMPT),
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(strip::clean(before), text),
+    ];
+    // The caret belongs to the search field; while the action pane has
+    // focus the field shows its text without one.
+    if app.menu.is_none() {
+        spans.push(Span::styled(glyph::CURSOR, Style::default().fg(ACCENT)));
+    }
+    spans.push(Span::styled(strip::clean(after), text));
+    spans
 }
 
 /// Rows the picker will actually draw.
@@ -600,11 +652,14 @@ fn draw_action_pane(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
 /// The cheatsheet (ADR-007 §Decision 7). Until now `tab` was
 /// discoverable only by reading the README.
 fn draw_help(frame: &mut ratatui::Frame) {
-    const ROWS: [(&str, &str); 6] = [
-        ("type", "filter - results rank by match quality and frecency"),
+    const ROWS: [(&str, &str); 9] = [
+        ("type", "filter - results rank by name, then match, then frecency"),
+        ("left / right", "move the cursor inside the search text"),
+        ("home / end", "jump to the start or end of the search text"),
+        ("backspace", "delete before the cursor; del deletes under it"),
         ("up / down", "move the selection"),
         ("enter", "run the default action on the selection"),
-        ("tab", "open the action menu"),
+        ("tab", "open the action pane - it filters, so type to narrow"),
         ("?", "this help"),
         ("esc", "close this, or quit"),
     ];
@@ -615,7 +670,7 @@ fn draw_help(frame: &mut ratatui::Frame) {
         .map(|(k, v)| {
             Line::from(vec![
                 Span::raw(" "),
-                Span::styled(format!("{k:>10}"), key),
+                Span::styled(format!("{k:>12}"), key),
                 Span::styled(format!("  {v}"), label),
             ])
         })
@@ -625,7 +680,7 @@ fn draw_help(frame: &mut ratatui::Frame) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(CHROME))
         .title(Span::styled(" keys ", Style::default().fg(CHROME)));
-    let area = centered(frame.area(), 72, ROWS.len() as u16 + 2);
+    let area = centered(frame.area(), 76, ROWS.len() as u16 + 2);
     frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }

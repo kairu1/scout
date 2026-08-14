@@ -163,3 +163,78 @@ fn match_indices_cover_query_chars() {
     let ranked = search(&mut matcher, &candidates, "", NOW, 10);
     assert!(ranked[0].match_indices.is_empty());
 }
+
+/// The defect this guards (ADR-001 revision 2026-08-14): querying a
+/// project by name returned everything *inside* it and not the
+/// directory itself. Against a real index, `/…/@service-hub` sat at
+/// rank 317 while files four levels beneath it filled the first page.
+///
+/// Two causes, both fixed: the match term was saturated (a fixed
+/// `k_match` of 100 against real scores of ~280), and nothing preferred
+/// a candidate whose *own name* was the query.
+#[test]
+fn a_directory_named_for_the_query_outranks_its_contents() {
+    let rows: Vec<FixtureRow> = vec![
+        ("/w/projects/@service-hub", 0.0, NOW, 0, 1, None),
+        ("/w/projects/@service-hub/service-hub-system", 0.0, NOW, 0, 1, None),
+        ("/w/projects/@service-hub/service-hub-system/backend/tests", 0.0, NOW, 0, 1, None),
+        ("/w/projects/@service-hub/service-hub-system/tools/see", 0.0, NOW, 0, 1, None),
+        ("/w/projects/@mindmap/service-hub", 0.0, NOW, 0, 1, None),
+    ];
+    let conn = db_with_rows(&rows);
+    let candidates = load_candidates(&conn).unwrap();
+    let mut matcher = NucleoMatcher::new();
+    let ranked = search(&mut matcher, &candidates, "service-hub", NOW, 10);
+
+    let paths: Vec<&str> = ranked.iter().map(|r| r.path.as_str()).collect();
+
+    // Both directories actually named for the query come first, in
+    // either order — that is what the user asked for.
+    let top_two: Vec<&str> = paths.iter().take(2).copied().collect();
+    assert!(
+        top_two.contains(&"/w/projects/@service-hub")
+            && top_two.contains(&"/w/projects/@mindmap/service-hub"),
+        "both directories named service-hub must lead; got {paths:#?}"
+    );
+
+    // And a file whose own name shares nothing with the query must not
+    // outrank them merely by sitting inside a matching path.
+    let see = paths.iter().position(|p| p.ends_with("/see")).expect("present");
+    assert!(see >= 2, "a non-matching basename outranked the named dirs: {paths:#?}");
+}
+
+/// The saturation half of the same defect, isolated: with a fixed
+/// `k_match` of 100 every candidate here normalised to within 0.002 of
+/// every other, so ordering fell through to the tie-breakers. Scores
+/// must now separate meaningfully.
+#[test]
+fn match_scores_separate_rather_than_saturate() {
+    let rows: Vec<FixtureRow> = vec![
+        ("/w/service-hub", 0.0, NOW, 0, 1, None),
+        ("/w/a/b/c/service-hub-system/deep/unrelated-name", 0.0, NOW, 0, 1, None),
+    ];
+    let conn = db_with_rows(&rows);
+    let candidates = load_candidates(&conn).unwrap();
+    let mut matcher = NucleoMatcher::new();
+    let ranked = search(&mut matcher, &candidates, "service-hub", NOW, 10);
+
+    assert_eq!(ranked.len(), 2);
+    let spread = ranked[0].rank - ranked[1].rank;
+    assert!(spread > 0.05, "ranks must separate; spread was {spread:.4} (saturation regression)");
+    assert_eq!(ranked[0].path, "/w/service-hub");
+}
+
+/// Coverage: a name that *is* the query beats a name that merely starts
+/// with it. Without this, `service-hub-system` outranked `service-hub`.
+#[test]
+fn an_exact_name_beats_a_longer_name_containing_it() {
+    let rows: Vec<FixtureRow> = vec![
+        ("/w/one/service-hub", 0.0, NOW, 0, 1, None),
+        ("/w/two/service-hub-system-extended", 0.0, NOW, 0, 1, None),
+    ];
+    let conn = db_with_rows(&rows);
+    let candidates = load_candidates(&conn).unwrap();
+    let mut matcher = NucleoMatcher::new();
+    let ranked = search(&mut matcher, &candidates, "service-hub", NOW, 10);
+    assert_eq!(ranked[0].path, "/w/one/service-hub", "exact name must lead");
+}
