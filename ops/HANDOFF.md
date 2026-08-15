@@ -634,8 +634,8 @@ Seven decisions. The substantive one is decision 2: **name first, with
 location shown only as far as it disambiguates** — the shortest suffix
 of the parent path that distinguishes a result from the others currently
 on screen, computed against the visible set rather than by a fixed rule.
-Two results named `api` show as `api — service-hub` and `api —
-wraptious`; a unique name shows no context at all. Everything else in
+Two results named `api` show as `api — billing` and `api —
+storefront`; a unique name shows no context at all. Everything else in
 the ADR follows from that: no second panel, a short list rather than a
 scrollable window, a compact centred surface, and ranking metadata off
 the row entirely (order already communicates rank; a meter restating it
@@ -725,8 +725,8 @@ exercise it:
       ‣ src          beta
       ‣ src          alpha
       ‣ plainname
-      ‣ wraptious
-      ⑂ service-hub
+      ‣ storefront
+      ⑂ photo-store
 
 Context appears on the two colliding `src` rows and nowhere else. Names
 that are already unique on screen carry no path at all. `⑂` marks the
@@ -914,9 +914,10 @@ verified by PTY capture with frame reconstruction.
 
 ### The reported defect, and what it actually was
 
-Searching `service-hub` returned the mindmap copy and a page of files
-*inside* `@projects/@service-hub`, never the directory itself. Measured
-against the real index, that directory sat at **rank 317**.
+Searching a project by name returned a same-named directory elsewhere
+in the tree, and a page of files *inside* the project, but never the
+project directory itself. Measured against the real index, that
+directory sat at **rank 317**.
 
 `scout query --format tsv` — shipped an hour earlier under ADR-008 —
 was what made the diagnosis possible: it exposes the rank, and inverting
@@ -943,8 +944,8 @@ discriminating than the old operating point, and adapts to query length,
 which a fixed constant cannot.
 
 **Nothing preferred a candidate whose own name was the query.** Scoring
-the whole path meant `…/@service-hub/service-hub-system/tools/see` beat
-`…/@service-hub`, because a longer path holds more matchable material.
+the whole path meant `…/photo-store/photo-store-admin/tools/see` beat
+`…/photo-store`, because a longer path holds more matchable material.
 The match term is now `0.6 × basename + 0.4 × path`, with the basename
 term scaled by coverage (`query_chars ÷ basename_chars`, capped) so a
 name that *is* the query beats one that merely contains it.
@@ -953,11 +954,11 @@ Streaming stability holds: every term is still a pure function of the
 candidate and the query and never of the result set, which is why
 normalising against the best score seen — the easy fix — was unavailable.
 
-Result: both directories named `service-hub` now rank 1 and 2, and the
+Result: both directories named for the query now rank 1 and 2, and the
 files that filled the first page fall from 0.596 to 0.186. Spot-checked
-across other queries (`scout`, `mindmap`, `portfolio`, `turkey
-invaders`) — each now returns the named thing first. Three regression
-tests, including the saturation case, because a future re-tune that
+across four other real queries — each now returns the named thing
+first. Three regression tests, including the saturation case, because a
+future re-tune that
 re-saturates the match term would otherwise be invisible.
 
 ### Editable search field (ADR-007 revision 3)
@@ -1004,3 +1005,213 @@ transitive ceiling at 119 of 150, and the 100k perf gate under budget.
 Pushing the tag fires `release.yml`, which builds the musl artifacts for
 both arches and attaches them with sha256 sums. That push is the
 commander's act; this box stays credential-free.
+
+## 2026-08-15 — FROM chief-of-staff TO commander — CI hang, tag re-cut
+
+Filed late. The v0.2.0 entry above is the last thing this log recorded,
+and it was already out of date when the commander read it: the tag it
+describes shipped a test that hung CI for six hours.
+
+**What happened.** The `test` job sat in `cargo test --locked
+--all-targets` until GitHub's six-hour default killed it. The log showed
+`vim` on a netrw directory listing, complaining that output was not to a
+terminal. The cause was a round-two shadow-review test,
+`builtin_edit_still_resolves_editor_from_the_inherited_environment`,
+which ran a `BuiltinEdit` step *for real* with `wait: true` against
+whatever editor the machine offered. This box has no `vi`, `vim` or
+`nano` and no `$EDITOR`, so it took the no-editor branch and passed in
+milliseconds. CI runners have `vim`. It launched one and blocked on
+stdin.
+
+I introduced that test in round two while removing a `set_var` race —
+a real finding. I traded a race for a hang.
+
+**Fix.** `resolve_editor` is now tested as a pure function against a
+synthetic `HashMap` (VISUAL over EDITOR, empty values skipped, PATH
+fallback via a temp dir, `None` when nothing is found). Nothing is
+spawned and no environment is mutated. Reproduced before and after by
+putting a blocking `vim`/`vi`/`nano` on PATH: the old test times out,
+the suite now finishes in 0.01 s with `$EDITOR` pointed at a blocker.
+
+**Systemic fix, which matters more than the test.** Every CI job now
+carries `timeout-minutes` — test 20, supply-chain 15, perf-gate 25,
+musl 30, release guard 5, publish 15. Nothing bounded any of them. One
+blocking process could therefore cost six hours, and did.
+
+`v0.2.0` was re-cut onto the fix (`3ca6c73`). Push commands for the
+commander are unchanged: `git push origin main`, then `git push origin
+v0.2.0` — the tag moved, so it needs `--force` or a delete-and-repush of
+that ref only.
+
+**Lesson, for the AAR.** A test whose behaviour depends on which
+binaries the host happens to have is not a test of your code. It passes
+where the binary is absent and hangs where it is present, and the
+machine that runs it last is the one that finds out. Never spawn an
+interactive program from a test.
+
+## 2026-08-15 — FROM chief-of-staff TO commander — documentation sortie
+
+Commander's directive, four parts: strip references only this machine
+can resolve; find what else has been reported as achieved but is not;
+change the example editor to `micro`; fix the reported `edit-repo`
+failure.
+
+**1. Other projects are no longer named anywhere in this repository.**
+The README taught ranking with the commander's own project names, which
+teach a reader on another machine nothing at all. Every occurrence is
+gone from README, ADR-001, ADR-007, the ranking and render sources,
+`tests/search_ranking.rs`, this log, and the campaign documents;
+The read-only reference tree the campaign plan cited, and the
+earlier operation named in `ops/AGENTS.md`, went with them. Examples now use `photo-store` beside `photo-store-admin`
+(chosen at eleven characters, so the fixtures exercise the same
+query-length regime the ADR-001 revision measured) and `api` under
+`billing` and `storefront`. Measurements are untouched — it is the names
+that go. Codified as CLAUDE.md §8 so it does not creep back.
+
+**2. What was reported as achieved and was not.** Seven findings.
+
+- `ops/OPORD.md` said **Phase 5 CLOSED** in its header and carried the
+  Phase 4 order in its body, including a success-criteria checklist with
+  every box still unticked. Its §1 Situation read "no install artifact,
+  no shell-integration snippet, no CI tripwires, no MSRV pin" — four
+  things that had shipped six weeks earlier. Rewritten to describe the
+  actual state, with no checklist: an unticked box under a header that
+  says CLOSED is worse than no box.
+- ADR-006 §Decision still promised **"`doctor` never prompts and never
+  writes"**. That absolute was tried in implementation, bought three
+  regressions, and was walked back in the code and in `tests/doctor.rs`
+  — but not in the ADR, and not in the README, which repeated it. Both
+  now say "never modifies, migrates or repairs", with the reasoning on
+  record.
+- `docs/aar/v1.md` §4 listed two revisions as owed that had shipped: the
+  ADR-001 `K_match` calibration and the ADR-003 display-integrity strip.
+  Marked done, with what closed them. The one genuinely still owed —
+  council-security's read of the ADR-006 environment allowlist — is now
+  the only unmarked row.
+- The ADR-001 revision council-surgeon asked for **before the ADR was
+  signed** was still open four months later: the cold-start p99 budget
+  never named its recovery-path exclusion. Closed here rather than
+  carried again.
+- The AAR said "five signed ADRs" (six were Accepted when it was filed,
+  nine now) and closed on "69 tests". Corrected, and the count moved to
+  where a count stays true.
+- `ops/playbook.md` pointed at `phase-3-assault.md`, `phase-4-...` and
+  `phase-5-...` as *"drafted at the previous phase's close"*. None was
+  ever written. Recorded as such rather than quietly deleted.
+- All ten officer state files said "campaign closed" with owed work that
+  had since shipped, and none mentioned v2 at all.
+- `ops/CAMPAIGN.md` presented a Phase-0 provisional dependency roster —
+  `fuzzy-matcher`, `dirs`, `num_cpus`, `serde_json`, none of which are
+  in the graph — as though it described the system. Banner added; the
+  table is marked superseded by ADR-002.
+
+**3. `${EDITOR:-vi}` is now `${EDITOR:-micro}`** in `examples/config.toml`,
+with a short "things to change for your machine" block naming the two
+lines that assume a program the config cannot know you have. The other
+one was `copy-path`, which called `pbcopy` unconditionally; it now tries
+`wl-copy`, `xclip`, then `pbcopy`. Two further corrections found while
+in there: the `here` action's description said "run the last command you
+typed" and the step was a grep of the picker query (renamed `grep`, and
+described as what it does), and the four `{repo_root}` actions now name
+that requirement in the description, because the action pane shows
+descriptions and that is where the choice is made.
+
+**4. `edit-repo` on a selection outside a repository.** The behaviour is
+correct — silently falling back to the plain directory would run
+`git status` somewhere the user did not ask for — but the message
+stopped at the diagnosis. `failure_hint` now returns a `Hint { why,
+next, context }` instead of one prose string, and every failure the user
+can act on carries a next step. Verified by PTY drill against the
+release binary in a sandboxed XDG environment, both branches: a repo
+selection exits 0 printing `cd '<repo>' && ${EDITOR:-micro} .`, and a
+non-repo selection exits 1 saying what, why, and what to do instead.
+
+**A guard that greps prose measures the easy half.** The first version
+of the next-step test asserted that the `repo_root` hint contained the
+word "select" — and it passed against the hint that offered no next step
+at all, because "the **select**ion is not inside a git repository"
+contains that substring. That is why `next` is a field: a test can read
+a field, and cannot read a sentence. Found by doing what AAR §3.1
+requires — watching the guard fail before trusting it — and it did not
+fail. Same discipline applied to the two new drift guards.
+
+**New guards.** `examples/config.toml` is a product artifact that ships
+in the release tarball and that the README tells people to copy
+verbatim, and nothing checked it. `tests/docs_parity.rs` now loads it
+through the real loader, expands every `print` step, and asserts each
+resulting line starts with a shape the wrapper's allowlist accepts —
+with the allowlist scanned out of `shell/scout.bash` rather than copied
+into the test. A second guard ties the action count the README states to
+the file. All four failure modes were observed red first: an action that
+prints an unevalable line, an unescaped `{` in a template, a README
+count that drifts, and a wrapper prefix that changes under the config.
+
+**One more, found by running the gates rather than reading.**
+`cargo deny` was emitting three `license-not-encountered` warnings every
+run. The campaign reflex — stale entry, silenced alarm, remove it — is
+wrong for this list: a `[bans]` skip is an exception to a rule, so a
+stale one hides a real duplicate, while a licence allowance is a policy,
+and trimming it to today's graph would fail CI on the next perfectly
+acceptable dependency. Declared `unused-allowed-license = "allow"` with
+the asymmetry written into `deny.toml`, because warnings on every run
+teach a reader to skim the output of the tool that found the MPL-2.0
+gap. Recorded as AAR §9.3.
+
+**Gates:** 120 tests, fmt, clippy, deny (zero warnings), audit (zero
+findings), ceiling 119/150, 100k perf gate, release build. Nothing
+pushed; this box stays credential-free. Lessons filed as AAR §9.
+
+## 2026-08-15 — FROM chief-of-staff TO commander — v0.2.1
+
+Version bumped 0.2.0 -> 0.2.1 and tagged `v0.2.1`. The bump lands first
+because `release.yml:24` guards `GITHUB_REF_NAME == v${crate_version}`;
+simulated locally against the tag name before cutting it, rather than
+discovering it in CI.
+
+**What the tag carries over v0.2.0.** The documentation sortie earlier
+today — no other project is named anywhere in the repository, seven
+"reported as achieved but was not" corrections, the `edit-repo` failure
+now naming what to do next, and two new drift guards over
+`examples/config.toml`, which until today nothing checked at all.
+
+**And a rebuilt reference config.** `examples/config.toml` goes from 11
+actions to 14, most of them now on an `Alt-` chord, which is the first
+time the shipped example demonstrates ADR-009 rather than merely
+mentioning it. New: `root` (cd to the repository root rather than the
+file's directory), `files` (filename search driven by the picker query),
+and chords across the set. `copy-path` gained a fourth link: after
+`wl-copy`, `xclip` and `pbcopy` it falls back to **OSC 52**, a terminal
+escape that asks the emulator itself to do the copying. That link is
+what makes the action work on a machine with no clipboard utility
+installed at all — which is the machine it was written on.
+
+The file also now states plainly what it is: a portable reference that
+names only tools you can expect anywhere, and an explicit instruction to
+edit it into something machine-specific. Two patterns that cannot be
+shipped portably — a project test runner, an interactive tool taking a
+directory — are carried as commented examples, so the shape survives
+without the assumption.
+
+**A defect the drill caught, in what I had just written.** The `files`
+action was first written `find . -iname {query}`. Every placeholder is
+quoted at the print seam, so that expands to `-iname 'thing'` — an
+*exact* name match, which finds nothing for the partial query a picker
+user actually types. It parsed, it loaded, it passed the wrapper
+allowlist, and it would have returned empty forever. Found by running
+the line rather than reading it. Now `find | grep -i`, which matches the
+substring behaviour the query implies. The quoting that makes the seam
+safe is the same quoting that made this wrong; that is worth remembering
+the next time a template hands a placeholder to a matcher.
+
+The README action count guard also did its job: it failed the moment the
+example grew, naming both numbers.
+
+**Release gates at the tag:** 120 tests, `cargo fmt --check`, `clippy -D
+warnings`, `cargo deny check` (zero warnings), `cargo audit` (zero
+findings), the transitive ceiling at 119 of 150, the 100k perf gate
+under budget, and a clean release build.
+
+Pushing is the commander's act; this box stays credential-free. Note
+that `v0.2.0` was re-cut earlier and never pushed, so the remote has
+neither tag: `git push origin main` then `git push origin v0.2.0 v0.2.1`
+sends both, and `release.yml` fires once per tag.

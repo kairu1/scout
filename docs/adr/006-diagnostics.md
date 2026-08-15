@@ -52,11 +52,29 @@ stdout and stderr are TTYs), and **logs** (path, size, last lines).
 
 Three constraints bind the implementation.
 
-**`doctor` never prompts and never writes.** It loads config with
-`interactive: false`, so an untrusted config is reported as a finding
-rather than triggering a trust prompt. A diagnostic that mutates the
-state it is diagnosing is not a diagnostic. It follows that `doctor`
-works over SSH, in CI, and inside a pipe.
+**`doctor` never prompts, and never modifies, migrates or repairs.** It
+loads config with `interactive: false`, so an untrusted config is
+reported as a finding rather than triggering a trust prompt. It opens
+the index read-only, so nothing is created, migrated or rebuilt. A
+diagnostic that mutates the state it is diagnosing is not a diagnostic.
+It follows that `doctor` works over SSH, in CI, and inside a pipe.
+
+*Revised 2026-08-15 — this clause read "never prompts and never
+writes".* That absolute was tried in implementation, by opening the
+database `immutable=1`, and it bought three regressions for one
+literal-truth: `PRAGMA journal_mode` reports `delete` for a healthy WAL
+database, rows committed since the last checkpoint are invisible to the
+connection, and the URI form makes any path containing `%`, `?` or `#`
+fail outright. The worst of those is the second — a crashed `scout
+index` would be reported as near-empty *and healthy*, which is the worst
+possible answer from the tool you reach for when something is wrong.
+Reading a WAL database lets SQLite create transient `-shm`/`-wal`
+sidecars; that is a property of reading WAL at all, not a repair. **A
+diagnostic that reads the truth beats one that writes no bytes.** The
+promise is narrowed to the property that actually matters, and
+`tests/doctor.rs` guards the narrowed one from outside the process: a
+fresh sandbox comes back with no index created, and a corrupt database
+is byte-identical afterwards with no rebuilt sibling.
 
 **`doctor` prints a named allowlist of environment variables, never the
 environment.** This is the decision in this ADR that is not obvious.

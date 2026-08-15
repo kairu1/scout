@@ -2,6 +2,20 @@
 # ratified 2026-07-06). CI runs `cargo deny check` as a hard failure.
 
 [licenses]
+# An allow-list entry is a POLICY statement — "this licence family is
+# acceptable to this project" — not a record of what happens to be in
+# the graph today. So an entry no crate currently carries is expected,
+# and cargo-deny's `license-not-encountered` warning about it is noise:
+# three of them fire on every run. Left unsaid, that noise trains a
+# reader to skim cargo-deny output, and skimming cargo-deny output is
+# exactly how the MPL-2.0 gap survived four council officers and the
+# commander. Declared explicitly here so a clean run means clean.
+#
+# Note the asymmetry with the [bans] skip list below, which is annotated
+# the opposite way: a skip entry is an EXCEPTION to a rule, so a stale
+# one silences a real alarm and gets removed. A stale allowance silences
+# nothing. Same tool, two lists, opposite correct answers.
+unused-allowed-license = "allow"
 # Allow-list per ADR-002 §Rationale, extended 2026-07-06 after the tripwire
 # caught two gaps in the original list:
 #   - Unicode-3.0: modern unicode-ident relicensed to it (same Unicode terms).

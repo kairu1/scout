@@ -5,7 +5,7 @@
 **Phase:** 1, Wave 1
 **Portfolio:** Threat model, input sanitisation, action execution safety, config trust.
 
-The pathexplorer reference tree is not mounted in this sandbox; I reason from the four input surfaces in the brief and from Architect's commitment to argv-level templates and a closed placeholder set (`positions/council-architect.md`).
+The reference tree named in the campaign plan is not mounted in this sandbox; I reason from the four input surfaces in the brief and from Architect's commitment to argv-level templates and a closed placeholder set (`positions/council-architect.md`).
 
 ---
 

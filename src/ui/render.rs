@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn unique_names_carry_no_context() {
-        let paths = ["/home/u/projects/scout", "/home/u/projects/wraptious"];
+        let paths = ["/home/u/projects/scout", "/home/u/projects/storefront"];
         assert_eq!(context_depths(&paths), vec![0, 0]);
         let rows = rows(&paths, &[&[], &[]], "/home/u");
         assert_eq!(text(&rows[0].name), "scout");
@@ -207,12 +207,12 @@ mod tests {
 
     #[test]
     fn shared_basename_grows_context_until_it_distinguishes() {
-        let paths = ["/home/u/service-hub/api", "/home/u/wraptious/api"];
+        let paths = ["/home/u/billing/api", "/home/u/storefront/api"];
         assert_eq!(context_depths(&paths), vec![1, 1]);
         let rows = rows(&paths, &[&[], &[]], "/home/u");
         assert_eq!(text(&rows[0].name), "api");
-        assert_eq!(text(&rows[0].context), "service-hub");
-        assert_eq!(text(&rows[1].context), "wraptious");
+        assert_eq!(text(&rows[0].context), "billing");
+        assert_eq!(text(&rows[1].context), "storefront");
     }
 
     #[test]
@@ -243,9 +243,12 @@ mod tests {
     fn matches_are_classified_in_name_and_in_context() {
         // Decision 6: the highlight says WHY a row matched, and a query
         // can match on location alone — so context must carry hits too.
-        let paths = ["/home/u/wraptious/api", "/home/u/service-hub/api"];
-        // "wrap" at char positions 8..12, inside the parent segment.
+        let paths = ["/home/u/storefront/api", "/home/u/billing/api"];
+        // Char positions 8..12 land inside the parent segment. Derived
+        // from the fixture rather than written out, so renaming the
+        // fixture cannot leave the expectation pointing at old text.
         let hits: Vec<u32> = (8..12).collect();
+        let expected: String = paths[0].chars().skip(8).take(4).collect();
         let rows = rows(&paths, &[&hits, &[]], "/home/u");
         let matched: String = rows[0]
             .context
@@ -253,7 +256,7 @@ mod tests {
             .filter(|(_, k)| *k == CellKind::Match)
             .map(|(c, _)| *c)
             .collect();
-        assert_eq!(matched, "wrap");
+        assert_eq!(matched, expected);
     }
 
     #[test]

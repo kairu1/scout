@@ -64,12 +64,12 @@ pub fn blend(score: MatchScore, s_now: f64, query_chars: usize) -> f64 {
     let k = k_match(query_chars);
     let path_norm = (score.path as f64 / k).tanh();
     // A basename that does not match at all contributes zero — which is
-    // the whole point. Searching `service-hub` should rank the directory
+    // the whole point. Searching `photo-store` should rank the directory
     // named that above a file buried inside it whose own name shares
     // nothing with the query.
     // Coverage: how much of the name the query accounts for. Without
-    // it `service-hub-system` outranks the directory actually named
-    // `service-hub`, because a longer name matching the same substring
+    // it `photo-store-admin` outranks the directory actually named
+    // `photo-store`, because a longer name matching the same substring
     // scores marginally higher. The query is the name the user has in
     // mind; a name that is exactly it should win.
     let coverage = if score.base_chars == 0 {

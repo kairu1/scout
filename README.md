@@ -32,7 +32,7 @@ scout
 
 | Command | What it does |
 |---|---|
-| `scout` | Interactive picker. Type to filter, `Left`/`Right` to edit the search text, `Up`/`Down` to move the selection, `Enter` runs the default action, `Tab` opens the searchable action pane, `?` shows the keys, `Esc` or `Ctrl-C` quits. |
+| `scout` | Interactive picker. Type to filter, `Left`/`Right` to edit the search text, `Up`/`Down` to move the selection, `Enter` runs the default action, `Tab` opens the searchable action pane, `?` on an empty search shows the keys, `Esc` or `Ctrl-C` quits. |
 | `scout index <path>` | Walk a tree into the index. Streaming and gitignore-aware; safe to re-run. |
 | `scout query <query>` | Print ranked results, best first — non-interactive, for scripts and pipes. |
 | `scout doctor` | Print the state scout resolves at startup — config, trust, index, environment — each line marked `ok`, `warn` or `FAIL`. Read-only. |
@@ -61,16 +61,16 @@ away. There is no filesystem watcher; the index is a snapshot.
 
 ## How the picker behaves
 
-Results are ranked by the **name** first. Searching `service-hub`
-returns the directories called `service-hub` — not the hundred files
-that happen to live inside one. A name that *is* your query outranks a
-longer name that merely contains it, so `service-hub` beats
-`service-hub-system`.
+Results are ranked by the **name** first. Searching `photo-store` returns
+the directories called `photo-store` — not the hundred files that happen to
+live inside one. A name that *is* your query outranks a longer name that
+merely contains it, so `photo-store` beats `photo-store-admin`.
 
 A result leads with its **name**, not its path. Location appears only as
 far as it needs to: two projects both called `api` show as `api
-service-hub` and `api wraptious`, while a name that is already unique on
-screen shows no path at all. A marker distinguishes a git repository
+billing` and `api storefront`, while a name that is already unique on
+screen shows no path at all. Name and location are separate columns, so
+the eye reads down the names. A marker distinguishes a git repository
 (`⑂`) from a plain directory (`‣`) from a file.
 
 Results are ranked by fuzzy-match quality blended with frecency on a
@@ -94,8 +94,11 @@ filter: with a dozen actions configured, type `git` to narrow to the git
 ones. Actions can also carry their own key, `alt-<letter>` or
 `ctrl-<letter>`, and fire straight from the picker — add
 `keybinding = "alt-s"` to an action and `Alt-S` runs it without opening
-the pane. `Tab` itself is reserved for the pane, and two actions
-claiming the same key is refused at load rather than silently resolved.
+the pane — the reference config binds most of its actions this way, so
+`Alt-S` is status, `Alt-G` greps, `Alt-E` edits. `Tab` itself is
+reserved for the pane and `Ctrl-C` belongs to the picker; claiming
+either, or the same key twice, is refused at load rather than silently
+resolved.
 
 The picker draws on **stderr**. Stdout is reserved for `print` steps, so
 `scout` composes inside command substitution without the UI polluting
@@ -153,7 +156,8 @@ through the trust prompt.
 
 ### Loading the example actions
 
-The reference config ships eleven actions. To adopt them:
+The reference config ships 14 actions, most of them on an `Alt-`
+chord. To adopt them:
 
 ```sh
 mkdir -p ~/.config/scout
@@ -189,14 +193,29 @@ expanded *unquoted* is refused unless the action sets
 `unsafe_shell_template = true` — which means you have read it and
 accepted that a hostile filename becomes shell syntax.
 
+`{repo_root}` is the one placeholder that can be undefined for an
+otherwise valid selection: it walks up from the selection looking for a
+`.git` entry, and if there is none it fails the step rather than
+guessing. An action built on it — `root`, `edit-repo`, `status`, `log`
+and `diff` in the reference config — therefore does nothing outside
+any repository, and says what to do instead. That is the intended
+behaviour: falling back to the plain directory would run `git status`
+somewhere you did not ask for. Give such actions a description that
+names the requirement, since the action pane is where you pick one.
+
 On first run — and on every subsequent change to the file — scout shows
 you the actions it is about to trust and asks for confirmation. It needs
 a TTY to ask; if there is no terminal it refuses rather than trusting
 silently, and tells you to use `scout query` instead.
 
 Without any config, compiled-in defaults apply: Enter opens the
-selection in `$EDITOR` **when you run the binary directly**
-(`command scout`). Under the shell wrapper — the recommended setup — use
+selection in `$VISUAL`, else `$EDITOR`, else the first of `vi`, `vim`,
+`nano` found on your `PATH` — **when you run the binary directly**
+(`command scout`). If your editor is none of those three, set `$EDITOR`
+— the compiled-in fallback list is deliberately short rather than a
+survey of every editor.
+
+Under the shell wrapper — the recommended setup — use
 a print-based config like [`examples/config.toml`](examples/config.toml)
 instead, because an editor spawned inside the wrapper's command
 substitution cannot own the terminal. The wrapped `edit` action instead
@@ -229,10 +248,13 @@ scout doctor
 ```
 
 It exits 0 when nothing failed and 1 when something did, so it works in
-a script. It never prompts and never writes: it will not create a
-database, re-trust a config, or repair a corrupt index, because a
-diagnostic that fixes things destroys the evidence you called it to see.
-The environment section prints a fixed short list of variables and never
+a script. It never prompts, and it never modifies, migrates or repairs:
+it will not create a database, re-trust a config, or rebuild a corrupt
+index, because a diagnostic that fixes things destroys the evidence you
+called it to see. (SQLite may create transient `-shm`/`-wal` sidecars
+while it *reads* a WAL database — any reader does, and refusing that
+would mean reporting on a database scout cannot fully see.) The
+environment section prints a fixed short list of variables and never
 your whole environment, so the output is safe to paste into a bug
 report.
 

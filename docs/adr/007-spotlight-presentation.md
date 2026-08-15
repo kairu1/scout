@@ -68,9 +68,13 @@ with the basename, styled as the primary element. Location follows as
 dimmed secondary context, and carries *the shortest suffix of the parent
 path that distinguishes this result from the others currently shown* —
 not the full path, and not a fixed number of segments. Two results named
-`api` in different repos show as `api — service-hub` and `api —
-wraptious`; a result with a unique name shows its name and, at most, a
-brief home-relative hint.
+`api` in different repos show as `api  billing` and `api  storefront`; a
+result with a unique name shows its name and, at most, a brief
+home-relative hint. (Earlier drafts of this clause wrote the pair as
+`api — billing`, with an em dash. Revision 2 replaced the inline row
+with a two-column layout, and `result_line` separates name from context
+by padding to the name column — there is no separator glyph. The
+illustration is corrected here to match what the renderer draws.)
 
 This is the substance of the ADR. Everything else follows from it.
 

@@ -1,43 +1,76 @@
 # OPORD — Active Operation Order
 
-**Phase:** 5 — AAR & Promotions
-**Status:** CLOSED 2026-08-14 — `docs/aar/v1.md` filed. Operation SCOUT v1 complete; every phase closed. v2 opening objectives are listed in AAR §6 and each needs its own ADR before code (CLAUDE.md §4).
-**Issued:** 2026-08-14 (Phase 4 issued 2026-07-05, closed the same day)
-**Signed:** Chief of Staff, under commander goal directive 2026-07-05 ("add the preview pane then do phase 4")
-**Previous phase:** 4 — Consolidation: Portability — CLOSED 2026-07-05 ("Phase 4 green"), released v0.1.0. Before that: 3 — Main Assault — CLOSED 2026-07-05 (HANDOFF "Phase 3 green"); post-close enhancements: TUI visual pass, preview pane (HANDOFF 2026-07-05 20:10 and Phase 4 entry).
+**Phase:** none active — the campaign is closed.
+**Status:** v1 complete (Phases 0–5, `docs/aar/v1.md`), released `v0.1.0`
+2026-07-06. v2 complete 2026-08-14 (AAR §8), released `v0.2.0` — tag
+re-cut 2026-08-15 onto the CI-hang fix. `v0.2.1` tagged 2026-08-15: the
+documentation sortie plus a rebuilt reference config (14 actions, chords
+throughout). Neither 0.2.x tag has been pushed yet, so no release
+artifacts exist for either. No phase is open. The next body of work is
+v3, which is unassigned and needs a commander's directive before an
+officer engages.
+**Last revised:** 2026-08-15
 
 ---
 
 ## 1. Situation
 
-The tool works end-to-end and is daily-drivable. Nothing about it is yet portable by the commander's checkpoint: no install artifact, no shell-integration snippet shipped by the product (the guarded wrapper lives only in the agent-container bootstrap), no CI tripwires, no MSRV pin.
+The tool is built, released twice, and daily-driven. Nine ADRs bind the
+code. Every gate the campaign specified is wired and has been observed
+failing at least once: 116 tests, `cargo fmt --check`, `clippy -D
+warnings`, `cargo deny`, `cargo audit` on push *and* on a weekly
+schedule, the 100k-path perf budget as its own release-profile job, the
+transitive ceiling (119 of 150), and a musl cross-compile smoke on both
+architectures. Every CI job carries `timeout-minutes`.
+
+Local `main` carries the whole of v2 plus the CI-hang fix and the
+documentation sweep below. Pushing is the commander's act; this box
+holds no credentials.
 
 ## 2. Mission
 
-Pioneers engages. Sector: `.github/**`, `install.sh`, `ops/**`, plus new `shell/**` and `examples/**` (assigned to Pioneers by this OPORD).
+None assigned. The force is on standby.
 
-Deliverables, bound by ADR-002 §Consequences and ADR-003/004 packaging bindings:
+Work that arrives without a phase — a commander-reported defect, a
+documentation sweep — is executed on `main` under the standing orders
+and filed in `ops/HANDOFF.md`. Worktree and sector-branch discipline
+(`ops/AGENTS.md`) binds again the moment a phase opens and two or more
+officers run in parallel.
 
-1. **MSRV pin** — `rust-toolchain.toml` at the Phase 2 engagement toolchain (1.96.1); `Cargo.toml` gains `rust-version`; version becomes 0.1.0.
-2. **CI tripwires** — `.github/workflows/ci.yml`: tests, clippy, `cargo audit` (hard fail), `cargo deny check` (hard fail; licence allow-list MIT/Apache-2.0/BSD-2/BSD-3/ISC/Unicode-DFS-2016/Zlib in `deny.toml`), transitive ceiling < 120 (warning that escalates), musl cross-compile smoke for x86_64 and aarch64 with `rusqlite` bundled.
-3. **Release workflow** — `.github/workflows/release.yml`: tag push → musl artifacts for both arches.
-4. **install.sh** — clone-and-run installer: builds release, installs to `~/.local/bin`, points at the shell snippet. MUST NOT drop a config into any discovery-chain location (ADR-003/004 binding: a shipped config would pre-trust itself).
-5. **shell/scout.bash** — the guarded eval wrapper becomes a product artifact (canonical home; the agent-container bundle re-sources from here). Doctrine per HANDOFF 2026-07-05 19:05: actions print commands; wrapper allowlists line shapes.
-6. **examples/config.toml** — reference config under `examples/` (allowed by ADR-003 §Consequences; never copied on install).
-7. **Distribution** — install.sh plus the musl release tarballs cover portability; no container image ships.
-8. **README** — install, shell integration, status.
+## 3. What is actually open
 
-## 3. Constraints
+Carried to v3 by AAR §8, none of it assigned:
 
-- No new runtime dependency (ADR-002 roster is closed). Dev-tooling (cargo-audit/cargo-deny) runs in CI, not in the dependency graph.
-- Environment note: this dev environment has no root and no musl cross toolchain — the musl smoke runs in CI (its designed home, "the Pioneers build runner"); a local pass is not achievable and its absence is recorded, not hidden.
-- Release itself (tag push, publishing) remains a commander act; Phase 4 ships the machinery.
+- council-security's review of the ADR-003 display-integrity revision.
+- council-security's review of the ADR-006 environment allowlist —
+  specifically whether `TERM` belongs. Evidence gathered 2026-08-14:
+  scout never reads `TERM`, but `crossterm` does (`ansi_support.rs`
+  gates ANSI on `TERM != "dumb"`), so it does change scout's observable
+  rendering. The recommendation on record is to keep it and restate the
+  *principle* as "variables that change scout's observable behaviour".
+- `toml` 1.x. Nothing forces it; it moves when something does.
+- Homoglyph and confusable-script display integrity — deliberately out
+  of ADR-003's scope, since unlike bidi it does not make the display
+  disagree with itself.
+- A JSON output mode, which reopens only if scout's output ever becomes
+  genuinely nested. It is three scalars and a string today.
 
-## 4. Success criteria
+## 4. Closed phases
 
-- [ ] Fresh-HOME simulation: `install.sh` from a clean environment produces a working `scout` + wrapper flow (index, query, TUI dispatch) with zero manual steps beyond the trust prompt.
-- [ ] `cargo audit` clean locally; `deny.toml` + workflows in tree and syntactically valid.
-- [ ] Transitive crate count verified < 120.
-- [ ] MSRV pin builds the workspace.
-- [ ] agent-container bootstrap re-sources the wrapper from `shell/scout.bash` (no second canonical copy).
-- [ ] HANDOFF "Phase 4 green" with any environment-limited items named.
+| Phase | Closed | Carried into |
+|---|---|---|
+| 0 Mobilization | 2026-04-21 | `ops/phase-0-mobilize.md` |
+| 1 War Council | 2026-04-24 | ADR-001 … ADR-004 |
+| 2 DB takes hill | 2026-07-05 | schema, streaming indexer, 100k budget |
+| 3 Main assault | 2026-07-05 | search, TUI, actions — five deviations recorded and later ratified |
+| 4 Consolidation | 2026-07-05 | `install.sh`, `shell/scout.bash`, `examples/config.toml`, CI, release workflow, MSRV pin, `v0.1.0` |
+| 5 AAR & promotions | 2026-08-14 | `docs/aar/v1.md` |
+| v2 (post-campaign) | 2026-08-14 | ADR-005 … ADR-009, dependency refresh, two shadow-review rounds, `v0.2.0` |
+
+Phase 4's success criteria are recorded as met in the AAR with one
+correction it made itself: the fresh-machine drill passed by running
+`sh install.sh`, which is not what the README tells a reader to type,
+and `install.sh` was committed non-executable. Fixed in `da803b1`. That
+is AAR §3.6, and it is why this document no longer carries a checklist
+of its own — an unticked box under a header that says CLOSED is worse
+than no box at all.

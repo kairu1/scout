@@ -60,7 +60,7 @@ git commit -m "Phase 0: scaffold SCOUT command post
 
 Operation SCOUT scaffolded per commander's approved campaign plan.
 No implementation code; no dependencies; agents not yet launched.
-Reference terrain (pathexplorer) left untouched."
+Reference terrain left untouched."
 ```
 
 **Milestone:** Scaffold under version control.
@@ -190,5 +190,5 @@ When every box is checked, return to the Chief of Staff (resume our conversation
 
 If any of the following happen during Phase 0, stop and escalate:
 - You cannot make `cargo check` succeed after two attempts.
-- You find edits in `pathexplorer` (that project must stay untouched).
+- You find edits anywhere outside this repository (CLAUDE.md §7).
 - Any command prompts you for a password or MFA you weren't expecting.

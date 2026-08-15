@@ -5,7 +5,7 @@
   "branch": "sector/ops",
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-08-14T00:00:00Z",
+  "last_update": "2026-08-15T00:00:00Z",
   "blockers": [],
-  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). PROMOTED (AAR v1 \u00a75): sector expands to own every gate \u2014 fmt check, perf gate, supply-chain schedule, release workflow \u2014 plus the standing obligation that each gate be observed failing at least once before it is trusted (AAR \u00a73.1)."
+  "notes": "Phase 5 CLOSED 2026-08-14; v2 CLOSED 2026-08-14. PROMOTED (AAR v1 \u00a75): owns every gate, plus the standing obligation that each be observed failing once (AAR \u00a73.1). Discharged so far: fmt check, perf gate, weekly supply-chain schedule, release workflow, ceiling parity guard. 2026-08-15 addition after a 6-hour CI hang: every job now carries timeout-minutes - nothing had bounded them, which is why one blocking process cost six hours."
 }

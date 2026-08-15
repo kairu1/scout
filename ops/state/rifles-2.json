@@ -6,7 +6,7 @@
   "worktree": "worktrees/sector-index",
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-08-14T00:00:00Z",
+  "last_update": "2026-08-15T00:00:00Z",
   "blockers": [],
-  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). No revision owed; campaign closed."
+  "notes": "Phase 5 CLOSED 2026-08-14; v2 CLOSED 2026-08-14. Nothing owed. The 100k perf budget this sector set in Phase 2 is, since 2026-08-14, actually enforced in CI as its own release-profile job - it had never run there before."
 }

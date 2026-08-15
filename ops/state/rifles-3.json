@@ -5,7 +5,7 @@
   "branch": "sector/tui",
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-08-14T00:00:00Z",
+  "last_update": "2026-08-15T00:00:00Z",
   "blockers": [],
-  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). PROMOTED (AAR v1 \u00a75): takes ADR-007 (Spotlight presentation) for v2, including the minimal-disambiguating-context logic that is the substance of that ADR."
+  "notes": "Phase 5 CLOSED 2026-08-14; v2 CLOSED 2026-08-14. PROMOTED (AAR v1 \u00a75) and the promotion was discharged: ADR-007 Spotlight presentation is signed, implemented, and revised three times from use (framed panel + action column + drawn-capacity clamp; editable search field). Also shipped ADR-005's glyph module and the ADR-003 render-boundary strip. Nothing owed."
 }

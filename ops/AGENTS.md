@@ -43,7 +43,7 @@ Each owns one sector and one branch. Commits cross neither.
 | `ops/OPORD.md`, `ops/CAMPAIGN.md` | Chief of Staff writes; commander approves. Agents read only. |
 | `docs/adr/**` | Written by the authoring War Council officer; reviewed by at least one other; finalised by commander signature. |
 | `tests/**` | All officers write tests for their own sector. Integration tests live under `tests/integration/` and are shared; Pioneers owns CI. |
-| `~/projects/pathexplorer` | **Read-only reference.** No edits. Study the code; do not modify. |
+| Anything outside this repository | **Out of bounds.** The operation reads and writes inside the scout repo only (CLAUDE.md §7). |
 
 ---
 
@@ -79,11 +79,11 @@ Standing order. Activated at Phase 2; binding on every officer that commits code
 
 ### Why
 
-The host mounts one project directory to `/workspace`. One working tree holds one `.git/HEAD`. An officer that runs `git checkout <branch>` flips HEAD for every concurrent officer, corrupting their working state and risking commits to the wrong branch. Observed in `agentic_vm_guide`. Fixed there with worktrees. Codified here before Phase 3, where three officers run in parallel.
+One working tree holds one `.git/HEAD`. An officer that runs `git checkout <branch>` flips HEAD for every concurrent officer, corrupting their working state and risking commits to the wrong branch. This was observed on an earlier multi-agent operation and fixed there with worktrees; codified here before Phase 3, where three officers run in parallel.
 
 ### The map — exact paths, no alternatives
 
-Every sector branch has exactly one worktree path. Officers do not invent alternatives. All paths are relative to the repo root (`~/projects/scout/`).
+Every sector branch has exactly one worktree path. Officers do not invent alternatives. All paths are relative to the repo root, wherever it is checked out.
 
 | Officer | Sector branch | Worktree path |
 |---|---|---|

@@ -1,5 +1,9 @@
 # CAMPAIGN PLAN — Operation SCOUT
 
+> **STATUS — read this before the plan below.** This is the **v1 war plan as written at Phase 0 (2026-04-21)**. It is kept as the record of what was planned; it is no longer a description of the system. Phases 0–5 all closed, v1 released `v0.1.0` on 2026-07-06, v2 closed 2026-08-14 and released `v0.2.0`. Where this plan and the code disagree, the code and the ADRs are right — in particular the provisional dependency roster below was superseded wholesale by ADR-002, and the four planned ADRs became nine.
+>
+> For current state read, in this order: `ops/OPORD.md` (what is active), `docs/aar/v1.md` §6 and §8 (what v2 delivered), `docs/adr/` (what binds the code), `ops/HANDOFF.md` (the chronological log).
+
 > **Commander's intent:** Make finding and acting on my projects fast, composable, and portable across my machines.
 
 Every decision below is subordinate to the intent above. When a proposal conflicts with it, we refuse the proposal — not the intent.
@@ -13,8 +17,8 @@ Every decision below is subordinate to the intent above. When a proposal conflic
   - SQLite is permanent. The index and frecency store live there.
   - Config is portable TOML, intended to be committed to dotfiles.
   - Rust is the language of the realm.
-  - The predecessor `pathexplorer` is read-only reference terrain.
-- **Ground we hold:** working fuzzy search, basic TUI, first-pass indexer, tmux multi-agent experience from the agentic_vm_guide.
+  - Nothing outside this repository is in scope (CLAUDE.md §7).
+- **Ground we held at Phase 0:** working fuzzy search, basic TUI, first-pass indexer, and prior experience running a multi-agent operation under tmux.
 - **Enemy positions (risks):** ranking correctness, stale-query races, dependency rot across a decade, agent merge conflicts, scope creep away from the intent.
 
 ---
@@ -71,7 +75,15 @@ No dependency joins the force without passing these gates. The Quartermaster app
 5. **Replaceability** — a credible alternative exists if the crate is abandoned.
 6. **Proximity to stdlib / de facto standard** — the nearer to the trunk, the better.
 
-### Provisional roster (Quartermaster must reconfirm in ADR-002)
+### Provisional roster — SUPERSEDED by ADR-002
+
+**Do not read the table below as the dependency list.** It is the Phase-0
+guess. ADR-002 is the authoritative roster and it decided against several
+entries here: `fuzzy-matcher` lost to `nucleo-matcher`, `dirs` was
+replaced by a hand-rolled XDG resolver in `src/config/paths.rs`,
+`num_cpus` was dropped for `std::thread::available_parallelism`, and
+`serde_json` never joined. `cargo tree` is the only honest answer to
+"what does scout depend on"; CI enforces the ceiling.
 
 | Crate | Verdict | Notes |
 |---|---|---|

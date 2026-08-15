@@ -5,7 +5,7 @@
 **Phase:** 1, Wave 1
 **Portfolio:** Failure modes, partial-state handling, panic discipline, crash recovery, observability minimum.
 
-Pathexplorer is not mounted; I reason from Architect's pipeline, Security's trust boundaries, and Quartermaster's roster.
+The reference tree is not mounted; I reason from Architect's pipeline, Security's trust boundaries, and Quartermaster's roster.
 
 ---
 

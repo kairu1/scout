@@ -36,7 +36,9 @@ Every decision you make must serve this. Work that drifts from it is wrong work 
 
 6. **Reports are terse.** Commits, HANDOFF entries, and ADRs are plain prose. No emoji. No padding. A wasted sentence is wasted tempo.
 
-7. **Respect the reference site.** `~/projects/pathexplorer` is strictly read-only to this operation. Study it freely; do not modify it.
+7. **Nothing outside this repository.** This operation reads and writes inside the scout repository only. If a runbook or campaign document cites an external reference tree, treat the citation as historical: the operation has never depended on one being mounted, and the council papers that wanted one said so and reasoned without it.
+
+8. **No other project is named in this repository.** Not in code, not in docs, not in a commit message, not in a test fixture. Scout is read on machines that have never heard of whatever you were working on last week; a real project name in an example teaches a reader nothing and dates the document. Anonymise to a generic name that carries the shape of the example (`photo-store` beside `photo-store-admin`, `api` under `billing` and `storefront`). Measurements taken against a real tree stay — it is the names that go.
 
 ## Forbidden unless explicitly ordered
 

@@ -5,7 +5,7 @@
   "branch": "sector/actions",
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-08-14T00:00:00Z",
+  "last_update": "2026-08-15T00:00:00Z",
   "blockers": [],
-  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). COMMENDED, not promoted (AAR v1 \u00a75): the trust model and closed placeholder set held under adversarial review; the print-seam injection was in this sector and was this sector's to have caught."
+  "notes": "Phase 5 CLOSED 2026-08-14; v2 CLOSED 2026-08-14. COMMENDED, not promoted (AAR v1 \u00a75). Since: the {env.NAME} scope split (child_env vs bindings, a BREAKING change), ADR-009 keybinding dispatch, and action-failure reporting that says what/why/next instead of exiting in silence. Nothing owed."
 }

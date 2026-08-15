@@ -5,11 +5,11 @@
   "branch": null,
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-08-14T00:00:00Z",
+  "last_update": "2026-08-15T00:00:00Z",
   "blockers": [],
   "primary_outputs": [
     "docs/adr/002-dependency-roster.md",
     "docs/adr/positions/council-quartermaster.md"
   ],
-  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). COMMENDED (AAR v1 \u00a75): ADR-002 is the most-cited document of the campaign. The MPL-2.0 allow-list gap is a finding about review method, not about the officer."
+  "notes": "Phase 5 CLOSED 2026-08-14; v2 CLOSED 2026-08-14. COMMENDED (AAR v1 \u00a75). Since: the v2 dependency refresh landed (ratatui 0.26->0.30, rusqlite 0.31->0.40, crossterm 0.27->0.29, thiserror 1->2, unicode-width 0.1->0.2), the ceiling was raised 120->150 by commander decision after ratatui's split made a crate count the wrong metric, and the deny skip-list was reviewed rather than appended to. toml 1.x remains deferred - nothing forces it."
 }

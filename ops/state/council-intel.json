@@ -5,11 +5,11 @@
   "branch": null,
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-08-14T00:00:00Z",
+  "last_update": "2026-08-15T00:00:00Z",
   "blockers": [],
   "primary_outputs": [
     "docs/adr/positions/council-intel.md",
     "Embedded findings in all four ADRs"
   ],
-  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). Owes an ADR-001 revision (AAR v1 \u00a74): K_match = 100 was never calibrated against real query data \u2014 calibrate, or record it as an accepted arbitrary."
+  "notes": "Phase 5 CLOSED 2026-08-14; v2 CLOSED 2026-08-14. ADR-001 revision DISCHARGED 2026-08-14: the K_match calibration this officer's own review demanded before Phase 3 was finally done, forced by a user-visible ranking bug four months later. Measured 272-284 against the ADR's claimed 60-200; k_match is now 25 x query_chars. Nothing owed."
 }

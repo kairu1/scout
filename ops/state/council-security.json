@@ -5,11 +5,11 @@
   "branch": null,
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-08-14T00:00:00Z",
+  "last_update": "2026-08-15T00:00:00Z",
   "blockers": [],
   "primary_outputs": [
     "docs/adr/positions/council-security.md",
     "docs/adr/003-threat-model.md"
   ],
-  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). REINSTATED AS STANDING OFFICER (AAR v1 \u00a75), not phase-bound. Reviews every ADR and every change touching the print seam, trust store, or render boundary, regardless of phase. Owes two revisions: ADR-003 display integrity (bidi/zero-width), and ADR-006's environment allowlist."
+  "notes": "Phase 5 CLOSED 2026-08-14; v2 CLOSED 2026-08-14. STANDING OFFICER, not phase-bound (AAR v1 \u00a75): reviews every ADR and every change touching the print seam, trust store, or render boundary, regardless of phase. ADR-003 display-integrity revision SHIPPED 2026-08-14 (16 bidi/zero-width chars stripped at the render boundary) but is UNREVIEWED - reviewing it is owed. Also owed: the ADR-006 environment allowlist, specifically TERM. Evidence is gathered and a recommendation is on record in ops/OPORD.md \u00a73; the reading is not done."
 }

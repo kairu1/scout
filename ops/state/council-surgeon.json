@@ -5,11 +5,11 @@
   "branch": null,
   "status": "standby",
   "current_task": null,
-  "last_update": "2026-08-14T00:00:00Z",
+  "last_update": "2026-08-15T00:00:00Z",
   "blockers": [],
   "primary_outputs": [
     "docs/adr/positions/council-surgeon.md",
     "Embedded findings in all four ADRs"
   ],
-  "notes": "Phase 5 CLOSED 2026-08-14; Operation SCOUT v1 complete (docs/aar/v1.md). Owes an ADR-001 revision (AAR v1 \u00a74): name the startup PRAGMA integrity_check exclusion in the cold-start p99 budget."
+  "notes": "Phase 5 CLOSED 2026-08-14; v2 CLOSED 2026-08-14. ADR-001 revision DISCHARGED 2026-08-15: the cold-start p99 budget now names the startup PRAGMA integrity_check exclusion, as this officer's pre-signature review asked. Nothing owed."
 }

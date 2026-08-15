@@ -145,6 +145,8 @@ Commander directive: name numbers. Target `p99` at a 100 000-path index on a 202
 
 Miss of any budget at Phase 4 is a blocker, not a warning. `tracing` spans record each event (Surgeon §5); `queries_total` and a p99 histogram are dumped on SIGUSR1.
 
+**Exclusion — recovery paths (revision 2026-08-15, closing the revision council-surgeon owed per AAR §4).** The cold-start budget covers the normal path only. A start that finds no clean-shutdown sentinel runs `PRAGMA integrity_check`, and a full integrity check over a 100 000-row index is not 100 ms-class work at any hardware tier; a rebuild after a failed check is further out again. Both are excluded from the ≤ 100 ms budget, which is why the budget cannot be read as a blocker on a recovery-only codepath. This exclusion was named by council-surgeon in this document's own Reviews section before it was signed, and went four months unrecorded in the normative table it qualifies — the review caught it, the ADR did not carry it. What the budget *does* still bind on that path: recovery must be visible rather than silent, which `scout doctor` and the empty-index banner provide.
+
 ### Gate alignment
 
 - **Portability.** Single scalar per path plus a SQLite row; no machine-local heuristics. Commits clean between hosts.
@@ -187,10 +189,14 @@ Miss of any budget at Phase 4 is a blocker, not a warning. `tracing` spans recor
 
 ## Revision 2026-08-14 — Calibration against measured data, and a basename term
 
-Reported by the commander: searching `service-hub` returned the mindmap
-copy and a page of files *inside* `@projects/@service-hub`, but never
-the directory itself. Measured against the real index, that directory
-sat at **rank 317**.
+Reported by the commander: searching for a project by name returned a
+second directory of the same name elsewhere in the tree, plus a page of
+files *inside* the project, but never the project directory itself.
+Measured against the real index, that directory sat at **rank 317**.
+
+(Project names in this section are anonymised — `photo-store` for the
+directory searched for, `photo-store-admin` for the longer name that
+outranked it. The measurements are the real ones.)
 
 Two independent causes, both now fixed.
 
@@ -218,8 +224,8 @@ the old operating point: roughly thirty times more discriminating.
 
 **2. Nothing preferred a candidate whose own name was the query.** The
 score was computed over the whole path, so
-`…/@service-hub/service-hub-system/tools/see` scored *higher* than
-`…/@service-hub` — a longer path contains more matchable material. But a
+`…/photo-store/photo-store-admin/tools/see` scored *higher* than
+`…/photo-store` — a longer path contains more matchable material. But a
 query is nearly always the name of the thing wanted, not a description
 of where it lives.
 
@@ -228,8 +234,8 @@ basename that does not match at all contributes zero, which is what
 separates a directory named for the query from a file buried inside one.
 
 The basename term is scaled by **coverage** — `query_chars ÷
-basename_chars`, capped at 1. Without it `service-hub-system` still beat
-`service-hub`, because a longer name matching the same substring scores
+basename_chars`, capped at 1. Without it `photo-store-admin` still beat
+`photo-store`, because a longer name matching the same substring scores
 marginally higher. A name that *is* the query earns the whole bonus; a
 name three times longer earns a third of it.
 
@@ -241,7 +247,7 @@ against the best score seen so far, which would have been the easy fix —
 was not available.
 
 Result on the reported query: the two directories actually named
-`service-hub` now rank 1 and 2, and the unrelated files that filled the
+`photo-store` now rank 1 and 2, and the unrelated files that filled the
 first page fall from 0.596 to 0.186. Regression-guarded in
 `tests/search_ranking.rs`, including the saturation case, since a future
 re-tune that re-saturates the match term would otherwise be invisible.

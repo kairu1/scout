@@ -66,7 +66,7 @@ fn zero_query_ranks_by_decayed_frecency() {
 #[test]
 fn query_eliminates_non_matches_and_blends_frecency() {
     let conn = db_with_rows(&[
-        ("/home/user/projects/servicehub", 0.0, NOW, 0, 1, None),
+        ("/home/user/projects/photostore", 0.0, NOW, 0, 1, None),
         ("/home/user/projects/scout", 0.0, NOW, 0, 1, None),
         ("/home/user/music/album", 0.0, NOW, 0, 1, None),
     ]);
@@ -166,7 +166,7 @@ fn match_indices_cover_query_chars() {
 
 /// The defect this guards (ADR-001 revision 2026-08-14): querying a
 /// project by name returned everything *inside* it and not the
-/// directory itself. Against a real index, `/…/@service-hub` sat at
+/// directory itself. Against a real index, `/…/@photo-store` sat at
 /// rank 317 while files four levels beneath it filled the first page.
 ///
 /// Two causes, both fixed: the match term was saturated (a fixed
@@ -175,16 +175,16 @@ fn match_indices_cover_query_chars() {
 #[test]
 fn a_directory_named_for_the_query_outranks_its_contents() {
     let rows: Vec<FixtureRow> = vec![
-        ("/w/projects/@service-hub", 0.0, NOW, 0, 1, None),
-        ("/w/projects/@service-hub/service-hub-system", 0.0, NOW, 0, 1, None),
-        ("/w/projects/@service-hub/service-hub-system/backend/tests", 0.0, NOW, 0, 1, None),
-        ("/w/projects/@service-hub/service-hub-system/tools/see", 0.0, NOW, 0, 1, None),
-        ("/w/projects/@mindmap/service-hub", 0.0, NOW, 0, 1, None),
+        ("/w/projects/photo-store", 0.0, NOW, 0, 1, None),
+        ("/w/projects/photo-store/photo-store-admin", 0.0, NOW, 0, 1, None),
+        ("/w/projects/photo-store/photo-store-admin/backend/tests", 0.0, NOW, 0, 1, None),
+        ("/w/projects/photo-store/photo-store-admin/tools/see", 0.0, NOW, 0, 1, None),
+        ("/w/archive/photo-store", 0.0, NOW, 0, 1, None),
     ];
     let conn = db_with_rows(&rows);
     let candidates = load_candidates(&conn).unwrap();
     let mut matcher = NucleoMatcher::new();
-    let ranked = search(&mut matcher, &candidates, "service-hub", NOW, 10);
+    let ranked = search(&mut matcher, &candidates, "photo-store", NOW, 10);
 
     let paths: Vec<&str> = ranked.iter().map(|r| r.path.as_str()).collect();
 
@@ -192,9 +192,8 @@ fn a_directory_named_for_the_query_outranks_its_contents() {
     // either order — that is what the user asked for.
     let top_two: Vec<&str> = paths.iter().take(2).copied().collect();
     assert!(
-        top_two.contains(&"/w/projects/@service-hub")
-            && top_two.contains(&"/w/projects/@mindmap/service-hub"),
-        "both directories named service-hub must lead; got {paths:#?}"
+        top_two.contains(&"/w/projects/photo-store") && top_two.contains(&"/w/archive/photo-store"),
+        "both directories named photo-store must lead; got {paths:#?}"
     );
 
     // And a file whose own name shares nothing with the query must not
@@ -213,28 +212,28 @@ fn a_directory_named_for_the_query_outranks_its_contents() {
 #[test]
 fn a_shallow_match_leads_an_equally_named_deep_one() {
     let rows: Vec<FixtureRow> = vec![
-        ("/w/service-hub", 0.0, NOW, 0, 1, None),
-        ("/w/x/service-hub/y/service-hub", 0.0, NOW, 0, 1, None),
+        ("/w/photo-store", 0.0, NOW, 0, 1, None),
+        ("/w/x/photo-store/y/photo-store", 0.0, NOW, 0, 1, None),
     ];
     let conn = db_with_rows(&rows);
     let candidates = load_candidates(&conn).unwrap();
     let mut matcher = NucleoMatcher::new();
-    let ranked = search(&mut matcher, &candidates, "service-hub", NOW, 10);
+    let ranked = search(&mut matcher, &candidates, "photo-store", NOW, 10);
     assert_eq!(ranked.len(), 2);
-    assert_eq!(ranked[0].path, "/w/service-hub");
+    assert_eq!(ranked[0].path, "/w/photo-store");
 }
 
 /// Coverage: a name that *is* the query beats a name that merely starts
-/// with it. Without this, `service-hub-system` outranked `service-hub`.
+/// with it. Without this, `photo-store-admin` outranked `photo-store`.
 #[test]
 fn an_exact_name_beats_a_longer_name_containing_it() {
     let rows: Vec<FixtureRow> = vec![
-        ("/w/one/service-hub", 0.0, NOW, 0, 1, None),
-        ("/w/two/service-hub-system-extended", 0.0, NOW, 0, 1, None),
+        ("/w/one/photo-store", 0.0, NOW, 0, 1, None),
+        ("/w/two/photo-store-admin-tools", 0.0, NOW, 0, 1, None),
     ];
     let conn = db_with_rows(&rows);
     let candidates = load_candidates(&conn).unwrap();
     let mut matcher = NucleoMatcher::new();
-    let ranked = search(&mut matcher, &candidates, "service-hub", NOW, 10);
-    assert_eq!(ranked[0].path, "/w/one/service-hub", "exact name must lead");
+    let ranked = search(&mut matcher, &candidates, "photo-store", NOW, 10);
+    assert_eq!(ranked[0].path, "/w/one/photo-store", "exact name must lead");
 }

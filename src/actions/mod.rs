@@ -114,50 +114,121 @@ pub fn execute(action: &Action, ctx: &ActionCtx, visit: Option<(&Connection, i64
     ExecOutcome { any_success, failure, exit_code, credited, steps_run }
 }
 
-/// Plain-language next step for a failure reason, or `None` when there
-/// is nothing useful to add.
+/// Plain-language explanation of a failure reason, and what to do about
+/// it. `None` when there is nothing useful to say at all.
 ///
+/// `why` and `next` are separate fields rather than one sentence
+/// *because a test cannot check prose*. The first version of the
+/// next-step guard asserted that the `repo_root` hint contained the word
+/// "select" — and it passed against the hint that gave no next step,
+/// because "the **select**ion is not inside a git repository" contains
+/// it. A guard that greps its own subject's wording measures the easy
+/// half. `next: Option<_>` is a contract the guard can actually read.
+#[derive(Debug, Clone)]
+pub struct Hint {
+    /// What went wrong, and why.
+    pub why: String,
+    /// What the user can do about it. `None` only where nothing they can
+    /// do would change the outcome.
+    pub next: Option<String>,
+    /// Where it happened, when the reason arrived wrapped.
+    pub context: &'static str,
+}
+
+impl std::fmt::Display for Hint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.why)?;
+        if let Some(next) = &self.next {
+            write!(f, "; {next}")?;
+        }
+        // The context trails in parentheses rather than sitting
+        // mid-sentence, so it never lands between the advice and its
+        // verb.
+        write!(f, "{}", self.context)
+    }
+}
+
 /// Lives beside `fail_kind`, which produces the codes, because the two
 /// are one contract. It previously sat private in the *binary* crate,
 /// where no test could reach it — and it had drifted: `cwd:` prefixed
 /// reasons never matched, and `undefined_env:` had no arm at all.
-pub fn failure_hint(reason: &str) -> Option<String> {
+pub fn failure_hint(reason: &str) -> Option<Hint> {
     // A cwd failure wraps the underlying reason (`cwd:undefined_...`).
     // Strip the wrapper so the inner reason is still recognised.
     let (context, inner) = match reason.strip_prefix("cwd:") {
-        Some(rest) => (" while resolving the action's working directory", rest),
+        Some(rest) => (" (while resolving the action's working directory)", rest),
         None => ("", reason),
     };
-    let hint = match inner {
-        "undefined_placeholder:repo_root" => {
+    let (why, next): (String, Option<String>) = match inner {
+        "undefined_placeholder:repo_root" => (
             "the selection is not inside a git repository, so {repo_root} has nothing to \
              resolve to"
-                .to_string()
-        }
+                .to_string(),
+            // This failure is a correct refusal, so the way out of it is
+            // the whole of what the user needs from this message.
+            Some(
+                "pick a path under a repository, or run an action built on {path} or {parent} \
+                 instead"
+                    .to_string(),
+            ),
+        ),
         r if r.starts_with("undefined_placeholder:") => {
             let name = r.split_once(':').map(|(_, n)| n).unwrap_or(r);
-            format!("`{{{name}}}` could not be resolved for this selection")
+            (
+                format!("`{{{name}}}` could not be resolved for this selection"),
+                Some(
+                    "choose a selection it applies to, or edit the action to use a placeholder \
+                     that always resolves"
+                        .to_string(),
+                ),
+            )
         }
         r if r.starts_with("undefined_env:") => {
             let name = r.split_once(':').map(|(_, n)| n).unwrap_or(r);
-            format!("the environment variable `{name}` is not set")
+            (
+                format!(
+                    "`{{env.{name}}}` resolves only against an `env` step in the same action, \
+                     never your shell's environment"
+                ),
+                Some(format!(
+                    "add that step, or write `${name}` in a `print` template and let your shell \
+                     expand it"
+                )),
+            )
         }
-        "no_editor" => "set $EDITOR or $VISUAL, or install a vi-family editor on PATH".to_string(),
-        "path" => "the selection's path is not valid UTF-8".to_string(),
-        "print_write" => "scout could not write to stdout".to_string(),
-        "exit_status" => {
-            "the command ran and returned a non-zero status; run it yourself to see why".to_string()
-        }
+        "no_editor" => (
+            "no editor could be resolved".to_string(),
+            Some("set $EDITOR or $VISUAL, or install a vi-family editor on PATH".to_string()),
+        ),
+        "path" => (
+            "the selection's path is not valid UTF-8".to_string(),
+            Some("rename it, or pick another selection".to_string()),
+        ),
+        "print_write" => (
+            "scout could not write to stdout".to_string(),
+            Some("check that whatever you piped scout into is still reading".to_string()),
+        ),
+        "exit_status" => (
+            "the command ran and returned a non-zero status".to_string(),
+            Some("run it yourself to see why".to_string()),
+        ),
         r if r.starts_with("spawn:") => {
             let detail = r.split_once(':').map(|(_, d)| d).unwrap_or(r);
-            format!("the command could not be started ({detail}); check that it exists on PATH")
+            (
+                format!("the command could not be started ({detail})"),
+                Some("check that it exists on PATH".to_string()),
+            )
         }
-        "hazardous_path" => {
-            "the path contains NUL or newline and cannot be passed to a shell safely".to_string()
-        }
+        "hazardous_path" => (
+            "the path contains NUL or newline and cannot be passed to a shell safely".to_string(),
+            // Deliberately no next step: nothing the user does at the
+            // picker changes this, and inventing advice would be worse
+            // than admitting there is none.
+            None,
+        ),
         _ => return None,
     };
-    Some(format!("{hint}{context}"))
+    Some(Hint { why, next, context })
 }
 
 /// Run one step. Err carries (failure kind for tracing, exit code).
@@ -383,7 +454,7 @@ mod hint_tests {
 
     #[test]
     fn a_wrapped_reason_keeps_the_inner_explanation_and_says_where() {
-        let hint = failure_hint("cwd:undefined_placeholder:repo_root").unwrap();
+        let hint = failure_hint("cwd:undefined_placeholder:repo_root").unwrap().to_string();
         assert!(hint.contains("git repository"), "{hint}");
         assert!(hint.contains("working directory"), "{hint}");
     }
@@ -391,6 +462,53 @@ mod hint_tests {
     #[test]
     fn an_unknown_reason_yields_no_hint_rather_than_a_wrong_one() {
         assert!(failure_hint("something_new").is_none());
+    }
+
+    /// A hint that stops at the diagnosis leaves the user where they
+    /// were. The reported case — `edit-repo` on a selection outside any
+    /// repository — printed what and why and then stopped, so the
+    /// reasonable next question ("then what do I press?") had no answer
+    /// anywhere in the output.
+    ///
+    /// This reads `next`, the field, rather than grepping the rendered
+    /// sentence. The first version of this test *did* grep it, asserting
+    /// the `repo_root` hint contained "select" — and passed against the
+    /// hint that offered no next step at all, because "the **select**ion
+    /// is not inside a git repository" contains that substring. It was
+    /// written to catch exactly the defect it then failed to catch.
+    #[test]
+    fn hints_for_actionable_failures_carry_a_next_step() {
+        let actionable = [
+            "undefined_placeholder:repo_root",
+            "undefined_placeholder:ext",
+            "undefined_env:TOKEN",
+            "no_editor",
+            "path",
+            "print_write",
+            "exit_status",
+            "spawn:entity not found",
+            // Wrapped, because the wrapper must not swallow the advice.
+            "cwd:undefined_placeholder:repo_root",
+        ];
+        for reason in actionable {
+            let hint = failure_hint(reason).expect("actionable reason must have a hint");
+            let next = hint
+                .next
+                .as_ref()
+                .unwrap_or_else(|| panic!("`{reason}` never says what to do next: {hint}"));
+            assert!(!next.trim().is_empty(), "`{reason}` has an empty next step");
+            // And the rendered line must actually carry it, so a future
+            // Display change cannot drop the half that matters.
+            assert!(hint.to_string().contains(next.as_str()), "next step lost in rendering");
+        }
+    }
+
+    /// The converse, so `next` cannot quietly become a field that is
+    /// always `Some` and therefore proves nothing: a failure the user
+    /// cannot act on says so by omission rather than by inventing advice.
+    #[test]
+    fn a_failure_the_user_cannot_act_on_offers_no_next_step() {
+        assert!(failure_hint("hazardous_path").unwrap().next.is_none());
     }
 }
 

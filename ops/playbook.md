@@ -1,15 +1,23 @@
 # SCOUT Playbook — Master Runbook Index
 
-Per-phase runbooks. Execute in order. Commander's check-in required at each phase boundary.
+Per-phase runbooks. **Every phase is closed** — see `ops/OPORD.md`. This
+index is kept as the record of how the campaign was run.
 
-| Phase | Runbook | Milestone |
-|---|---|---|
-| 0 — Mobilization | [`phase-0-mobilize.md`](phase-0-mobilize.md) | Command post live |
-| 1 — War Council I | [`phase-1-council.md`](phase-1-council.md) | Four ADRs signed |
-| 2 — DB Takes Hill | [`phase-2-db.md`](phase-2-db.md) | Frecency index operational |
-| 3 — Main Assault | `phase-3-assault.md` *(drafted at Phase 2 close)* | End-to-end flow |
-| 4 — Consolidation | `phase-4-consolidate.md` *(drafted at Phase 3 close)* | Portable install |
-| 5 — AAR | `phase-5-aar.md` *(drafted at Phase 4 close)* | Lessons captured |
+| Phase | Runbook | Milestone | State |
+|---|---|---|---|
+| 0 — Mobilization | [`phase-0-mobilize.md`](phase-0-mobilize.md) | Command post live | closed 2026-04-21 |
+| 1 — War Council I | [`phase-1-council.md`](phase-1-council.md) | Four ADRs signed | closed 2026-04-24 |
+| 2 — DB Takes Hill | [`phase-2-db.md`](phase-2-db.md) | Frecency index operational | closed 2026-07-05 |
+| 3 — Main Assault | *no runbook written* | End-to-end flow | closed 2026-07-05 |
+| 4 — Consolidation | *no runbook written* | Portable install | closed 2026-07-05 |
+| 5 — AAR | *no runbook written* | Lessons captured | closed 2026-08-14 (`docs/aar/v1.md`) |
+
+Phases 3–5 ran from HANDOFF orders rather than from a written runbook.
+The earlier version of this table listed them as *"drafted at the
+previous phase's close"*, which never happened — a reader chasing
+`phase-3-assault.md` was chasing a file that has never existed. Recorded
+rather than quietly deleted, because the gap between a planned artifact
+and a written one is exactly the kind of thing an index should show.
 
 **Rule of the playbook:** runbooks for phases later than the active phase are drafts — not authoritative — until the Chief of Staff signs them at phase entry. This prevents stale orders from being executed.
 

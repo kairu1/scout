@@ -165,7 +165,7 @@ Your portfolio is system design. Write a position paper to
   4. Module boundaries in Rust: proposed crate/module layout. Which
      types cross boundaries. Where traits earn their weight.
 
-You may reference ~/projects/pathexplorer AS READ-ONLY
+You may reference the campaign plan's reference terrain AS READ-ONLY
 REFERENCE — do not edit it. That project is our predecessor; study
 what it got right and what it got wrong (its search, index, and TUI
 modules). If it is not present on this machine, omit that citation
@@ -180,7 +180,7 @@ Close by updating state file — status "standby", notes with key claim.
 **Checkpoint:** It contains a specific ranking formula proposal with rationale.
 **Connection:** Feeds ADR-001 and ADR-004.
 
-> **Note on reference access:** if the pathexplorer project is not present on this machine and the Architect wants to cite it, you can either (a) copy the files you want cited into `docs/reference/pathexplorer/` (commander's discretion), or (b) have the Architect reason from what's described in `ops/CAMPAIGN.md` alone. Default: (b) unless you see value in (a).
+> **Note on reference access:** if the reference terrain is not present on this machine and the Architect wants to cite it, you can either (a) copy the files you want cited into `docs/reference/` (commander's discretion), or (b) have the Architect reason from what's described in `ops/CAMPAIGN.md` alone. Default: (b) unless you see value in (a). Outcome on record: (b) — no reference tree was ever mounted, and every council paper says so rather than fabricating citations.
 
 ---
 
@@ -901,5 +901,5 @@ When all green, return to the Chief of Staff with **"Phase 1 green"**. I will:
 
 - Any officer marks a blocker and the author's response doesn't resolve it.
 - Phase 1 runs past ~3 hours of wall-clock — something is off.
-- Any agent touches `pathexplorer` in write mode.
+- Any agent writes outside this repository.
 - Any `Cargo.toml` edit lands before ADR-002 is signed.

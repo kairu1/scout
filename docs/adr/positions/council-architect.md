@@ -5,7 +5,7 @@
 **Phase:** 1, Wave 1
 **Portfolio:** System design, data flow, ranking, action composition, module boundaries.
 
-Pathexplorer reference terrain is not mounted in this sandbox; citations to it are omitted rather than fabricated. Intel's recon paper (`positions/council-intel.md`) stands in for that ground truth.
+The reference terrain named in the campaign plan is not mounted in this sandbox; citations to it are omitted rather than fabricated. Intel's recon paper (`positions/council-intel.md`) stands in for that ground truth.
 
 ---
 
