@@ -393,3 +393,66 @@ mod hint_tests {
         assert!(failure_hint("something_new").is_none());
     }
 }
+
+#[cfg(test)]
+mod editor_tests {
+    use super::resolve_editor;
+    use std::collections::HashMap;
+
+    /// `BuiltinEdit` looks its editor up in the map a spawned child
+    /// inherits, not in the `env`-step bindings — the split in
+    /// `execute` would otherwise have made the built-in editor
+    /// unresolvable on every machine.
+    ///
+    /// This tests the LOOKUP and never spawns anything. The integration
+    /// test that preceded it ran `BuiltinEdit` for real against whatever
+    /// editor the machine offered: on a box with no vi-family binary it
+    /// passed in milliseconds by taking the "no editor" branch, and on a
+    /// CI runner it launched vim, which opened a directory listing and
+    /// blocked until the six-hour job limit. A test whose behaviour
+    /// depends on which binaries the host happens to have is not a test
+    /// of this code.
+    fn env(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    #[test]
+    fn visual_wins_then_editor() {
+        assert_eq!(
+            resolve_editor(&env(&[("VISUAL", "code"), ("EDITOR", "vi")])).as_deref(),
+            Some("code")
+        );
+        assert_eq!(resolve_editor(&env(&[("EDITOR", "vi")])).as_deref(), Some("vi"));
+    }
+
+    /// An exported-but-empty variable is not a choice.
+    #[test]
+    fn empty_values_are_skipped() {
+        assert_eq!(
+            resolve_editor(&env(&[("VISUAL", ""), ("EDITOR", "nano")])).as_deref(),
+            Some("nano")
+        );
+    }
+
+    /// The PATH fallback finds a vi-family binary without consulting the
+    /// process environment.
+    #[test]
+    fn falls_back_to_a_vi_family_binary_on_path() {
+        let dir = std::env::temp_dir().join(format!("scout-editor-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("vim");
+        std::fs::write(&fake, "#!/bin/sh\nexit 0\n").unwrap();
+
+        let path = dir.display().to_string();
+        assert_eq!(resolve_editor(&env(&[("PATH", &path)])).as_deref(), Some("vim"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn nothing_resolvable_is_none() {
+        assert!(resolve_editor(&env(&[("PATH", "/nonexistent-dir-for-scout-test")])).is_none());
+        assert!(resolve_editor(&env(&[])).is_none());
+    }
+}

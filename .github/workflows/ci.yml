@@ -3,6 +3,9 @@
 # ceiling (shipped-target reading, ADR-002 ratified 2026-07-06), and the
 # musl cross-compile smoke (reusable musl-build.yml) for both arches.
 # Third-party actions are pinned to commit SHAs (supply-chain posture).
+# Every job carries timeout-minutes: a test that spawned a real editor
+# once blocked on stdin and ran to GitHub's six-hour default before
+# anyone cancelled it. A hung job should cost minutes.
 name: ci
 on:
   push:
@@ -19,6 +22,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable (toolchain file pins the version)
@@ -29,6 +33,7 @@ jobs:
 
   supply-chain:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
@@ -49,6 +54,7 @@ jobs:
   # because the budget was set against an optimised build.
   perf-gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable (toolchain file pins the version)
