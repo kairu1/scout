@@ -67,7 +67,7 @@
 #   * the `copy-path` action — it tries the three common clipboard tools
 #     and then falls back to asking the terminal itself. See its comment.
 
-schema_version = 1
+schema_version = 2
 
 # --- navigation -------------------------------------------------------
 

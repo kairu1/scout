@@ -48,7 +48,7 @@ fn load_reference_pretrusted(dir: &Path) -> (scout::config::Config, String) {
     let store = dir.join("trusted-config.sha256");
     match load_file(&config_path, store.clone(), true) {
         Err(Error::TrustRequiresTty { hash, .. }) => {
-            fs::write(&store, format!("{hash} {}\n", config_path.display())).unwrap();
+            fs::write(&store, format!("v2 {hash} {}\n", config_path.display())).unwrap();
             let config = load_file(&config_path, store, true)
                 .expect("reference config must load once trusted");
             (config, hash)
@@ -104,7 +104,7 @@ fn reference_config_loads_and_every_printed_line_survives_the_wrapper() {
 fn reference_config_trust_hash_is_pinned() {
     let dir = temp_dir("refhash");
     let (_, hash) = load_reference_pretrusted(&dir);
-    assert_eq!(hash, "ac649cfc24ed3189d08172aaf4c9550473db1bba6fe53914762c82be364c6a2a");
+    assert_eq!(hash, "940f36c2f705d085707e6b0080364284f5642fb6423045598aaf4c70e0b96c67");
     fs::remove_dir_all(&dir).unwrap();
 }
 

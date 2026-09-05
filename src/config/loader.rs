@@ -3,7 +3,7 @@
 //! lower-precedence config, because the config the user is editing is
 //! the one they expect to load.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -12,12 +12,12 @@ use serde::Deserialize;
 use super::trust::{TrustStatus, TrustStore};
 use super::{canonical, merge_with_defaults, trust, Config};
 use crate::actions::template::is_posix_env_name;
-use crate::actions::{Action, OnFailure, Step, Template};
+use crate::actions::{Action, Kind, OnFailure, Step, Template, When};
 use crate::platform::fs as pfs;
 use crate::{Error, Result};
 
 const SIZE_CAP: usize = 256 * 1024;
-const SUPPORTED_SCHEMA: i64 = 1;
+pub const SUPPORTED_SCHEMA: i64 = 2;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,6 +42,25 @@ struct RawAction {
     #[serde(default)]
     unsafe_shell_template: Option<bool>,
     steps: Vec<toml::Table>,
+    #[serde(default)]
+    when: Option<RawWhen>,
+}
+
+/// The `when` clause as written. Unknown keys refuse the file.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawWhen {
+    #[serde(default)]
+    kind: Option<String>,
+    /// A string or an array of strings.
+    #[serde(default)]
+    marker: Option<toml::Value>,
+    #[serde(default)]
+    ext: Option<Vec<String>>,
+    #[serde(default)]
+    glob: Option<String>,
+    #[serde(default)]
+    finding: Option<String>,
 }
 
 /// Chords the picker itself uses; an action may not claim them. Only
@@ -108,15 +127,25 @@ pub fn load_file(
             supported: SUPPORTED_SCHEMA,
         });
     }
-    // `[scout]` is reserved and must be empty.
+    // `[scout]` carries exactly one setting.
+    let mut session = false;
     if let Some(scout_table) = &raw.scout {
-        if let Some(key) = scout_table.keys().next() {
-            return Err(Error::ConfigInvalid {
-                path: config_path.to_path_buf(),
-                message: format!("[scout] is reserved in v1; unknown key `{key}`"),
-            });
+        for (key, value) in scout_table {
+            match (key.as_str(), value) {
+                ("session", toml::Value::Boolean(b)) => session = *b,
+                ("session", _) => {
+                    return Err(validation(config_path, "[scout] session must be a boolean".into()))
+                }
+                (other, _) => {
+                    return Err(validation(
+                        config_path,
+                        format!("[scout]: unknown key `{other}` (the only setting is `session`)"),
+                    ))
+                }
+            }
         }
     }
+    let keys: BTreeMap<String, String> = BTreeMap::new();
 
     // Typed validation of every action.
     let mut warnings = Vec::new();
@@ -157,7 +186,7 @@ pub fn load_file(
     }
 
     // Canonical projection, hash, trust.
-    let hash = canonical::trust_hash(&actions);
+    let hash = canonical::trust_hash(&actions, &keys);
     let mut store = TrustStore::load(trust_store_path)?;
     let status = store.status(config_path, &hash);
     match status {
@@ -170,7 +199,7 @@ pub fn load_file(
                     store: store.store_path().to_path_buf(),
                 });
             }
-            if !trust::prompt(config_path, &actions, &status)? {
+            if !trust::prompt(config_path, &actions, &keys, &status)? {
                 return Err(Error::TrustDeclined);
             }
             store.record(config_path, &hash)?;
@@ -183,6 +212,7 @@ pub fn load_file(
         warnings,
         source: Some(config_path.to_path_buf()),
         trust_hash: Some(hash),
+        session,
     })
 }
 
@@ -269,6 +299,11 @@ fn validate_action(path: &Path, raw: &RawAction, warnings: &mut Vec<String>) -> 
         steps.push(validate_step(path, name, index, table, &parse_template)?);
     }
 
+    let when = match &raw.when {
+        Some(raw_when) => Some(validate_when(path, name, raw_when)?),
+        None => None,
+    };
+
     let unsafe_shell_template = raw.unsafe_shell_template.unwrap_or(false);
     // The `sh -c` shape is checked first: its payload is the one seam
     // where placeholder-plus-prose is legal, bought by the attestation;
@@ -320,8 +355,87 @@ fn validate_action(path: &Path, raw: &RawAction, warnings: &mut Vec<String>) -> 
         on_failure,
         unsafe_shell_template,
         steps,
+        when,
         from_user_config: true,
     })
+}
+
+/// A file name a marker may name: one path component, no separators.
+fn is_marker_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 255 && !name.contains('/') && name != "." && name != ".."
+}
+
+/// A recon check name: lowercase words joined by hyphens.
+fn is_check_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name.bytes().next().map(|b| b.is_ascii_lowercase()).unwrap_or(false)
+        && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+fn validate_when(path: &Path, action: &str, raw: &RawWhen) -> Result<When> {
+    let bad = |message: String| validation(path, format!("action `{action}`, when: {message}"));
+
+    let kind = match raw.kind.as_deref() {
+        None => None,
+        Some(k) => {
+            Some(Kind::parse(k).ok_or_else(|| bad(format!("kind `{k}` (want repo|dir|file)")))?)
+        }
+    };
+    let marker: Vec<String> = match &raw.marker {
+        None => Vec::new(),
+        Some(toml::Value::String(s)) => vec![s.clone()],
+        Some(toml::Value::Array(items)) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                match item {
+                    toml::Value::String(s) => out.push(s.clone()),
+                    _ => return Err(bad("`marker` entries must be strings".into())),
+                }
+            }
+            out
+        }
+        Some(_) => return Err(bad("`marker` must be a string or an array of strings".into())),
+    };
+    for m in &marker {
+        if !is_marker_name(m) {
+            return Err(bad(format!("marker `{m}` must be a bare file name")));
+        }
+    }
+    if raw.marker.is_some() && marker.is_empty() {
+        return Err(bad("`marker` must name at least one file".into()));
+    }
+    let ext = raw.ext.clone().unwrap_or_default();
+    for e in &ext {
+        if e.is_empty() || e.starts_with('.') || e.contains('/') {
+            return Err(bad(format!("ext `{e}` must be an extension without the dot")));
+        }
+    }
+    if raw.ext.is_some() && ext.is_empty() {
+        return Err(bad("`ext` must name at least one extension".into()));
+    }
+    if let Some(g) = &raw.glob {
+        if g.is_empty() {
+            return Err(bad("`glob` must not be empty".into()));
+        }
+    }
+    if let Some(f) = &raw.finding {
+        if !is_check_name(f) {
+            return Err(bad(format!(
+                "finding `{f}` must be a check name like `world-writable-dir`"
+            )));
+        }
+    }
+    if kind.is_none()
+        && marker.is_empty()
+        && ext.is_empty()
+        && raw.glob.is_none()
+        && raw.finding.is_none()
+    {
+        return Err(bad("an empty `when = {}` means always; omit it instead".into()));
+    }
+    let home = crate::platform::xdg::home().map(|h| h.display().to_string()).unwrap_or_default();
+    When::new(kind, marker, ext, raw.glob.clone(), raw.finding.clone(), &home).map_err(bad)
 }
 
 fn validate_step(

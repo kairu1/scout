@@ -31,6 +31,8 @@ pub struct Config {
     pub source: Option<PathBuf>,
     /// Trust hash of the user action set; `None` when no file loaded.
     pub trust_hash: Option<String>,
+    /// `[scout] session = true`: stay in the picker after an action.
+    pub session: bool,
 }
 
 impl Config {
@@ -40,6 +42,7 @@ impl Config {
             warnings: Vec::new(),
             source: None,
             trust_hash: None,
+            session: false,
         }
     }
 

@@ -945,6 +945,7 @@ version = "0.2.1"
 dependencies = [
  "clap",
  "crossterm",
+ "globset",
  "ignore",
  "nucleo-matcher",
  "ratatui",

@@ -39,6 +39,9 @@ thiserror = "2"
 # unify with ratatui's resolution: deny.toml forbids duplicate versions,
 # so this requirement moves only when ratatui does.
 unicode-width = "0.2"
+# `when.glob` clauses. Already in the graph under `ignore`, same author,
+# same version, so it costs no ceiling slot; declared so the use is explicit.
+globset = "0.4"
 
 [lib]
 name = "scout"

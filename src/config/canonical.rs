@@ -3,17 +3,27 @@
 //! is the contract and the escape rules are fixed here, not by a
 //! library's choices. Descriptions are dropped: they are displayed, never
 //! executed, so editing one must not re-prompt.
+//!
+//! What enters the hash follows one principle: a field is hashed if
+//! changing it changes what runs, whether it runs, or which gesture runs
+//! it. `when` decides whether an action is offered; `[keys]` decides which
+//! keystroke spawns a pane; both are in. `[scout] session` changes whether
+//! scout exits, not what runs, and is out.
+
+use std::collections::BTreeMap;
 
 use crate::actions::{Action, Step, Template};
 use crate::platform::hash;
 
-pub const HASH_HEADER: &str = "scout/trust-hash-v1\nschema_version=1\n";
+/// Bumped whenever the projection changes shape, so every existing trust
+/// entry is invalidated at once and every user re-approves once.
+pub const HASH_HEADER: &str = "scout/trust-hash-v2\nschema_version=2\n";
 
 /// Project the user action set (compiled defaults must already be
-/// excluded by the caller) into canonical JSON: actions sorted by name
-/// bytes, fields in fixed order, placeholders literal, `\n` between
-/// top-level action objects, single trailing `\n`.
-pub fn projection(user_actions: &[Action]) -> String {
+/// excluded by the caller) and the `[keys]` table into canonical JSON:
+/// actions sorted by name bytes, fields in fixed order, placeholders
+/// literal, `\n` between top-level action objects, single trailing `\n`.
+pub fn projection(user_actions: &[Action], keys: &BTreeMap<String, String>) -> String {
     let mut sorted: Vec<&Action> = user_actions.iter().collect();
     sorted.sort_by(|a, b| a.name.as_bytes().cmp(b.name.as_bytes()));
 
@@ -40,19 +50,85 @@ pub fn projection(user_actions: &[Action]) -> String {
             }
             emit_step(&mut out, step);
         }
-        out.push_str("]}");
+        out.push_str("],\"when\":");
+        emit_when(&mut out, action);
+        out.push('}');
     }
-    out.push_str("]\n");
+    out.push(']');
+    // The `[keys]` table, sorted by operation name; an empty table hashes
+    // as `{}` so a config with no table and one with an empty table agree.
+    out.push_str("\n{\"keys\":{");
+    for (i, (op, key)) in keys.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        json_string(&mut out, op);
+        out.push(':');
+        json_string(&mut out, key);
+    }
+    out.push_str("}}\n");
     out
 }
 
 /// Header plus projection: the full SHA-256 input.
-pub fn hash_input(user_actions: &[Action]) -> String {
-    format!("{HASH_HEADER}{}", projection(user_actions))
+pub fn hash_input(user_actions: &[Action], keys: &BTreeMap<String, String>) -> String {
+    format!("{HASH_HEADER}{}", projection(user_actions, keys))
 }
 
-pub fn trust_hash(user_actions: &[Action]) -> String {
-    hash::hex_digest(hash_input(user_actions).as_bytes())
+pub fn trust_hash(user_actions: &[Action], keys: &BTreeMap<String, String>) -> String {
+    hash::hex_digest(hash_input(user_actions, keys).as_bytes())
+}
+
+/// `null` when absent; otherwise an object with keys in sorted order and
+/// only the keys present. `marker` is always an array. The glob is the
+/// pattern as written (before `~` expansion) so the hash is the same on
+/// every machine.
+fn emit_when(out: &mut String, action: &Action) {
+    let Some(when) = &action.when else {
+        out.push_str("null");
+        return;
+    };
+    let mut fields: Vec<String> = Vec::new();
+    if !when.ext.is_empty() {
+        let mut s = String::from("\"ext\":[");
+        for (i, e) in when.ext.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            json_string(&mut s, e);
+        }
+        s.push(']');
+        fields.push(s);
+    }
+    if let Some(finding) = &when.finding {
+        let mut s = String::from("\"finding\":");
+        json_string(&mut s, finding);
+        fields.push(s);
+    }
+    if let Some(glob) = &when.glob {
+        let mut s = String::from("\"glob\":");
+        json_string(&mut s, glob);
+        fields.push(s);
+    }
+    if let Some(kind) = when.kind {
+        let mut s = String::from("\"kind\":");
+        json_string(&mut s, kind.as_str());
+        fields.push(s);
+    }
+    if !when.marker.is_empty() {
+        let mut s = String::from("\"marker\":[");
+        for (i, m) in when.marker.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            json_string(&mut s, m);
+        }
+        s.push(']');
+        fields.push(s);
+    }
+    out.push('{');
+    out.push_str(&fields.join(","));
+    out.push('}');
 }
 
 fn emit_step(out: &mut String, step: &Step) {

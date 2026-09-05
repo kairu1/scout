@@ -18,6 +18,7 @@ pub fn compiled_defaults() -> Vec<Action> {
             on_failure: OnFailure::Abort,
             unsafe_shell_template: false,
             steps: vec![Step::BuiltinEdit],
+            when: None,
             from_user_config: false,
         },
         Action {
@@ -32,6 +33,7 @@ pub fn compiled_defaults() -> Vec<Action> {
             steps: vec![Step::Print {
                 format: Template::parse("printf '%s\\n' {path}").expect("static template"),
             }],
+            when: None,
             from_user_config: false,
         },
     ]

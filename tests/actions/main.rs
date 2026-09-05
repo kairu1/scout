@@ -30,6 +30,7 @@ pub fn action(name: &str, on_failure: OnFailure, steps: Vec<Step>) -> Action {
         on_failure,
         unsafe_shell_template: false,
         steps,
+        when: None,
         from_user_config: true,
     }
 }

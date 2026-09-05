@@ -33,6 +33,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Terminal;
 
+use crate::actions::Applicability;
 use crate::config::Config;
 use crate::search::matcher::NucleoMatcher;
 use crate::search::{search, CandidateRow, IndexState, Ranked};
@@ -81,6 +82,14 @@ struct App<'a> {
     /// One-shot banner shown when no config file was found;
     /// dismissed on the first keystroke.
     no_config_banner: bool,
+    /// What is true of the selected path, computed once per selection so
+    /// `when` clauses are checked in memory and never stat per frame.
+    applicability: Option<Applicability>,
+    /// Every marker file any action asks about, probed once per selection.
+    marker_set: Vec<String>,
+    /// A one-frame footer message (a chord that does not apply here),
+    /// cleared on the next key.
+    notice: Option<String>,
 }
 
 impl App<'_> {
@@ -89,6 +98,40 @@ impl App<'_> {
         self.results = search(&mut self.matcher, self.candidates, &self.query, now, RESULT_LIMIT);
         if self.selected >= self.results.len() {
             self.selected = self.results.len().saturating_sub(1);
+        }
+        self.applicability = None;
+    }
+
+    /// The applicability of the selected row, computed on first use after
+    /// the selection changed. A handful of stats, once per selection.
+    fn applicability(&mut self) -> Option<&Applicability> {
+        let path = self.selected_result()?.path.clone();
+        if self.applicability.as_ref().is_none_or(|a| a.path != path) {
+            self.applicability = Some(Applicability::for_path(
+                std::path::Path::new(&path),
+                &self.marker_set,
+                std::collections::HashSet::new(),
+            ));
+        }
+        self.applicability.as_ref()
+    }
+
+    /// Does `action` apply to the selected row? `true` when nothing is
+    /// selected and the action has no clause, so the pane still lists it.
+    fn action_applies(&mut self, index: usize) -> bool {
+        let Some(when) = self.config.actions[index].when.as_ref() else { return true };
+        let when = when.clone();
+        match self.applicability() {
+            Some(a) => when.applies(a),
+            None => false,
+        }
+    }
+
+    /// Move the selection and forget the cached applicability.
+    fn select(&mut self, index: usize) {
+        if index != self.selected {
+            self.selected = index;
+            self.applicability = None;
         }
     }
 
@@ -157,12 +200,14 @@ impl App<'_> {
         self.results.len().min(self.capacity)
     }
 
-    /// Actions matching the pane's filter, as indices into
-    /// `config.actions`. Substring over name and description, because a
-    /// user who remembers "git" should find `status`, `log` and `diff`.
-    fn filtered_actions(&self) -> Vec<usize> {
+    /// Actions that apply to the selection and match the pane's filter, as
+    /// indices into `config.actions`. Substring over name and description,
+    /// because a user who remembers "git" should find `status`, `log` and
+    /// `diff`.
+    fn filtered_actions(&mut self) -> Vec<usize> {
         let needle = self.action_query.to_lowercase();
-        self.config
+        let candidates: Vec<usize> = self
+            .config
             .actions
             .iter()
             .enumerate()
@@ -172,7 +217,21 @@ impl App<'_> {
                     || a.description.to_lowercase().contains(&needle)
             })
             .map(|(i, _)| i)
-            .collect()
+            .collect();
+        candidates.into_iter().filter(|&i| self.action_applies(i)).collect()
+    }
+
+    /// Why `action` is not offered here, for the footer.
+    fn not_applicable_notice(&self, chord: &str, index: usize) -> String {
+        let action = &self.config.actions[index];
+        let reason = action.when.as_ref().map(|w| w.describe()).unwrap_or_default();
+        format!("{chord} {}: {reason}", action.name)
+    }
+
+    /// Index of the action Enter dispatches (user config first).
+    fn enter_action_index(&self) -> Option<usize> {
+        let enter = self.config.enter_action()?;
+        self.config.actions.iter().position(|a| std::ptr::eq(a, enter))
     }
 
     fn dispatch(&self, action_name: &str) -> Option<DispatchRequest> {
@@ -207,6 +266,9 @@ pub fn run(
         capacity: DISPLAY_CAP,
         help: false,
         no_config_banner: config.source.is_none(),
+        applicability: None,
+        marker_set: marker_set(config),
+        notice: None,
     };
     app.refresh();
 
@@ -218,6 +280,22 @@ pub fn run(
     // inside the alternate screen.
     terminal::restore();
     outcome
+}
+
+/// The union of every action's `marker` list, so one probe per selection
+/// answers every clause.
+fn marker_set(config: &Config) -> Vec<String> {
+    let mut set: Vec<String> = Vec::new();
+    for action in &config.actions {
+        if let Some(when) = &action.when {
+            for m in &when.marker {
+                if !set.contains(m) {
+                    set.push(m.clone());
+                }
+            }
+        }
+    }
+    set
 }
 
 fn event_loop(
@@ -243,6 +321,7 @@ fn event_loop(
         }
         tracing::debug!(code = ?key.code, mods = ?key.modifiers, "key");
         app.no_config_banner = false;
+        app.notice = None;
 
         if app.help {
             app.help = false;
@@ -293,7 +372,12 @@ fn event_loop(
         // Actions claim their chord before any built-in handling. The
         // loader has already refused picker-owned chords
         // and duplicates, so a match here is unambiguous.
-        if let Some(name) = chord_action(app, &key) {
+        if let Some((chord, index)) = chord_action(app, &key) {
+            if !app.action_applies(index) {
+                app.notice = Some(app.not_applicable_notice(&chord, index));
+                continue;
+            }
+            let name = app.config.actions[index].name.clone();
             if let Some(request) = app.dispatch(&name) {
                 return Ok(Some(request));
             }
@@ -304,8 +388,12 @@ fn event_loop(
             KeyCode::Esc => return Ok(None),
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(None),
             KeyCode::Enter => {
-                if let Some(action) = app.config.enter_action() {
-                    let action_name = action.name.clone();
+                if let Some(index) = app.enter_action_index() {
+                    if !app.action_applies(index) {
+                        app.notice = Some(app.not_applicable_notice("enter", index));
+                        continue;
+                    }
+                    let action_name = app.config.actions[index].name.clone();
                     if let Some(request) = app.dispatch(&action_name) {
                         return Ok(Some(request));
                     }
@@ -323,12 +411,16 @@ fn event_loop(
             KeyCode::Home => app.caret = 0,
             KeyCode::End => app.caret = app.query.chars().count(),
             KeyCode::Delete => app.delete_forward(),
-            KeyCode::Up => app.selected = app.selected.saturating_sub(1),
+            KeyCode::Up => {
+                let up = app.selected.saturating_sub(1);
+                app.select(up);
+            }
             KeyCode::Down => {
                 // Clamped to what is drawn, not to how many were ranked.
                 // The list is short on purpose: if the answer
                 // is not here, the move is another keystroke, not a scroll.
-                app.selected = (app.selected + 1).min(app.reachable().saturating_sub(1));
+                let down = (app.selected + 1).min(app.reachable().saturating_sub(1));
+                app.select(down);
             }
             KeyCode::Backspace => app.delete_back(),
             // `?` opens the cheatsheet rather than searching for "?" —
@@ -407,9 +499,9 @@ fn body_rows(area: Rect) -> usize {
     (area.height.saturating_sub(2) as usize).min(DISPLAY_CAP)
 }
 
-/// The action whose `keybinding` matches this key press, if any.
+/// The chord this key press spells and the action bound to it, if any.
 /// `alt-<letter>` and `ctrl-<letter>` only: the closed set.
-fn chord_action(app: &App<'_>, key: &crossterm::event::KeyEvent) -> Option<String> {
+fn chord_action(app: &App<'_>, key: &crossterm::event::KeyEvent) -> Option<(String, usize)> {
     let KeyCode::Char(c) = key.code else { return None };
     let prefix = if key.modifiers.contains(KeyModifiers::ALT) {
         "alt-"
@@ -422,11 +514,11 @@ fn chord_action(app: &App<'_>, key: &crossterm::event::KeyEvent) -> Option<Strin
     app.config
         .actions
         .iter()
-        .find(|a| a.keybinding.as_deref() == Some(wanted.as_str()))
-        .map(|a| a.name.clone())
+        .position(|a| a.keybinding.as_deref() == Some(wanted.as_str()))
+        .map(|i| (wanted, i))
 }
 
-fn draw(frame: &mut ratatui::Frame, app: &App<'_>) {
+fn draw(frame: &mut ratatui::Frame, app: &mut App<'_>) {
     let banner = banner_text(app);
     let outer = panel(frame.area());
 
@@ -662,7 +754,7 @@ fn draw_results(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
 /// The action pane: a searchable column. Filterable
 /// because a config with a dozen actions is the case this exists for,
 /// and scrolling a popup to find `diff` is worse than typing `di`.
-fn draw_action_pane(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
+fn draw_action_pane(frame: &mut ratatui::Frame, app: &mut App<'_>, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -874,6 +966,15 @@ fn style_for(kind: CellKind, dir: Style, base: Style, matched: Style) -> Style {
 fn draw_footer(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
     let key = Style::default().fg(ACCENT);
     let label = Style::default().fg(CHROME);
+    // A notice replaces the hints for one frame: the user just pressed a
+    // key that did nothing, and the reason matters more than the legend.
+    if let Some(notice) = &app.notice {
+        frame.render_widget(
+            Paragraph::new(Span::styled(format!(" {}", strip::clean(notice)), key)),
+            area,
+        );
+        return;
+    }
     let mut spans = vec![Span::raw(" ")];
     if let Some(action) = app.config.enter_action() {
         spans.push(Span::styled("enter", key));
@@ -1028,6 +1129,9 @@ mod tests {
                     capacity: 8,
                     help: false,
                     no_config_banner: false,
+                    applicability: None,
+                    marker_set: Vec::new(),
+                    notice: None,
                 };
                 app.caret = query.chars().count();
                 let spans = query_spans(&app, width);

@@ -44,7 +44,10 @@ pub enum Error {
     #[error("toml parse error in {path}: {message}")]
     ConfigToml { path: PathBuf, message: String },
 
-    #[error("{path}: schema_version {found} not supported; this binary supports {supported}")]
+    #[error(
+        "{path}: schema_version {found} is not supported by this scout; set `schema_version = \
+         {supported}`"
+    )]
     ConfigSchemaVersion { path: PathBuf, found: i64, supported: i64 },
 
     #[error("invalid config in {path}: {message}")]
@@ -98,6 +101,18 @@ impl Error {
     pub fn hint(&self) -> Option<Hint> {
         match self {
             Error::ActionFailed { kind, .. } => kind.hint(),
+            Error::ConfigSchemaVersion { found: 1, .. } => Some(Hint {
+                why: "what changed in schema 2: actions may carry `when = { ... }` (optional), \
+                      `[keys]` maps pane operations to keys (optional), and `[scout] session = \
+                      true` is allowed"
+                    .to_string(),
+                next: Some(
+                    "existing v1 actions are valid v2 actions unchanged; the trust prompt will \
+                     appear once because the hash format changed"
+                        .to_string(),
+                ),
+                context: "",
+            }),
             _ => None,
         }
     }
@@ -145,7 +160,19 @@ mod tests {
     }
 
     #[test]
-    fn only_action_failures_carry_a_hint() {
+    fn a_v1_schema_refusal_says_what_to_change() {
+        let err = Error::ConfigSchemaVersion { path: "c.toml".into(), found: 1, supported: 2 };
+        assert!(err.to_string().contains("schema_version = 2"), "{err}");
+        let hint = err.hint().expect("a v1 file gets migration advice");
+        assert!(hint.next.is_some());
+        // A future version, or garbage, gets no advice we cannot stand behind.
+        assert!(Error::ConfigSchemaVersion { path: "c.toml".into(), found: 7, supported: 2 }
+            .hint()
+            .is_none());
+    }
+
+    #[test]
+    fn only_action_failures_and_v1_refusals_carry_a_hint() {
         assert!(Error::HomeUnset.hint().is_none());
         let err = Error::ActionFailed {
             action: "a".into(),

@@ -1,5 +1,6 @@
 //! The loader's gates, the canonical projection, and trust behaviour.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -17,7 +18,7 @@ fn temp_dir(tag: &str) -> PathBuf {
 }
 
 const EXAMPLE: &str = r#"
-schema_version = 1
+schema_version = 2
 
 [[action]]
 name = "edit"
@@ -42,7 +43,7 @@ fn load_pretrusted(
     let store = dir.join("trusted-config.sha256");
     match load_file(&config_path, store.clone(), true) {
         Err(Error::TrustRequiresTty { hash, .. }) => {
-            fs::write(&store, format!("{hash} {}\n", config_path.display())).unwrap();
+            fs::write(&store, format!("v2 {hash} {}\n", config_path.display())).unwrap();
             load_file(&config_path, store, true)
         }
         other => other,
@@ -72,26 +73,63 @@ fn the_canonical_projection_is_byte_stable_for_the_documented_example() {
     let user_actions: Vec<_> =
         config.actions.iter().filter(|a| a.from_user_config).cloned().collect();
 
+    let keys = BTreeMap::new();
     let expected = concat!(
         "[{\"name\":\"edit\",\"keybinding\":\"enter\",\"on_failure\":\"abort\",",
         "\"unsafe_shell_template\":false,\"steps\":[{\"kind\":\"spawn\",",
-        "\"argv\":[\"subl\",\"{path}\"],\"wait\":true,\"cwd\":null}]},\n",
+        "\"argv\":[\"subl\",\"{path}\"],\"wait\":true,\"cwd\":null}],\"when\":null},\n",
         "{\"name\":\"open-term\",\"keybinding\":null,\"on_failure\":\"abort\",",
         "\"unsafe_shell_template\":false,\"steps\":[{\"kind\":\"spawn\",",
         "\"argv\":[\"alacritty\",\"--working-directory\",\"{path}\"],",
-        "\"wait\":false,\"cwd\":null}]}]\n",
+        "\"wait\":false,\"cwd\":null}],\"when\":null}]\n",
+        "{\"keys\":{}}\n",
     );
-    assert_eq!(canonical::projection(&user_actions), expected);
+    assert_eq!(canonical::projection(&user_actions, &keys), expected);
+    assert!(canonical::HASH_HEADER.starts_with("scout/trust-hash-v2\n"));
 
     // Description edits must not change the hash (no re-prompt).
     let mut relabeled = user_actions.clone();
     relabeled[0].description = "something else".into();
-    assert_eq!(canonical::trust_hash(&user_actions), canonical::trust_hash(&relabeled));
+    assert_eq!(
+        canonical::trust_hash(&user_actions, &keys),
+        canonical::trust_hash(&relabeled, &keys)
+    );
 
     // A keybinding change must change the hash (re-prompt).
     let mut rebound = user_actions.clone();
     rebound[1].keybinding = Some("enter".into());
-    assert_ne!(canonical::trust_hash(&user_actions), canonical::trust_hash(&rebound));
+    assert_ne!(canonical::trust_hash(&user_actions, &keys), canonical::trust_hash(&rebound, &keys));
+
+    // A `when` clause is execution-relevant and changes the hash; its keys
+    // are emitted sorted, marker always as an array.
+    let mut scoped = user_actions.clone();
+    scoped[0].when = Some(
+        scout::actions::When::new(
+            Some(scout::actions::Kind::Repo),
+            vec!["Cargo.toml".into()],
+            vec![],
+            Some("~/w/**".into()),
+            None,
+            "/home/u",
+        )
+        .unwrap(),
+    );
+    assert_ne!(canonical::trust_hash(&user_actions, &keys), canonical::trust_hash(&scoped, &keys));
+    let projected = canonical::projection(&scoped, &keys);
+    assert!(
+        projected.contains(
+            "\"when\":{\"glob\":\"~/w/**\",\"kind\":\"repo\",\"marker\":[\"Cargo.toml\"]}"
+        ),
+        "{projected}"
+    );
+
+    // A `[keys]` table enters the hash too.
+    let mut bound = BTreeMap::new();
+    bound.insert("split-right".to_string(), "alt-right".to_string());
+    assert_ne!(
+        canonical::trust_hash(&user_actions, &keys),
+        canonical::trust_hash(&user_actions, &bound)
+    );
 
     fs::remove_dir_all(&dir).unwrap();
 }
@@ -103,52 +141,78 @@ fn the_loader_refuses_each_invalid_shape_and_names_it() {
     // the offending thing). These check the message names the problem,
     // which is a UX contract; the error kind is checked separately.
     let cases: &[(&str, &str)] = &[
-        ("schema_version = 2\n", "schema_version"),
-        ("schema_version = 1\nbogus = true\n", "bogus"),
-        ("schema_version = 1\n[scout]\ntheme = \"dark\"\n", "reserved"),
+        ("schema_version = 3\n", "schema_version"),
+        ("schema_version = 2\nbogus = true\n", "bogus"),
+        ("schema_version = 2\n[scout]\ntheme = \"dark\"\n", "unknown key"),
+        ("schema_version = 2\n[scout]\nsession = \"yes\"\n", "boolean"),
+        // when: unknown key, empty table, bad kind, bad marker, bad ext, bad finding
         (
-            "schema_version = 1\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"print\", format = \"{pat}\" } ]\n",
+            "schema_version = 2\n[[action]]\nname = \"a\"\nwhen = { color = \"red\" }\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+            "color",
+        ),
+        (
+            "schema_version = 2\n[[action]]\nname = \"a\"\nwhen = {}\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+            "omit it",
+        ),
+        (
+            "schema_version = 2\n[[action]]\nname = \"a\"\nwhen = { kind = \"symlink\" }\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+            "repo|dir|file",
+        ),
+        (
+            "schema_version = 2\n[[action]]\nname = \"a\"\nwhen = { marker = \"src/Cargo.toml\" }\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+            "bare file name",
+        ),
+        (
+            "schema_version = 2\n[[action]]\nname = \"a\"\nwhen = { ext = [\".rs\"] }\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+            "without the dot",
+        ),
+        (
+            "schema_version = 2\n[[action]]\nname = \"a\"\nwhen = { finding = \"World Writable\" }\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+            "check name",
+        ),
+        (
+            "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"print\", format = \"{pat}\" } ]\n",
             "unknown placeholder",
         ),
         (
-            "schema_version = 1\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"spawn\", argv = [\"subl --wait {path}\"] } ]\n",
+            "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"spawn\", argv = [\"subl --wait {path}\"] } ]\n",
             "single-slot",
         ),
         (
-            "schema_version = 1\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"spawn\", argv = [\"sh\", \"-c\", \"cd {path} && make\"] } ]\n",
+            "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"spawn\", argv = [\"sh\", \"-c\", \"cd {path} && make\"] } ]\n",
             "unsafe_shell_template",
         ),
         (
-            "schema_version = 1\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"print\", format = \"x\", wait = true } ]\n",
+            "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"print\", format = \"x\", wait = true } ]\n",
             "not valid on a `print` step",
         ),
         (
-            "schema_version = 1\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"spawn\", argv = \"subl {path}\" } ]\n",
+            "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"spawn\", argv = \"subl {path}\" } ]\n",
             "array of strings",
         ),
         (
-            "schema_version = 1\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"print\", format = \"y\" } ]\n",
+            "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"print\", format = \"y\" } ]\n",
             "duplicate",
         ),
         (
-            "schema_version = 1\n[[action]]\nname = \"a\"\nkeybinding = \"enter\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n[[action]]\nname = \"b\"\nkeybinding = \"enter\"\nsteps = [ { kind = \"print\", format = \"y\" } ]\n",
+            "schema_version = 2\n[[action]]\nname = \"a\"\nkeybinding = \"enter\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n[[action]]\nname = \"b\"\nkeybinding = \"enter\"\nsteps = [ { kind = \"print\", format = \"y\" } ]\n",
             "enter",
         ),
         (
-            "schema_version = 1\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"env\", set = { \"1BAD\" = \"x\" } } ]\n",
+            "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"env\", set = { \"1BAD\" = \"x\" } } ]\n",
             "POSIX",
         ),
         (
-            "schema_version = 1\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"env\", set = {} } ]\n",
+            "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"env\", set = {} } ]\n",
             "at least one entry",
         ),
-        ("schema_version = 1\n[[action]]\nname = \"a\"\nsteps = []\n", "1-32"),
+        ("schema_version = 2\n[[action]]\nname = \"a\"\nsteps = []\n", "1-32"),
         (
-            "schema_version = 1\n[[action]]\nname = \"a\"\non_failure = \"retry\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+            "schema_version = 2\n[[action]]\nname = \"a\"\non_failure = \"retry\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
             "on_failure",
         ),
         (
-            "schema_version = 1\n[[action]]\nname = \"édit\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+            "schema_version = 2\n[[action]]\nname = \"édit\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
             "ASCII",
         ),
     ];
@@ -176,7 +240,7 @@ fn an_attested_sh_c_loads() {
     let dir = temp_dir("attested");
     let config = load_pretrusted(
         &dir,
-        "schema_version = 1\n[[action]]\nname = \"make\"\nunsafe_shell_template = true\nsteps = [ { kind = \"spawn\", argv = [\"sh\", \"-c\", \"cd {path} && make\"] } ]\n",
+        "schema_version = 2\n[[action]]\nname = \"make\"\nunsafe_shell_template = true\nsteps = [ { kind = \"spawn\", argv = [\"sh\", \"-c\", \"cd {path} && make\"] } ]\n",
     )
     .unwrap();
     assert!(config.actions.iter().any(|a| a.name == "make" && a.unsafe_shell_template));
@@ -188,7 +252,7 @@ fn chord_bindings_load_without_a_warning() {
     let dir = temp_dir("keybind");
     let config = load_pretrusted(
         &dir,
-        "schema_version = 1\n[[action]]\nname = \"a\"\nkeybinding = \"alt-e\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+        "schema_version = 2\n[[action]]\nname = \"a\"\nkeybinding = \"alt-e\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
     )
     .unwrap();
     assert!(
@@ -206,7 +270,7 @@ fn binding_tab_warns_and_says_why() {
     let dir = temp_dir("keybind-tab");
     let config = load_pretrusted(
         &dir,
-        "schema_version = 1\n[[action]]\nname = \"a\"\nkeybinding = \"tab\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+        "schema_version = 2\n[[action]]\nname = \"a\"\nkeybinding = \"tab\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
     )
     .unwrap();
     assert!(
@@ -222,7 +286,7 @@ fn an_unknown_keybinding_warns() {
     let dir = temp_dir("keybind-unknown");
     let config = load_pretrusted(
         &dir,
-        "schema_version = 1\n[[action]]\nname = \"a\"\nkeybinding = \"f7\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+        "schema_version = 2\n[[action]]\nname = \"a\"\nkeybinding = \"f7\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
     )
     .unwrap();
     assert!(config.warnings.iter().any(|w| w.contains("f7")), "{:?}", config.warnings);
@@ -234,7 +298,7 @@ fn a_duplicate_chord_is_refused_not_resolved() {
     let dir = temp_dir("keybind-dup");
     let err = load_pretrusted(
         &dir,
-        "schema_version = 1\n         [[action]]\nname = \"a\"\nkeybinding = \"alt-e\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n         [[action]]\nname = \"b\"\nkeybinding = \"alt-e\"\nsteps = [ { kind = \"print\", format = \"y\" } ]\n",
+        "schema_version = 2\n         [[action]]\nname = \"a\"\nkeybinding = \"alt-e\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n         [[action]]\nname = \"b\"\nkeybinding = \"alt-e\"\nsteps = [ { kind = \"print\", format = \"y\" } ]\n",
     )
     .unwrap_err();
     let message = err.to_string();
@@ -248,7 +312,7 @@ fn a_picker_owned_chord_is_refused() {
     let dir = temp_dir("keybind-owned");
     let err = load_pretrusted(
         &dir,
-        "schema_version = 1\n[[action]]\nname = \"a\"\nkeybinding = \"ctrl-c\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+        "schema_version = 2\n[[action]]\nname = \"a\"\nkeybinding = \"ctrl-c\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
     )
     .unwrap_err();
     let message = err.to_string();
@@ -275,18 +339,18 @@ fn a_changed_config_refuses_without_a_tty() {
 fn discovery_takes_the_first_regular_file_skips_symlinks_and_halts_on_a_parse_error() {
     let dir = temp_dir("discover");
     let real_target = dir.join("target.toml");
-    fs::write(&real_target, "schema_version = 1\n").unwrap();
+    fs::write(&real_target, "schema_version = 2\n").unwrap();
 
     // Entry 1: symlink, falls through. Entry 2: valid file, wins.
     let link = dir.join("linked.toml");
     std::os::unix::fs::symlink(&real_target, &link).unwrap();
     let second = dir.join("second.toml");
-    fs::write(&second, "schema_version = 1\n").unwrap();
+    fs::write(&second, "schema_version = 2\n").unwrap();
     let store = dir.join("store");
     if let Err(Error::TrustRequiresTty { hash, .. }) =
         load(&[link.clone(), second.clone()], store.clone(), true)
     {
-        fs::write(&store, format!("{hash} {}\n", second.display())).unwrap();
+        fs::write(&store, format!("v2 {hash} {}\n", second.display())).unwrap();
     }
     let config = load(&[link.clone(), second.clone()], store.clone(), true).unwrap();
     assert_eq!(config.source.as_deref(), Some(second.as_path()));
@@ -317,5 +381,53 @@ fn the_trust_store_is_written_private() {
     store.record(&dir.join("config.toml"), "deadbeef").unwrap();
     let mode = fs::metadata(dir.join("fresh-store")).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600, "trust store mode");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A v1 file is refused, and the refusal names what to change and what
+/// changed. Nothing is silently accepted.
+#[test]
+fn a_v1_config_is_refused_with_migration_advice() {
+    let dir = temp_dir("v1");
+    let err = load_pretrusted(
+        &dir,
+        "schema_version = 1\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+    )
+    .unwrap_err();
+    assert!(matches!(err, Error::ConfigSchemaVersion { found: 1, supported: 2, .. }), "{err:?}");
+    assert!(err.to_string().contains("schema_version = 2"), "{err}");
+    let hint = err.hint().expect("migration advice");
+    assert!(hint.why.contains("when"), "{}", hint.why);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn scout_session_is_the_one_allowed_setting() {
+    let dir = temp_dir("session");
+    let config = load_pretrusted(&dir, "schema_version = 2\n[scout]\nsession = true\n").unwrap();
+    assert!(config.session);
+    let config = load_pretrusted(&dir, "schema_version = 2\n").unwrap();
+    assert!(!config.session, "default is exit after one action");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The `when` clause parses into the model: a single marker string becomes
+/// a one-element list, and every key lands.
+#[test]
+fn a_when_clause_parses_into_the_action() {
+    let dir = temp_dir("when");
+    let config = load_pretrusted(
+        &dir,
+        "schema_version = 2\n[[action]]\nname = \"test\"\nwhen = { kind = \"repo\", marker = \"Cargo.toml\", ext = [\"rs\"], glob = \"~/w/**\", finding = \"suid\" }\nsteps = [ { kind = \"spawn\", argv = [\"cargo\", \"test\"] } ]\n\n[[action]]\nname = \"any\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+    )
+    .unwrap();
+    let test = config.actions.iter().find(|a| a.name == "test").unwrap();
+    let when = test.when.as_ref().expect("clause parsed");
+    assert_eq!(when.kind, Some(scout::actions::Kind::Repo));
+    assert_eq!(when.marker, vec!["Cargo.toml".to_string()]);
+    assert_eq!(when.ext, vec!["rs".to_string()]);
+    assert_eq!(when.glob.as_deref(), Some("~/w/**"));
+    assert_eq!(when.finding.as_deref(), Some("suid"));
+    assert!(config.actions.iter().find(|a| a.name == "any").unwrap().when.is_none());
     fs::remove_dir_all(&dir).unwrap();
 }
