@@ -2,7 +2,7 @@
 //! generation advances only when the walk finishes cleanly; checkpoints
 //! are explicit and yield to live queries.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
@@ -10,6 +10,7 @@ use super::pacing;
 use super::walk::refused_at_boundary;
 use crate::platform::signals;
 use crate::platform::time::unix_now;
+use crate::recon;
 use crate::Result;
 
 pub const DEFAULT_BATCH_SIZE: usize = 1000;
@@ -33,6 +34,18 @@ pub struct InsertStats {
     pub tombstoned: u64,
     /// Tombstoned rows old enough to be removed outright.
     pub purged: u64,
+    /// Recon findings written during the walk (only with `recon: true`).
+    pub findings: u64,
+}
+
+/// How a walk is written.
+pub struct WriteOptions<'a> {
+    pub batch_size: usize,
+    /// The tree being walked, recorded as `run_state.last_root` on
+    /// completion so a session can re-run it.
+    pub root: Option<&'a Path>,
+    /// Run the stat-only recon checks on every path as it is written.
+    pub recon: bool,
 }
 
 /// Stream `paths` into the index in batches of `batch_size`, each batch
@@ -44,8 +57,21 @@ pub fn batched_insert(
     paths: impl Iterator<Item = PathBuf>,
     batch_size: usize,
 ) -> Result<InsertStats> {
-    let batch_size = batch_size.max(1);
+    batched_insert_with(conn, paths, &WriteOptions { batch_size, root: None, recon: false })
+}
+
+/// `batched_insert` with the full set of options.
+pub fn batched_insert_with(
+    conn: &mut Connection,
+    paths: impl Iterator<Item = PathBuf>,
+    options: &WriteOptions<'_>,
+) -> Result<InsertStats> {
+    let batch_size = options.batch_size.max(1);
     let mut stats = InsertStats::default();
+    let home = crate::platform::xdg::home().unwrap_or_default();
+    let recon_ctx =
+        recon::checks::Context { euid: crate::platform::fs::euid(), now: unix_now(), home: &home };
+    let stat_checks = recon::run::stat_checks();
 
     let current: i64 =
         conn.query_row("SELECT current_generation FROM run_state WHERE id = 1", [], |row| {
@@ -95,7 +121,8 @@ pub fn batched_insert(
                 "INSERT INTO paths (path, scan_generation) VALUES (:path, :gen)
                  ON CONFLICT(path) DO UPDATE SET
                      scan_generation = excluded.scan_generation,
-                     tombstoned_at = NULL",
+                     tombstoned_at = NULL
+                 RETURNING rowid",
             )?;
             for path in &batch {
                 let path_str = match path.to_str() {
@@ -108,10 +135,27 @@ pub fn batched_insert(
                         continue;
                     }
                 };
-                match stmt
-                    .execute(rusqlite::named_params! { ":path": path_str, ":gen": generation })
-                {
-                    Ok(_) => stats.inserted += 1,
+                match stmt.query_row(
+                    rusqlite::named_params! { ":path": path_str, ":gen": generation },
+                    |r| r.get::<_, i64>(0),
+                ) {
+                    Ok(rowid) => {
+                        stats.inserted += 1;
+                        if options.recon {
+                            // The walker already paid a realpath per entry;
+                            // this adds one lstat and writes what it finds
+                            // in the same transaction as the row.
+                            let found = recon::run::stat_findings(path, &recon_ctx);
+                            stats.findings += found.len() as u64;
+                            recon::store::store_for_path(
+                                &tx,
+                                rowid,
+                                &found,
+                                &stat_checks,
+                                recon_ctx.now,
+                            )?;
+                        }
+                    }
                     Err(err) => {
                         tracing::debug!(path = %path.display(), %err, "insert error");
                         stats.errors += 1;
@@ -145,9 +189,14 @@ pub fn batched_insert(
         "UPDATE run_state SET
              current_generation = :gen,
              last_complete_generation = :gen,
-             last_run_completed_at = :now
+             last_run_completed_at = :now,
+             last_root = COALESCE(:root, last_root)
          WHERE id = 1",
-        rusqlite::named_params! { ":gen": generation, ":now": now },
+        rusqlite::named_params! {
+            ":gen": generation,
+            ":now": now,
+            ":root": options.root.map(|r| r.display().to_string()),
+        },
     )?;
     let tombstoned = tx.execute(
         "UPDATE paths SET tombstoned_at = :now
@@ -158,6 +207,12 @@ pub fn batched_insert(
         "DELETE FROM paths WHERE tombstoned_at IS NOT NULL AND tombstoned_at < :cutoff",
         rusqlite::named_params! { ":cutoff": now - PURGE_AFTER_SECS },
     )?;
+    if purged > 0 {
+        // Findings and baselines key on rowid, and SQLite cannot cascade
+        // from an implicit rowid; sweep the orphans by hand.
+        tx.execute("DELETE FROM findings WHERE path_id NOT IN (SELECT rowid FROM paths)", [])?;
+        tx.execute("DELETE FROM baseline WHERE path_id NOT IN (SELECT rowid FROM paths)", [])?;
+    }
     tx.commit()?;
     stats.tombstoned = tombstoned as u64;
     stats.purged = purged as u64;

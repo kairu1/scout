@@ -1,0 +1,238 @@
+//! Running the checks over the index, over one path, and over scout's own
+//! files.
+
+use std::path::Path;
+
+use rusqlite::Connection;
+
+use super::checks::{self, Check, Context, Finding, ALL_CHECKS};
+use super::report::OwnStateFinding;
+use super::store;
+use super::Severity;
+use crate::platform::fs as pfs;
+use crate::platform::hash::hex_digest;
+use crate::platform::xattr;
+use crate::Result;
+
+/// The checks a stat-only pass evaluates (and therefore clears when they
+/// no longer hold).
+pub fn stat_checks() -> Vec<Check> {
+    ALL_CHECKS.iter().copied().filter(|c| c.stat_only()).collect()
+}
+
+/// Evaluate the stat-only checks for one path.
+pub fn stat_findings(path: &Path, ctx: &Context<'_>) -> Vec<Finding> {
+    let Ok(facts) = pfs::facts(path) else { return Vec::new() };
+    let basename = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let target = if facts.is_symlink { std::fs::read_link(path).ok() } else { None };
+    checks::evaluate(path, &basename, &facts, target.as_deref(), ctx)
+}
+
+/// Re-evaluate one row's stat checks and store the result. Used after a
+/// fix action succeeds so the marker clears without a full run.
+pub fn rescan_path(conn: &Connection, path_id: i64, path: &Path, ctx: &Context<'_>) -> Result<()> {
+    let found = stat_findings(path, ctx);
+    store::store_for_path(conn, path_id, &found, &stat_checks(), ctx.now)
+}
+
+/// Symbolic links directly inside `dir` that lead into a system tree or
+/// outside the user's home, folded into one finding on the directory.
+/// The index stores canonical paths, so a link never appears as a row of
+/// its own: the directory that holds it is where the finding belongs.
+pub fn symlink_escapes(dir: &Path, ctx: &Context<'_>) -> Option<Finding> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut hits: Vec<(String, String, Severity)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(facts) = pfs::facts(&path) else { continue };
+        if !facts.is_symlink {
+            continue;
+        }
+        let Ok(target) = std::fs::read_link(&path) else { continue };
+        let name = entry.file_name().to_string_lossy().into_owned();
+        for f in checks::evaluate(&path, &name, &facts, Some(&target), ctx) {
+            if f.check == Check::SymlinkEscape {
+                hits.push((name.clone(), target.display().to_string(), f.severity));
+            }
+        }
+    }
+    if hits.is_empty() {
+        return None;
+    }
+    hits.sort();
+    let severity = hits.iter().map(|h| h.2).max().unwrap_or(Severity::Low);
+    let detail: Vec<String> = hits.iter().map(|(n, t, _)| format!("{n} -> {t}")).collect();
+    let fact = hex_digest(detail.join("\n").as_bytes());
+    Some(checks::Finding {
+        check: Check::SymlinkEscape,
+        severity,
+        detail: detail.join(", ").chars().take(checks::DETAIL_CAP).collect(),
+        fact,
+    })
+}
+
+/// What a full run covered.
+#[derive(Debug, Default)]
+pub struct RunStats {
+    pub paths: usize,
+    pub findings: usize,
+}
+
+/// Run every check over the live candidates (optionally only those at or
+/// under `under`), including the ACL probe and the baseline comparison,
+/// and record when the run happened.
+pub fn scan(conn: &Connection, under: Option<&Path>, ctx: &Context<'_>) -> Result<RunStats> {
+    let generation: i64 =
+        conn.query_row("SELECT current_generation FROM run_state WHERE id = 1", [], |r| r.get(0))?;
+    let mut stmt = conn.prepare(
+        "SELECT rowid, path FROM paths WHERE scan_generation = :gen AND tombstoned_at IS NULL",
+    )?;
+    let rows: Vec<(i64, String)> = stmt
+        .query_map(rusqlite::named_params! { ":gen": generation }, |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let under_str = under.map(|u| u.display().to_string());
+    let mut evaluated = stat_checks();
+    evaluated.push(Check::AclPresent);
+    evaluated.push(Check::SymlinkEscape);
+    let mut stats = RunStats::default();
+    let tx = conn.unchecked_transaction()?;
+    for (path_id, path_text) in rows {
+        if let Some(u) = &under_str {
+            if path_text != *u && !path_text.starts_with(&format!("{u}/")) {
+                continue;
+            }
+        }
+        let path = Path::new(&path_text);
+        let mut found = stat_findings(path, ctx);
+        if let Ok(has_acl) = xattr::has_posix_acl(path) {
+            found.extend(checks::evaluate_acl(has_acl));
+        }
+        if path.is_dir() {
+            found.extend(symlink_escapes(path, ctx));
+        }
+        stats.paths += 1;
+        stats.findings += found.len();
+        store::store_for_path(&tx, path_id, &found, &evaluated, ctx.now)?;
+    }
+    // Baseline comparison: one finding per changed project, cleared where
+    // the entry points match again.
+    let changed = store::baseline_findings(&tx)?;
+    let baselined: Vec<i64> = {
+        let mut stmt = tx.prepare("SELECT DISTINCT path_id FROM baseline")?;
+        let ids = stmt.query_map([], |r| r.get(0))?.collect::<std::result::Result<Vec<_>, _>>()?;
+        ids
+    };
+    for path_id in baselined {
+        let found: Vec<Finding> =
+            changed.iter().filter(|(id, _)| *id == path_id).map(|(_, f)| f.clone()).collect();
+        stats.findings += found.len();
+        store::store_for_path(&tx, path_id, &found, &[Check::EntrypointChanged], ctx.now)?;
+    }
+    tx.execute(
+        "UPDATE run_state SET last_recon_at = :now WHERE id = 1",
+        rusqlite::named_params! { ":now": ctx.now },
+    )?;
+    tx.commit()?;
+    Ok(stats)
+}
+
+/// Scout's own files: the config that won discovery, the trust store, the
+/// index and its siblings, and the shell wrapper where it can be found.
+/// Not index rows, so computed fresh on every run and never stored.
+pub fn own_state(
+    config: Option<&Path>,
+    trust_store: &Path,
+    index_db: &Path,
+    wrapper_candidates: &[std::path::PathBuf],
+    euid: u32,
+) -> Vec<OwnStateFinding> {
+    let mut out = Vec::new();
+    let mut push = |check: &'static str, severity: Severity, path: &Path, detail: String| {
+        out.push(OwnStateFinding { check, severity, path: path.display().to_string(), detail });
+    };
+    if let Some(config) = config {
+        if let Ok(f) = pfs::facts(config) {
+            if f.uid != euid {
+                push(
+                    "own-config-exposed",
+                    Severity::Critical,
+                    config,
+                    format!("owned by uid {}", f.uid),
+                );
+            } else if f.mode & 0o022 != 0 {
+                push(
+                    "own-config-exposed",
+                    Severity::Critical,
+                    config,
+                    format!("mode {:o} lets others edit the actions scout runs", f.mode & 0o777),
+                );
+            }
+        }
+    }
+    for (path, what) in [(trust_store, "trust store"), (index_db, "index")] {
+        if let Ok(f) = pfs::facts(path) {
+            if f.uid != euid {
+                push(
+                    "own-state-mode",
+                    Severity::High,
+                    path,
+                    format!("{what} owned by uid {}", f.uid),
+                );
+            } else if f.mode & 0o077 != 0 {
+                push(
+                    "own-state-mode",
+                    Severity::High,
+                    path,
+                    format!("{what} is mode {:o}, not 600", f.mode & 0o777),
+                );
+            }
+        }
+    }
+    for suffix in ["-wal", "-shm"] {
+        let mut s = index_db.as_os_str().to_os_string();
+        s.push(suffix);
+        let sibling = std::path::PathBuf::from(s);
+        if let Ok(f) = pfs::facts(&sibling) {
+            if f.mode & 0o077 != 0 {
+                push(
+                    "own-state-mode",
+                    Severity::High,
+                    &sibling,
+                    format!("mode {:o}, not 600", f.mode & 0o777),
+                );
+            }
+        }
+    }
+    if let Some(dir) = index_db.parent() {
+        if let Ok(f) = pfs::facts(dir) {
+            if f.mode & 0o077 != 0 {
+                push(
+                    "own-state-mode",
+                    Severity::High,
+                    dir,
+                    format!("data directory is mode {:o}, not 700", f.mode & 0o777),
+                );
+            }
+        }
+    }
+    for wrapper in wrapper_candidates {
+        if let Ok(f) = pfs::facts(wrapper) {
+            if f.uid != euid {
+                push(
+                    "own-wrapper-writable",
+                    Severity::High,
+                    wrapper,
+                    format!("owned by uid {}", f.uid),
+                );
+            } else if f.mode & 0o022 != 0 {
+                push(
+                    "own-wrapper-writable",
+                    Severity::High,
+                    wrapper,
+                    format!("mode {:o}: a sourced file others can edit", f.mode & 0o777),
+                );
+            }
+        }
+    }
+    out
+}

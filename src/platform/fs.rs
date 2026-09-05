@@ -105,12 +105,44 @@ pub fn mode_bits(path: &Path) -> io::Result<u32> {
     Ok(fs::metadata(path)?.mode() & 0o7777)
 }
 
-/// The invoking user's uid, learned by creating a probe file in `dir`:
-/// a file we just created carries our effective uid by definition.
-pub fn probe_uid(dir: &Path) -> io::Result<u32> {
-    let probe = dir.join(format!(".scout-uid-probe-{}", std::process::id()));
-    OpenOptions::new().write(true).create(true).truncate(false).mode(0o600).open(&probe)?;
-    let uid = fs::metadata(&probe)?.uid();
-    let _ = fs::remove_file(&probe);
-    Ok(uid)
+extern "C" {
+    fn geteuid() -> u32;
+}
+
+/// The effective uid of this process. One libc symbol, present on every
+/// unix; it replaces a probe file that had to be created and deleted to
+/// learn the same number.
+pub fn euid() -> u32 {
+    // SAFETY: geteuid takes no arguments and cannot fail.
+    unsafe { geteuid() }
+}
+
+/// Everything recon wants to know about one path, from a single `lstat`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Facts {
+    pub uid: u32,
+    pub gid: u32,
+    /// Permission bits including the setuid, setgid and sticky bits.
+    pub mode: u32,
+    pub is_dir: bool,
+    pub is_file: bool,
+    pub is_symlink: bool,
+    /// Modification time, unix seconds.
+    pub mtime: i64,
+    pub size: u64,
+}
+
+/// `lstat` the path: a symlink is described, not followed.
+pub fn facts(path: &Path) -> io::Result<Facts> {
+    let m = fs::symlink_metadata(path)?;
+    Ok(Facts {
+        uid: m.uid(),
+        gid: m.gid(),
+        mode: m.mode() & 0o7777,
+        is_dir: m.is_dir(),
+        is_file: m.is_file(),
+        is_symlink: m.file_type().is_symlink(),
+        mtime: m.mtime(),
+        size: m.len(),
+    })
 }

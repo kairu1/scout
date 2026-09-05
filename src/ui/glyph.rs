@@ -63,6 +63,15 @@ pub const KIND_REPO: char = '\u{2442}'; // ⑂ OCR FORK — a git repository
 pub const KIND_DIR: char = '\u{2023}'; // ‣ TRIANGULAR BULLET — a directory
 pub const KIND_FILE: char = ' ';
 
+/// Replaces the kind marker on a row with an unaccepted recon finding at
+/// `high` or above. U+2762 HEAVY EXCLAMATION MARK ORNAMENT: in the same
+/// Dingbats block as the other ornaments, one column in every terminal,
+/// and with no emoji-presentation variant, which is what rules out the
+/// more obvious warning sign (U+26A0) and double exclamation (U+203C):
+/// terminals with an emoji font draw those two cells wide whatever the
+/// width tables say.
+pub const FINDING: char = '\u{2762}'; // ❢
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,6 +98,7 @@ mod tests {
             ("KIND_REPO", KIND_REPO.to_string()),
             ("KIND_DIR", KIND_DIR.to_string()),
             ("KIND_FILE", KIND_FILE.to_string()),
+            ("FINDING", FINDING.to_string()),
         ];
         for (name, text) in &sources {
             for c in text.chars() {

@@ -24,6 +24,10 @@ enum Cmd {
         /// Follow symlinks while walking.
         #[arg(long)]
         follow: bool,
+        /// Run the cheap recon checks (ownership, mode, special bits,
+        /// exposed secrets, symlink escapes) on every path as it is indexed.
+        #[arg(long)]
+        recon: bool,
     },
     /// Open (and if needed recover) an index DB, print its vitals.
     OpenDb { path: PathBuf },
@@ -33,6 +37,28 @@ enum Cmd {
         /// `human` (default) or `tsv`.
         #[arg(long, default_value = "human")]
         format: String,
+    },
+    /// Report who else can edit the indexed paths and what is exposed:
+    /// ownership, modes, special bits, credential files, symlink escapes,
+    /// ACLs, changed entry points. Exits 1 when a finding at or above
+    /// --fail-on is present and not accepted. Reports; never repairs.
+    #[command(args_conflicts_with_subcommands = true, subcommand_precedence_over_arg = true)]
+    Recon {
+        #[command(subcommand)]
+        cmd: Option<ReconCmd>,
+        /// Report on one tree only (default: the whole index).
+        path: Option<PathBuf>,
+        /// `human` (default) or `tsv`: severity, check, first seen, last
+        /// seen, accepted, path, detail.
+        #[arg(long, default_value = "human")]
+        format: String,
+        /// Severity that makes the exit code 1: `low`, `high` (default) or
+        /// `critical`.
+        #[arg(long, default_value = "high")]
+        fail_on: String,
+        /// Show accepted findings too.
+        #[arg(long)]
+        all: bool,
     },
     /// Rank candidates for a query and print them, best first.
     /// Exits 1 when nothing matched.
@@ -50,10 +76,43 @@ enum Cmd {
     },
 }
 
+#[derive(Subcommand)]
+enum ReconCmd {
+    /// Mark a finding as expected. It stays hidden until the underlying
+    /// fact (mode, owner, link target) changes.
+    Accept {
+        path: PathBuf,
+        /// The check name as printed by `scout recon`.
+        check: String,
+        #[arg(long)]
+        reason: String,
+    },
+    /// Remove an accepted exception.
+    Revoke { path: PathBuf, check: String },
+    /// Record the project's executable entry points (Makefile, package.json,
+    /// Cargo.toml, shell scripts, git hooks) so `scout recon` can report
+    /// when one changes.
+    Baseline { path: PathBuf },
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
-        Some(Cmd::Index { path, hidden, follow }) => scout::commands::index(path, hidden, follow),
+        Some(Cmd::Index { path, hidden, follow, recon }) => {
+            scout::commands::index(path, hidden, follow, recon)
+        }
+        Some(Cmd::Recon { cmd: Some(ReconCmd::Accept { path, check, reason }), .. }) => {
+            scout::commands::recon::accept(&path, &check, &reason)
+        }
+        Some(Cmd::Recon { cmd: Some(ReconCmd::Revoke { path, check }), .. }) => {
+            scout::commands::recon::revoke(&path, &check)
+        }
+        Some(Cmd::Recon { cmd: Some(ReconCmd::Baseline { path }), .. }) => {
+            scout::commands::recon::baseline(&path)
+        }
+        Some(Cmd::Recon { cmd: None, path, format, fail_on, all }) => {
+            scout::commands::recon(path, &format, &fail_on, all)
+        }
         Some(Cmd::OpenDb { path }) => scout::commands::open_db(path),
         Some(Cmd::Doctor { format }) => scout::commands::doctor(&format),
         Some(Cmd::Query { query, limit, format, print0 }) => {

@@ -27,6 +27,10 @@ pub struct CandidateRow {
     pub s_stored: f64,
     pub last_update: i64,
     pub visits_total: i64,
+    /// Highest unaccepted recon severity on the row (0 none, 1 low, 2
+    /// high, 3 critical), kept current by the recon writers so the picker
+    /// never stats for it.
+    pub worst_finding: u8,
 }
 
 /// A ranked result.
@@ -40,6 +44,7 @@ pub struct Ranked {
     /// Char indices the matcher matched (empty on an empty query), for
     /// highlighting.
     pub match_indices: Vec<u32>,
+    pub worst_finding: u8,
 }
 
 /// What the index can serve right now. Rendered as banners, never as
@@ -87,7 +92,7 @@ pub fn load_candidates(conn: &Connection) -> Result<Vec<CandidateRow>> {
         return Ok(Vec::new());
     }
     let mut stmt = conn.prepare_cached(
-        "SELECT rowid, path, S, last_update, visits_total
+        "SELECT rowid, path, S, last_update, visits_total, worst_finding
            FROM paths
           WHERE scan_generation = :gen AND tombstoned_at IS NULL",
     )?;
@@ -99,6 +104,7 @@ pub fn load_candidates(conn: &Connection) -> Result<Vec<CandidateRow>> {
                 s_stored: row.get(2)?,
                 last_update: row.get(3)?,
                 visits_total: row.get(4)?,
+                worst_finding: row.get::<_, i64>(5)?.clamp(0, 3) as u8,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -131,6 +137,7 @@ pub fn search(
                     s_now: s,
                     visits_total: c.visits_total,
                     match_indices: Vec::new(),
+                    worst_finding: c.worst_finding,
                 }
             })
             .collect()
@@ -164,6 +171,7 @@ pub fn search(
                         s_now: s,
                         visits_total: c.visits_total,
                         match_indices,
+                        worst_finding: c.worst_finding,
                     }
                 })
             })

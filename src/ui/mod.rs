@@ -35,6 +35,8 @@ use ratatui::Terminal;
 
 use crate::actions::Applicability;
 use crate::config::Config;
+use crate::recon::store::StoredFinding;
+use crate::recon::Severity;
 use crate::search::matcher::NucleoMatcher;
 use crate::search::{search, CandidateRow, IndexState, Ranked};
 
@@ -54,6 +56,26 @@ pub struct DispatchRequest {
     pub path: PathBuf,
     pub query: String,
 }
+
+/// How the picker ended.
+#[derive(Debug)]
+pub enum Outcome {
+    /// Run this action on this row.
+    Run(DispatchRequest),
+    /// The user pressed `a` at the confirm prompt: accept every unaccepted
+    /// finding at `high` or above on this row, then treat the pending
+    /// dispatch as approved.
+    Accept {
+        candidate_id: i64,
+        path: PathBuf,
+        checks: Vec<crate::recon::Check>,
+        then: DispatchRequest,
+    },
+}
+
+/// How the picker learns a row's findings: one indexed query per selection
+/// change, supplied by the caller so the picker never opens the database.
+pub type FindingsLookup<'a> = dyn Fn(i64) -> Vec<StoredFinding> + 'a;
 
 struct App<'a> {
     config: &'a Config,
@@ -90,6 +112,13 @@ struct App<'a> {
     /// A one-frame footer message (a chord that does not apply here),
     /// cleared on the next key.
     notice: Option<String>,
+    /// Unaccepted findings on the selected row, fetched with the
+    /// applicability.
+    findings: Vec<StoredFinding>,
+    findings_lookup: &'a FindingsLookup<'a>,
+    /// A dispatch waiting for the chord to be pressed again (or `a`),
+    /// because the row carries a high-severity finding.
+    pending: Option<DispatchRequest>,
 }
 
 impl App<'_> {
@@ -105,15 +134,68 @@ impl App<'_> {
     /// The applicability of the selected row, computed on first use after
     /// the selection changed. A handful of stats, once per selection.
     fn applicability(&mut self) -> Option<&Applicability> {
-        let path = self.selected_result()?.path.clone();
+        let (path, id, worst) = {
+            let r = self.selected_result()?;
+            (r.path.clone(), r.id, r.worst_finding)
+        };
         if self.applicability.as_ref().is_none_or(|a| a.path != path) {
-            self.applicability = Some(Applicability::for_path(
-                std::path::Path::new(&path),
-                &self.marker_set,
-                std::collections::HashSet::new(),
-            ));
+            // Findings are fetched only for rows the summary column says
+            // have any: most rows cost nothing.
+            self.findings = if worst > 0 { (self.findings_lookup)(id) } else { Vec::new() };
+            let names = self.findings.iter().map(|f| f.check.name().to_string()).collect();
+            self.applicability =
+                Some(Applicability::for_path(std::path::Path::new(&path), &self.marker_set, names));
         }
         self.applicability.as_ref()
+    }
+
+    /// The worst unaccepted finding on the selected row at `high` or above,
+    /// which is what makes a dispatch ask for confirmation.
+    fn blocking_finding(&mut self) -> Option<StoredFinding> {
+        self.applicability()?;
+        self.findings.iter().find(|f| f.severity >= Severity::High).cloned()
+    }
+
+    /// Dispatch, or hold the dispatch behind a confirm prompt when the row
+    /// carries a high-severity finding. The same chord again runs it; `a`
+    /// accepts the findings and runs it; anything else cancels.
+    fn confirm_or_dispatch(&mut self, name: &str, chord: &str) -> Option<Outcome> {
+        let request = self.dispatch(name)?;
+        let Some(finding) = self.blocking_finding() else { return Some(Outcome::Run(request)) };
+        if let Some(pending) = self.pending.take() {
+            if pending.action_name == request.action_name
+                && pending.candidate_id == request.candidate_id
+            {
+                return Some(Outcome::Run(request));
+            }
+        }
+        self.notice = Some(format!(
+            "{} {}: {}  {}  {chord} again runs  {}  a accepts",
+            glyph::FINDING,
+            finding.check.name(),
+            finding.check.meaning(),
+            glyph::SEPARATOR,
+            glyph::SEPARATOR
+        ));
+        self.pending = Some(request);
+        None
+    }
+
+    /// `a` at the confirm prompt: accept and run.
+    fn accept_pending(&mut self) -> Option<Outcome> {
+        let then = self.pending.take()?;
+        let checks: Vec<crate::recon::Check> = self
+            .findings
+            .iter()
+            .filter(|f| f.severity >= Severity::High)
+            .map(|f| f.check)
+            .collect();
+        Some(Outcome::Accept {
+            candidate_id: then.candidate_id,
+            path: then.path.clone(),
+            checks,
+            then,
+        })
     }
 
     /// Does `action` apply to the selected row? `true` when nothing is
@@ -245,12 +327,13 @@ impl App<'_> {
     }
 }
 
-/// Run the picker. Returns the dispatch the user chose, or None on quit.
+/// Run the picker. Returns what the user chose, or `None` on quit.
 pub fn run(
     config: &Config,
     candidates: &[CandidateRow],
     index_state: &IndexState,
-) -> std::io::Result<Option<DispatchRequest>> {
+    findings_lookup: &FindingsLookup<'_>,
+) -> std::io::Result<Option<Outcome>> {
     let mut app = App {
         config,
         candidates,
@@ -269,6 +352,9 @@ pub fn run(
         applicability: None,
         marker_set: marker_set(config),
         notice: None,
+        findings: Vec::new(),
+        findings_lookup,
+        pending: None,
     };
     app.refresh();
 
@@ -301,7 +387,7 @@ fn marker_set(config: &Config) -> Vec<String> {
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stderr>>,
     app: &mut App<'_>,
-) -> std::io::Result<Option<DispatchRequest>> {
+) -> std::io::Result<Option<Outcome>> {
     loop {
         // Capacity is computed from the same layout the frame will use,
         // so movement can never outrun what is drawn.
@@ -322,6 +408,15 @@ fn event_loop(
         tracing::debug!(code = ?key.code, mods = ?key.modifiers, "key");
         app.no_config_banner = false;
         app.notice = None;
+
+        // `a` right after a confirm prompt accepts the findings and runs.
+        // Any other key cancels the pending dispatch (and falls through to
+        // its normal meaning).
+        if app.pending.is_some() && key.code == KeyCode::Char('a') && key.modifiers.is_empty() {
+            if let Some(outcome) = app.accept_pending() {
+                return Ok(Some(outcome));
+            }
+        }
 
         if app.help {
             app.help = false;
@@ -349,8 +444,12 @@ fn event_loop(
                 KeyCode::Enter => {
                     if let Some(&action) = matches.get(menu_index) {
                         let action_name = app.config.actions[action].name.clone();
-                        if let Some(request) = app.dispatch(&action_name) {
-                            return Ok(Some(request));
+                        if let Some(outcome) = app.confirm_or_dispatch(&action_name, "enter") {
+                            return Ok(Some(outcome));
+                        }
+                        if app.pending.is_some() {
+                            // Confirm prompt shown; keep the pane open.
+                            continue;
                         }
                     }
                     app.menu = None;
@@ -378,8 +477,8 @@ fn event_loop(
                 continue;
             }
             let name = app.config.actions[index].name.clone();
-            if let Some(request) = app.dispatch(&name) {
-                return Ok(Some(request));
+            if let Some(outcome) = app.confirm_or_dispatch(&name, &chord) {
+                return Ok(Some(outcome));
             }
             continue;
         }
@@ -394,8 +493,8 @@ fn event_loop(
                         continue;
                     }
                     let action_name = app.config.actions[index].name.clone();
-                    if let Some(request) = app.dispatch(&action_name) {
-                        return Ok(Some(request));
+                    if let Some(outcome) = app.confirm_or_dispatch(&action_name, "enter") {
+                        return Ok(Some(outcome));
                     }
                 }
             }
@@ -742,7 +841,7 @@ fn draw_results(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
         .iter()
         .enumerate()
         .map(|(i, row)| {
-            ListItem::new(result_line(row, &shown[i].path, i == selected, name_col, context_room))
+            ListItem::new(result_line(row, &shown[i], i == selected, name_col, context_room))
         })
         .collect();
 
@@ -869,10 +968,14 @@ fn draw_help(frame: &mut ratatui::Frame) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-/// The kind marker. A `.git` stat, and only for
-/// the handful of rows on screen — never in the indexer, which walks
-/// 100k paths under a budget.
-fn kind_marker(path: &str) -> char {
+/// The kind marker. A `.git` stat, and only for the handful of rows on
+/// screen, never in the indexer, which walks 100k paths under a budget. A
+/// row with an unaccepted finding at `high` or above shows the finding
+/// glyph instead; that comes from a column on the row, not from a stat.
+fn kind_marker(path: &str, worst_finding: u8) -> char {
+    if worst_finding >= Severity::High as u8 {
+        return glyph::FINDING;
+    }
     let p = std::path::Path::new(path);
     match p.metadata() {
         Ok(meta) if meta.is_dir() => {
@@ -888,7 +991,7 @@ fn kind_marker(path: &str) -> char {
 
 fn result_line<'a>(
     row: &render::Row,
-    path: &str,
+    ranked: &Ranked,
     selected: bool,
     name_col: usize,
     context_room: usize,
@@ -911,7 +1014,13 @@ fn result_line<'a>(
     } else {
         Span::raw(format!("{} ", glyph::UNSELECTED))
     });
-    spans.push(Span::styled(format!("{} ", kind_marker(path)), Style::default().fg(CHROME)));
+    let marker = kind_marker(&ranked.path, ranked.worst_finding);
+    let marker_style = if marker == glyph::FINDING {
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(CHROME)
+    };
+    spans.push(Span::styled(format!("{marker} "), marker_style));
 
     let mut name = row.name.clone();
     render::truncate_right(&mut name, name_col);
@@ -1132,6 +1241,9 @@ mod tests {
                     applicability: None,
                     marker_set: Vec::new(),
                     notice: None,
+                    findings: Vec::new(),
+                    findings_lookup: &|_| Vec::new(),
+                    pending: None,
                 };
                 app.caret = query.chars().count();
                 let spans = query_spans(&app, width);

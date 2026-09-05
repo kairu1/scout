@@ -8,6 +8,7 @@
 //! - `locations`: where scout keeps its own files.
 //! - `index`: the SQLite file: walking, writing, frecency, recovery.
 //! - `search`: ranking candidates for a query.
+//! - `recon`: what recon knows about the indexed ground, and the checks.
 //! - `actions`: the declarative action model and its executor.
 //! - `config`: loading, validating and trusting a config file.
 //! - `doctor`: a read-only report of the state scout resolved.
@@ -23,6 +24,7 @@ pub mod error;
 pub mod index;
 pub mod locations;
 pub mod platform;
+pub mod recon;
 pub mod search;
 pub mod ui;
 

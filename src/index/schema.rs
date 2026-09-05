@@ -6,7 +6,10 @@ use rusqlite::Connection;
 
 use crate::Result;
 
-const MIGRATIONS: &[(u32, &str)] = &[(1, include_str!("../../migrations/0001_initial.sql"))];
+const MIGRATIONS: &[(u32, &str)] = &[
+    (1, include_str!("../../migrations/0001_initial.sql")),
+    (2, include_str!("../../migrations/0002_recon.sql")),
+];
 
 /// Current schema version; 0 when the database has no schema yet.
 pub fn schema_version(conn: &Connection) -> Result<u32> {

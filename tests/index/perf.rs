@@ -5,20 +5,14 @@
 use std::fs;
 
 use scout::index::walk::{walk, WalkConfig};
-use scout::index::write::batched_insert;
+use scout::index::write::{batched_insert, batched_insert_with, WriteOptions};
 use scout::platform::signals;
 
 use crate::walk::open_db;
 use crate::{serial, temp_dir};
 
-#[test]
-#[ignore]
-fn one_hundred_thousand_paths_index_under_budget() {
-    let _serial = serial();
-    signals::reset_interrupt();
-    let dir = temp_dir("smoke");
-    let tree = dir.join("tree");
-    fs::create_dir(&tree).unwrap();
+fn plant_100k(tree: &std::path::Path) {
+    fs::create_dir(tree).unwrap();
     // 1000 dirs x 100 files = 100k files (+1001 dirs).
     for d in 0..1000 {
         let sub = tree.join(format!("dir-{d:04}"));
@@ -27,6 +21,51 @@ fn one_hundred_thousand_paths_index_under_budget() {
             fs::write(sub.join(format!("f{f:03}")), b"").unwrap();
         }
     }
+}
+
+/// The same walk with the stat-only recon checks running per path. The
+/// hard budget is the walk's own 30 s; the ratio to the plain walk is
+/// printed and recorded, not asserted: an `lstat` per path is a real cost
+/// against a walk that finishes 100k paths in half a second, which is why
+/// `--recon` at index time is opt-in.
+#[test]
+#[ignore]
+fn one_hundred_thousand_paths_index_with_recon_under_budget() {
+    let _serial = serial();
+    signals::reset_interrupt();
+    let dir = temp_dir("smoke-recon");
+    let tree = dir.join("tree");
+    plant_100k(&tree);
+
+    let mut conn = open_db(&dir);
+    let plain = std::time::Instant::now();
+    let stats = batched_insert(&mut conn, walk(&WalkConfig::new(tree.clone())), 1000).unwrap();
+    let plain = plain.elapsed();
+    assert!(stats.completed);
+
+    let with_recon = std::time::Instant::now();
+    let options = WriteOptions { batch_size: 1000, root: Some(&tree), recon: true };
+    let stats =
+        batched_insert_with(&mut conn, walk(&WalkConfig::new(tree.clone())), &options).unwrap();
+    let with_recon = with_recon.elapsed();
+    assert!(stats.completed);
+    assert!(with_recon.as_secs() < 30, "walk with recon took {with_recon:?}");
+    println!(
+        "100k paths: plain {plain:?}, with recon {with_recon:?} ({:.1}x)",
+        with_recon.as_secs_f64() / plain.as_secs_f64().max(0.001)
+    );
+
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+#[ignore]
+fn one_hundred_thousand_paths_index_under_budget() {
+    let _serial = serial();
+    signals::reset_interrupt();
+    let dir = temp_dir("smoke");
+    let tree = dir.join("tree");
+    plant_100k(&tree);
 
     let mut conn = open_db(&dir);
     let started = std::time::Instant::now();

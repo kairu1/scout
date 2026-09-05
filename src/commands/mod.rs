@@ -8,7 +8,7 @@
 //! action exited non-zero), `Err` means scout could not do what it was
 //! asked. `main` turns the `Err` into one stderr line and an exit code.
 //! Refuses to know about: clap, `std::process::exit`, the terminal.
-//! Exposes: `index`, `open_db`, `query`, `doctor`, `picker`.
+//! Exposes: `index`, `open_db`, `query`, `doctor`, `recon`, `picker`.
 
 pub mod doctor;
 pub mod index;
@@ -16,12 +16,14 @@ pub mod logging;
 pub mod open_db;
 pub mod picker;
 pub mod query;
+pub mod recon;
 
 pub use doctor::doctor;
 pub use index::index;
 pub use open_db::open_db;
 pub use picker::picker;
 pub use query::query;
+pub use recon::recon;
 
 use rusqlite::Connection;
 

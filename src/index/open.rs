@@ -49,7 +49,7 @@ pub fn open(path: &Path) -> Result<Connection> {
 
     // The file must belong to the invoking user.
     let db_uid = pfs::owner_uid(path)?;
-    let our_uid = pfs::probe_uid(parent)?;
+    let our_uid = pfs::euid();
     if db_uid != our_uid {
         return Err(Error::IndexRefused(format!(
             "db owner uid {db_uid} != invoking uid {our_uid} at {}",

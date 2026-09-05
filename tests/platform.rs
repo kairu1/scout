@@ -23,6 +23,8 @@ fn os_specific_imports_live_only_in_platform() {
     assert!(files.len() > 20, "walked only {} files; the walk is broken", files.len());
 
     let forbidden = ["std::os::unix", "std::os::linux", "signal_hook", "extern \"C\"", "libc::"];
+    // The FFI declarations are the point of the guard: they may exist only
+    // under platform/, and the list above catches them anywhere else.
     let mut offenders = Vec::new();
     for path in &files {
         let rel = path.strip_prefix(&src).unwrap();
