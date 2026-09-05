@@ -19,8 +19,14 @@ fn spawn_step(argv: &[&str]) -> Step {
     }
 }
 
-fn ctx(path: PathBuf) -> ActionCtx {
-    ActionCtx { path, query: String::new(), home: std::env::var("HOME").unwrap(), print_to: None }
+fn ctx(path: PathBuf) -> ActionCtx<'static> {
+    ActionCtx {
+        path,
+        query: String::new(),
+        home: std::env::var("HOME").unwrap(),
+        print_to: None,
+        pane_runner: None,
+    }
 }
 
 fn seeded_db(dir: &Path) -> (Connection, i64) {
@@ -197,6 +203,7 @@ fn the_outcome_carries_the_failure_kind() {
         query: String::new(),
         home: dir.display().to_string(),
         print_to: None,
+        pane_runner: None,
     };
 
     let outcome = execute(&a, &ctx, None);
@@ -222,6 +229,7 @@ fn an_env_placeholder_never_falls_back_to_the_inherited_environment() {
         query: String::new(),
         home: dir.display().to_string(),
         print_to: None,
+        pane_runner: None,
     };
 
     let outcome = execute(&a, &ctx, None);
@@ -250,6 +258,7 @@ fn an_env_placeholder_resolves_a_binding_set_by_an_earlier_step() {
         query: String::new(),
         home: dir.display().to_string(),
         print_to: None,
+        pane_runner: None,
     };
 
     let outcome = execute(&a, &ctx, None);
@@ -283,6 +292,7 @@ fn a_spawned_child_still_inherits_the_process_environment() {
         query: String::new(),
         home: dir.display().to_string(),
         print_to: None,
+        pane_runner: None,
     };
 
     let outcome = execute(&a, &ctx, None);
@@ -320,6 +330,7 @@ fn an_env_step_exports_to_later_children() {
         query: String::new(),
         home: dir.display().to_string(),
         print_to: None,
+        pane_runner: None,
     };
 
     let outcome = execute(&a, &ctx, None);
@@ -340,6 +351,7 @@ fn print_steps_go_to_the_print_to_file_when_one_is_given() {
         query: String::new(),
         home: dir.display().to_string(),
         print_to: Some(sink.clone()),
+        pane_runner: None,
     };
     let outcome = execute(&a, &ctx, None);
     assert!(outcome.any_success, "{:?}", outcome.failure);

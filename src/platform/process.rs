@@ -23,6 +23,14 @@ pub fn spawn_wait(
     command(argv, cwd, env).status()
 }
 
+/// Replace this process with the user's shell (`$SHELL`, else `sh`) in
+/// `cwd`. Only returns on failure.
+pub fn exec_shell(cwd: &Path) -> io::Error {
+    let shell =
+        std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "sh".into());
+    Command::new(shell).current_dir(cwd).exec()
+}
+
 /// Start `argv` in its own process group with null stdio and return at
 /// once. The child outlives scout and cannot touch its terminal.
 pub fn spawn_detached(

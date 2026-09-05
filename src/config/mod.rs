@@ -10,6 +10,7 @@
 //! projection and the trust store.
 
 pub mod canonical;
+pub mod keys;
 pub mod loader;
 pub mod trust;
 
@@ -17,6 +18,7 @@ use std::path::PathBuf;
 
 use crate::actions::{compiled_defaults, Action};
 
+pub use keys::Keys;
 pub use loader::{discover, load, load_file};
 
 #[derive(Debug, Clone)]
@@ -33,6 +35,8 @@ pub struct Config {
     pub trust_hash: Option<String>,
     /// `[scout] session = true`: stay in the picker after an action.
     pub session: bool,
+    /// Pane operations and the re-index key, resolved over the defaults.
+    pub keys: Keys,
 }
 
 impl Config {
@@ -43,6 +47,7 @@ impl Config {
             source: None,
             trust_hash: None,
             session: false,
+            keys: Keys::default(),
         }
     }
 

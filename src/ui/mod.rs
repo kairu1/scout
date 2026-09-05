@@ -39,6 +39,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListSt
 use ratatui::Terminal;
 
 use crate::actions::Applicability;
+use crate::config::keys::Operation;
 use crate::config::Config;
 use crate::recon::store::StoredFinding;
 use crate::recon::Severity;
@@ -69,6 +70,9 @@ pub enum Outcome {
     Run(DispatchRequest),
     /// The user asked for the last indexed root to be walked again.
     Reindex,
+    /// A pane operation from `[keys]`, with the selected path (if any) for
+    /// the ones that open a pane there.
+    Pane(Operation, Option<PathBuf>),
     /// A running re-index finished; the caller reloads the candidates.
     ReindexDone(Result<crate::index::write::InsertStats, String>),
     /// The user pressed `a` at the confirm prompt: accept every unaccepted
@@ -101,7 +105,12 @@ struct App<'a> {
     index_state: IndexState,
     /// Session mode: actions return here instead of ending the process.
     session: bool,
+    /// Inside tmux: pane operations are offered and shown in the help.
+    in_tmux: bool,
     reindex: Option<ReindexJob>,
+    /// The last key received, in the `[keys]` grammar, for the help
+    /// overlay's key-test line.
+    last_key: Option<String>,
     home: String,
     matcher: NucleoMatcher,
     query: String,
@@ -355,7 +364,7 @@ pub fn run(
     index_state: IndexState,
     findings_lookup: &FindingsLookup<'_>,
 ) -> std::io::Result<Option<Outcome>> {
-    let mut picker = Picker::new(config, candidates, index_state, findings_lookup, false);
+    let mut picker = Picker::new(config, candidates, index_state, findings_lookup, false, false);
     let outcome = picker.pick();
     picker.finish();
     outcome
@@ -376,13 +385,16 @@ impl<'a> Picker<'a> {
         index_state: IndexState,
         findings_lookup: &'a FindingsLookup<'a>,
         session: bool,
+        in_tmux: bool,
     ) -> Picker<'a> {
         let mut app = App {
             config,
             candidates,
             index_state,
             session,
+            in_tmux,
             reindex: None,
+            last_key: None,
             home: std::env::var("HOME").unwrap_or_default(),
             matcher: NucleoMatcher::new(),
             query: String::new(),
@@ -482,6 +494,38 @@ impl<'a> Picker<'a> {
     pub fn start_reindex(&mut self, job: ReindexJob) {
         self.app.reindex = Some(job);
     }
+}
+
+/// The key press in the `[keys]` grammar (`ctrl-alt-shift-<key>`), or
+/// `None` for keys the grammar cannot name (Esc, Enter, Tab, ...).
+fn chord_name(key: &crossterm::event::KeyEvent) -> Option<String> {
+    let name = match key.code {
+        KeyCode::Char(c) if c.is_ascii_alphabetic() => c.to_ascii_lowercase().to_string(),
+        KeyCode::Left => "left".into(),
+        KeyCode::Right => "right".into(),
+        KeyCode::Up => "up".into(),
+        KeyCode::Down => "down".into(),
+        KeyCode::Home => "home".into(),
+        KeyCode::End => "end".into(),
+        KeyCode::PageUp => "pageup".into(),
+        KeyCode::PageDown => "pagedown".into(),
+        KeyCode::F(n) => format!("f{n}"),
+        _ => return None,
+    };
+    let mut out = String::new();
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        out.push_str("ctrl-");
+    }
+    if key.modifiers.contains(KeyModifiers::ALT) {
+        out.push_str("alt-");
+    }
+    // Shift on a letter arrives as the upper-case letter; the grammar has
+    // no shifted letters, so it is only recorded for named keys.
+    if key.modifiers.contains(KeyModifiers::SHIFT) && !matches!(key.code, KeyCode::Char(_)) {
+        out.push_str("shift-");
+    }
+    out.push_str(&name);
+    Some(out)
 }
 
 /// Stop a running re-index: trip the interrupt flag the walker and writer
@@ -631,16 +675,33 @@ fn event_loop(
             continue;
         }
 
-        // Session-only keys: re-index the last root. Esc during a re-index
-        // cancels it and stays; a second Esc leaves.
-        if app.session
-            && key.code == KeyCode::Char('r')
-            && key.modifiers.contains(KeyModifiers::CONTROL)
-        {
-            if app.reindex.is_none() {
-                return Ok(Some(Outcome::Reindex));
+        app.last_key = chord_name(&key);
+
+        // Session-only keys: the `[keys]` table. Re-index the last root, or
+        // a pane operation when inside tmux. Esc during a re-index cancels
+        // it and stays; a second Esc leaves.
+        if app.session {
+            if let Some(op) = app.last_key.as_deref().and_then(|c| app.config.keys.operation_for(c))
+            {
+                match op {
+                    Operation::Reindex => {
+                        if app.reindex.is_none() {
+                            return Ok(Some(Outcome::Reindex));
+                        }
+                    }
+                    _ if !app.in_tmux => {
+                        app.notice = Some(format!(
+                            "{}: not inside tmux, so there is no pane to act on",
+                            op.name()
+                        ));
+                    }
+                    _ => {
+                        let path = app.selected_result().map(|r| PathBuf::from(&r.path));
+                        return Ok(Some(Outcome::Pane(op, path)));
+                    }
+                }
+                continue;
             }
-            continue;
         }
         if key.code == KeyCode::Esc && app.reindex.is_some() {
             cancel_reindex(app);
@@ -847,7 +908,7 @@ fn draw(frame: &mut ratatui::Frame, app: &mut App<'_>) {
 
     draw_footer(frame, app, footer);
     if app.help {
-        draw_help(frame, app.session);
+        draw_help(frame, app);
     }
 }
 
@@ -1105,7 +1166,7 @@ fn draw_action_pane(frame: &mut ratatui::Frame, app: &mut App<'_>, area: Rect) {
 
 /// The cheatsheet. Before it existed, `tab` was
 /// discoverable only by reading the README.
-fn draw_help(frame: &mut ratatui::Frame, session: bool) {
+fn draw_help(frame: &mut ratatui::Frame, app: &App<'_>) {
     const ROWS: [(&str, &str); 9] = [
         ("type", "filter - results rank by name, then match, then frecency"),
         ("left / right", "move the cursor inside the search text"),
@@ -1117,17 +1178,28 @@ fn draw_help(frame: &mut ratatui::Frame, session: bool) {
         ("?", "this help"),
         ("esc", "close this, or quit"),
     ];
-    const SESSION_ROWS: [(&str, &str); 2] = [
-        ("ctrl-r", "re-index the last indexed tree without leaving"),
-        ("a", "at a finding prompt: accept the findings and run"),
-    ];
     let key = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
     let label = Style::default().fg(CHROME);
-    let rows: Vec<(&str, &str)> = if session {
-        ROWS.iter().chain(SESSION_ROWS.iter()).copied().collect()
-    } else {
-        ROWS.to_vec()
-    };
+    let mut rows: Vec<(String, String)> =
+        ROWS.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+    rows.push(("a".into(), "at a finding prompt: accept the findings and run".into()));
+    if app.session {
+        // The `[keys]` table, in the user's own bindings. Pane operations
+        // appear only inside tmux: outside it they would be promises the
+        // picker cannot keep.
+        for (op, chord) in app.config.keys.iter() {
+            if op.needs_tmux() && !app.in_tmux {
+                continue;
+            }
+            rows.push((chord.to_string(), op.describe().to_string()));
+        }
+        // What the terminal actually delivered for the last key, so a
+        // binding that does not fire can be diagnosed without guessing.
+        rows.push((
+            "last key".into(),
+            app.last_key.clone().unwrap_or_else(|| "(not a bindable key)".into()),
+        ));
+    }
     let lines: Vec<Line> = rows
         .iter()
         .map(|(k, v)| {
@@ -1274,9 +1346,11 @@ fn draw_footer(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
         spans.push(Span::styled(format!("  {}  ", glyph::SEPARATOR), label));
     }
     if app.session {
-        spans.push(Span::styled("ctrl-r", key));
-        spans.push(Span::styled(" re-index", label));
-        spans.push(Span::styled(format!("  {}  ", glyph::SEPARATOR), label));
+        if let Some(chord) = app.config.keys.key_for(Operation::Reindex) {
+            spans.push(Span::styled(chord.to_string(), key));
+            spans.push(Span::styled(" re-index", label));
+            spans.push(Span::styled(format!("  {}  ", glyph::SEPARATOR), label));
+        }
     }
     spans.push(Span::styled("tab", key));
     spans.push(Span::styled(" actions", label));
@@ -1427,7 +1501,9 @@ mod tests {
                     candidates: candidates.clone(),
                     index_state: state.clone(),
                     session: false,
+                    in_tmux: false,
                     reindex: None,
+                    last_key: None,
                     home: String::new(),
                     matcher: crate::search::matcher::NucleoMatcher::new(),
                     query: query.to_string(),

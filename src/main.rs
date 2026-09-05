@@ -69,6 +69,15 @@ enum Cmd {
         #[arg(long)]
         all: bool,
     },
+    /// Run a command in a directory, then become a shell there. What tmux
+    /// starts in a pane scout opened; not meant to be typed.
+    #[command(hide = true)]
+    PaneRun {
+        #[arg(long)]
+        cwd: PathBuf,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
     /// Rank candidates for a query and print them, best first.
     /// Exits 1 when nothing matched.
     Query {
@@ -122,6 +131,7 @@ fn main() -> ExitCode {
         Some(Cmd::Recon { cmd: None, path, format, fail_on, all }) => {
             scout::commands::recon(path, &format, &fail_on, all)
         }
+        Some(Cmd::PaneRun { cwd, argv }) => scout::commands::pane_run(&cwd, &argv),
         Some(Cmd::OpenDb { path }) => scout::commands::open_db(path),
         Some(Cmd::Doctor { format }) => scout::commands::doctor(&format),
         Some(Cmd::Query { query, limit, format, print0 }) => {

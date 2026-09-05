@@ -187,6 +187,16 @@ fn the_loader_refuses_each_invalid_shape_and_names_it() {
             "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"spawn\", argv = [\"x\"], pause = \"no\" } ]\n",
             "`pause` must be a boolean",
         ),
+        // [keys]: unknown operation, bad chord, picker-owned key, two ops on
+        // one key, a key an action already binds
+        ("schema_version = 2\n[keys]\nfly = \"alt-f\"\n", "unknown operation"),
+        ("schema_version = 2\n[keys]\nzoom = \"z\"\n", "is not a key"),
+        ("schema_version = 2\n[keys]\nzoom = \"ctrl-c\"\n", "the picker itself uses"),
+        ("schema_version = 2\n[keys]\nzoom = \"alt-q\"\nclose-pane = \"alt-q\"\n", "both use"),
+        (
+            "schema_version = 2\n[keys]\nzoom = \"alt-e\"\n[[action]]\nname = \"a\"\nkeybinding = \"alt-e\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+            "already an action's keybinding",
+        ),
         (
             "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"print\", format = \"{pat}\" } ]\n",
             "unknown placeholder",
@@ -484,5 +494,42 @@ fn session_step_fields_parse() {
     assert!(by("test").pauses());
     assert!(!by("edit").pauses(), "an editor owned the screen; nothing to read afterwards");
     assert!(!by("serve").pauses(), "a pane is not waited for");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// `[keys]` resolves over the defaults; an explicit entry wins, a default
+/// that collides with an action chord yields with a warning, and the
+/// explicit entries (only) enter the trust hash.
+#[test]
+fn keys_table_resolves_over_defaults_and_is_hashed() {
+    use scout::config::keys::Operation;
+    let dir = temp_dir("keys");
+    let with_keys = load_pretrusted(
+        &dir,
+        "schema_version = 2\n[keys]\nzoom = \"Alt-Shift-Z\"\n[[action]]\nname = \"win\"\nkeybinding = \"alt-w\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+    )
+    .unwrap();
+    assert_eq!(with_keys.keys.key_for(Operation::Zoom), Some("alt-shift-z"), "normalised");
+    assert_eq!(with_keys.keys.key_for(Operation::SplitRight), Some("alt-right"), "default kept");
+    assert_eq!(with_keys.keys.key_for(Operation::NewWindow), None, "alt-w belongs to the action");
+    assert!(
+        with_keys.warnings.iter().any(|w| w.contains("new-window")),
+        "{:?}",
+        with_keys.warnings
+    );
+    assert_eq!(with_keys.keys.key_for(Operation::Reindex), Some("ctrl-r"));
+
+    let without = load_pretrusted(
+        &dir,
+        "schema_version = 2\n[[action]]\nname = \"win\"\nkeybinding = \"alt-w\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+    )
+    .unwrap();
+    assert_ne!(with_keys.trust_hash, without.trust_hash, "a [keys] entry changes the hash");
+    let empty_table = load_pretrusted(
+        &dir,
+        "schema_version = 2\n[keys]\n[[action]]\nname = \"win\"\nkeybinding = \"alt-w\"\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+    )
+    .unwrap();
+    assert_eq!(empty_table.trust_hash, without.trust_hash, "an empty table hashes like none");
     fs::remove_dir_all(&dir).unwrap();
 }

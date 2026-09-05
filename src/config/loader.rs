@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use super::keys::{normalise_chord, Keys, Operation, PICKER_OWNED_KEYS};
 use super::trust::{TrustStatus, TrustStore};
 use super::{canonical, merge_with_defaults, trust, Config};
 use crate::actions::template::is_posix_env_name;
@@ -25,6 +26,8 @@ struct RawConfig {
     schema_version: i64,
     #[serde(default)]
     scout: Option<toml::Table>,
+    #[serde(default)]
+    keys: Option<toml::Table>,
     #[serde(default, rename = "action")]
     actions: Vec<RawAction>,
 }
@@ -145,7 +148,54 @@ pub fn load_file(
             }
         }
     }
-    let keys: BTreeMap<String, String> = BTreeMap::new();
+    // `[keys]`: named operations on keys the user chose. Validated even
+    // outside tmux; it is about the file, not the environment.
+    let mut explicit: BTreeMap<Operation, String> = BTreeMap::new();
+    if let Some(table) = &raw.keys {
+        for (name, value) in table {
+            let op = Operation::parse(name).ok_or_else(|| {
+                validation(
+                    config_path,
+                    format!(
+                        "[keys]: unknown operation `{name}` (want one of {})",
+                        super::keys::ALL_OPERATIONS
+                            .iter()
+                            .map(|o| o.name())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                )
+            })?;
+            let Some(text) = value.as_str() else {
+                return Err(validation(config_path, format!("[keys] {name} must be a string")));
+            };
+            let chord = normalise_chord(text).ok_or_else(|| {
+                validation(
+                    config_path,
+                    format!(
+                        "[keys] {name} = `{text}` is not a key: use <mods>-<key> with ctrl, alt, shift \
+                         and a letter, f1-f12, an arrow, home, end, pageup or pagedown"
+                    ),
+                )
+            })?;
+            if PICKER_OWNED_KEYS.contains(&chord.as_str()) {
+                return Err(validation(
+                    config_path,
+                    format!("[keys] {name} = `{chord}` is a key the picker itself uses"),
+                ));
+            }
+            if let Some((other, _)) = explicit.iter().find(|(_, k)| **k == chord) {
+                return Err(validation(
+                    config_path,
+                    format!("[keys] {name} and {} both use `{chord}`", other.name()),
+                ));
+            }
+            explicit.insert(op, chord);
+        }
+    }
+    // The hashed form: only what the user wrote.
+    let keys: BTreeMap<String, String> =
+        explicit.iter().map(|(op, k)| (op.name().to_string(), k.clone())).collect();
 
     // Typed validation of every action.
     let mut warnings = Vec::new();
@@ -184,6 +234,19 @@ pub fn load_file(
             "more than one action binds `enter` (dispatch ambiguity)".into(),
         ));
     }
+    // An explicit `[keys]` entry may not take an action's chord; a default
+    // that would is dropped with a warning (the action was there first).
+    let action_chords: Vec<String> =
+        actions.iter().filter_map(|a| a.keybinding.clone()).filter(|k| k != "enter").collect();
+    for (op, chord) in &explicit {
+        if action_chords.contains(chord) {
+            return Err(validation(
+                config_path,
+                format!("[keys] {} = `{chord}` is already an action's keybinding", op.name()),
+            ));
+        }
+    }
+    let resolved_keys = Keys::resolve(&explicit, &action_chords, &mut warnings);
 
     // Canonical projection, hash, trust.
     let hash = canonical::trust_hash(&actions, &keys);
@@ -213,6 +276,7 @@ pub fn load_file(
         source: Some(config_path.to_path_buf()),
         trust_hash: Some(hash),
         session,
+        keys: resolved_keys,
     })
 }
 

@@ -13,6 +13,7 @@
 //! - `config`: loading, validating and trusting a config file.
 //! - `doctor`: a read-only report of the state scout resolved.
 //! - `ui`: the picker.
+//! - `tmux`: named pane operations translated to tmux commands.
 //! - `commands`: what each subcommand does, as plain functions.
 //! - `error`: the one error type and how it becomes an exit code.
 
@@ -26,6 +27,7 @@ pub mod locations;
 pub mod platform;
 pub mod recon;
 pub mod search;
+pub mod tmux;
 pub mod ui;
 
 pub use error::Error;

@@ -5,6 +5,7 @@
 //! that prints a command for the shell still ends the session because it
 //! only works once scout is gone.
 
+use std::cell::RefCell;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
@@ -17,6 +18,7 @@ use super::{logging, open_default_db, warn};
 use crate::actions::{self, Action, ActionCtx, ExecOutcome};
 use crate::platform::time::unix_now;
 use crate::recon;
+use crate::tmux::Tmux;
 use crate::ui::{self, Outcome, Picker, ReindexJob};
 use crate::{config, index, locations, platform, search, Error};
 
@@ -42,8 +44,23 @@ pub fn picker(session_flag: bool, print_to: Option<PathBuf>) -> crate::Result<u8
     let index_state = search::index_state(&conn)?;
     let candidates = search::load_candidates(&conn)?;
 
+    // tmux is detected once. Outside a session there is nothing to keep a
+    // pane for, so the check is skipped.
+    let tmux: RefCell<Option<Tmux>> = RefCell::new(if session { Tmux::detect() } else { None });
+    let in_tmux = tmux.borrow().is_some();
+    let pane_runner = |op: actions::PaneOp, cwd: &Path, argv: &[String]| -> Result<(), String> {
+        let mut guard = tmux.borrow_mut();
+        let Some(t) = guard.as_mut() else { return Err("not inside tmux".into()) };
+        let operation = match op {
+            actions::PaneOp::SplitRight => crate::config::keys::Operation::SplitRight,
+            actions::PaneOp::SplitDown => crate::config::keys::Operation::SplitDown,
+            actions::PaneOp::NewWindow => crate::config::keys::Operation::NewWindow,
+        };
+        t.run(operation, Some(cwd), Some(argv))
+    };
+
     let lookup = |id: i64| recon::store::unaccepted_for_row(&conn, id).unwrap_or_default();
-    let mut picker = Picker::new(&config, candidates, index_state, &lookup, session);
+    let mut picker = Picker::new(&config, candidates, index_state, &lookup, session, in_tmux);
     let home_text = home.display().to_string();
 
     loop {
@@ -62,6 +79,16 @@ pub fn picker(session_flag: bool, print_to: Option<PathBuf>) -> crate::Result<u8
                     tracing::info!(check = check.name(), path = %text, "recon.accept");
                 }
                 then
+            }
+            Outcome::Pane(op, path) => {
+                let result = match tmux.borrow_mut().as_mut() {
+                    Some(t) => t.run(op, path.as_deref(), None),
+                    None => Err("not inside tmux".into()),
+                };
+                if let Err(message) = result {
+                    picker.set_notice(format!("{}: {message}", op.name()));
+                }
+                continue;
             }
             Outcome::Reindex => {
                 match start_reindex(&conn)? {
@@ -94,11 +121,14 @@ pub fn picker(session_flag: bool, print_to: Option<PathBuf>) -> crate::Result<u8
             picker.finish();
             return Err(Error::ActionVanished(request.action_name));
         };
+        let uses_pane =
+            action.steps.iter().any(|s| matches!(s, actions::Step::Spawn { pane: Some(_), .. }));
         let ctx = ActionCtx {
             path: request.path.clone(),
             query: request.query.clone(),
             home: home_text.clone(),
             print_to: print_to.clone(),
+            pane_runner: if in_tmux && session { Some(&pane_runner) } else { None },
         };
 
         if !session || action.ends_session() {
@@ -110,11 +140,30 @@ pub fn picker(session_flag: bool, print_to: Option<PathBuf>) -> crate::Result<u8
             return report(action, outcome);
         }
 
+        // A pane action inside tmux never touches this terminal: run it
+        // and stay on screen.
+        if uses_pane && in_tmux {
+            let outcome = actions::execute(action, &ctx, Some((&conn, request.candidate_id)));
+            if let Some((step, kind)) = &outcome.failure {
+                picker.set_notice(format!("{} failed at step {} ({kind})", action.name, step + 1));
+            }
+            if let Ok((s, last, visits)) = row_frecency(&conn, request.candidate_id) {
+                picker.update_row(request.candidate_id, s, last, visits);
+            }
+            continue;
+        }
+
         // In-process, then back to the picker. The child owns the tty for
         // its lifetime; scout draws nothing until it has exited.
         picker.suspend();
         let started = Instant::now();
         let outcome = actions::execute(action, &ctx, Some((&conn, request.candidate_id)));
+        if uses_pane {
+            eprintln!(
+                "scout: {}: not inside tmux, so it ran here instead of in a pane",
+                action.name
+            );
+        }
         after_fix_action(&conn, action, &ctx, request.candidate_id, &home);
         if let Some((step, kind)) = &outcome.failure {
             eprintln!("scout: action `{}` failed at step {} ({kind})", action.name, step + 1);
@@ -171,7 +220,7 @@ fn report(action: &Action, outcome: ExecOutcome) -> crate::Result<u8> {
 /// A fix action (one gated on a finding) that ran has changed the facts;
 /// re-run the stat checks for this one row so the marker clears without
 /// a full recon.
-fn after_fix_action(conn: &Connection, action: &Action, ctx: &ActionCtx, id: i64, home: &Path) {
+fn after_fix_action(conn: &Connection, action: &Action, ctx: &ActionCtx<'_>, id: i64, home: &Path) {
     if action.when.as_ref().is_none_or(|w| w.finding.is_none()) {
         return;
     }

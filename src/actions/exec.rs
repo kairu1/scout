@@ -10,11 +10,16 @@ use rusqlite::Connection;
 
 use super::failure::FailureKind;
 use super::template::ExpandCtx;
-use super::{builtin, Action, OnFailure, Step};
+use super::{builtin, Action, OnFailure, PaneOp, Step};
 use crate::platform::process;
 use crate::platform::time::unix_now;
 
-pub struct ActionCtx {
+/// Runs a step's argv in a tmux pane at a directory. Supplied by the
+/// session when scout is inside tmux; absent, a `pane` step runs
+/// in-process instead.
+pub type PaneRunner<'a> = dyn Fn(PaneOp, &Path, &[String]) -> Result<(), String> + 'a;
+
+pub struct ActionCtx<'a> {
     /// Canonical absolute path of the selected candidate.
     pub path: PathBuf,
     /// Query buffer at dispatch time (may be empty, which is valid).
@@ -24,6 +29,7 @@ pub struct ActionCtx {
     /// `eval "$(scout)"` relies on; the wrapper passes a file so that a
     /// session's children keep stdout for themselves.
     pub print_to: Option<PathBuf>,
+    pub pane_runner: Option<&'a PaneRunner<'a>>,
 }
 
 #[derive(Debug)]
@@ -107,7 +113,7 @@ fn run_step(
     let expand_ctx =
         ExpandCtx { path: &ctx.path, query: &ctx.query, home: &ctx.home, env: bindings };
     match step {
-        Step::Spawn { argv, wait, cwd, .. } => {
+        Step::Spawn { argv, wait, cwd, pane, .. } => {
             let mut expanded = Vec::with_capacity(argv.len());
             for template in argv {
                 expanded.push(template.expand(&expand_ctx, false)?);
@@ -126,7 +132,18 @@ fn run_step(
                 }
                 None => PathBuf::from(&ctx.home),
             };
-            spawn(&expanded, *wait, &cwd, child_env)
+            if let (Some(op), Some(runner)) = (pane, ctx.pane_runner) {
+                // Scout stays in its pane; the command runs in a new one.
+                // Failure to open the pane is a spawn failure.
+                return runner(*op, &cwd, &expanded).map_err(|message| {
+                    tracing::warn!(%message, "pane spawn failed");
+                    FailureKind::Spawn(std::io::ErrorKind::Other)
+                });
+            }
+            // Outside tmux a pane step runs here and waits, whatever `wait`
+            // says, so its output is seen.
+            let wait = *wait || pane.is_some();
+            spawn(&expanded, wait, &cwd, child_env)
         }
         Step::BuiltinEdit => {
             let editor = builtin::resolve_editor(child_env).ok_or(FailureKind::NoEditor)?;

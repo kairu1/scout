@@ -159,3 +159,36 @@ fn piped_output_is_byte_exact_in_every_format() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `pane-run` is what tmux starts in a pane scout opened. Without a
+/// terminal it runs the command in the directory and exits with its
+/// status instead of becoming a shell, which is how it can be tested.
+#[test]
+fn pane_run_runs_the_argv_in_the_directory_and_reports_its_status() {
+    let dir = sandbox("pane-run");
+    let marker = dir.join("tree/marker");
+    let out = run(
+        &dir,
+        &[
+            "pane-run",
+            "--cwd",
+            dir.join("tree").to_str().unwrap(),
+            "--",
+            "sh",
+            "-c",
+            "pwd > marker; exit 7",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(7), "the command's own exit status");
+    let cwd = std::fs::read_to_string(&marker).expect("the command ran in --cwd");
+    assert!(cwd.trim().ends_with("/tree"), "{cwd}");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("sh: exit 7"), "{err}");
+    // A command that cannot be started reports the shell convention:
+    let out =
+        run(&dir, &["pane-run", "--cwd", dir.to_str().unwrap(), "--", "no-such-command-scout"]);
+    // 127 when the search says "not found", 126 when it says "not permitted"
+    // (some PATH entries make the OS report a failed search as EACCES).
+    assert!(matches!(out.status.code(), Some(126) | Some(127)), "{:?}", out.status.code());
+    let _ = std::fs::remove_dir_all(&dir);
+}
