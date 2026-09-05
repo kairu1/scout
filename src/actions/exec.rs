@@ -5,8 +5,6 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
-use std::time::{Duration, Instant};
 
 use rusqlite::Connection;
 
@@ -14,13 +12,7 @@ use super::failure::FailureKind;
 use super::template::ExpandCtx;
 use super::{builtin, Action, OnFailure, Step};
 use crate::platform::process;
-
-/// One credit per (path, 10 s) window, enforced here rather than in the
-/// database.
-const CREDIT_WINDOW: Duration = Duration::from_secs(10);
-
-static LAST_CREDIT: LazyLock<Mutex<HashMap<String, Instant>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+use crate::platform::time::unix_now;
 
 pub struct ActionCtx {
     /// Canonical absolute path of the selected candidate.
@@ -70,7 +62,7 @@ pub fn execute(action: &Action, ctx: &ActionCtx, visit: Option<(&Connection, i64
                     // First success wins; later steps never re-credit, and
                     // a later abort does not retract.
                     if let Some((conn, id)) = visit {
-                        credited = credit_visit(conn, id, &ctx.path);
+                        credited = credit_visit(conn, id);
                     }
                 }
             }
@@ -191,20 +183,11 @@ pub fn sanitized_process_env() -> HashMap<String, String> {
     env
 }
 
-fn credit_visit(conn: &Connection, candidate_id: i64, path: &Path) -> bool {
-    let key = path.display().to_string();
-    let mut last = LAST_CREDIT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(previous) = last.get(&key) {
-        if previous.elapsed() < CREDIT_WINDOW {
-            return false;
-        }
-    }
-    match crate::index::frecency::record_visit(conn, candidate_id) {
-        Ok(true) => {
-            last.insert(key, Instant::now());
-            true
-        }
-        Ok(false) => false,
+/// Credit the row. The ten-second window lives in the credit statement
+/// itself, so this needs no memory of its own.
+fn credit_visit(conn: &Connection, candidate_id: i64) -> bool {
+    match crate::index::frecency::record_visit(conn, candidate_id, unix_now()) {
+        Ok(credited) => credited,
         Err(err) => {
             tracing::warn!(%err, "visit credit failed");
             false

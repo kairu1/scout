@@ -14,6 +14,11 @@ use crate::Result;
 
 pub const DEFAULT_BATCH_SIZE: usize = 1000;
 
+/// Tombstoned rows are purged after this long: 26 half-lives, by which
+/// time a saturated score has decayed below one visit's worth, so
+/// nothing worth keeping is lost and the table stays bounded.
+pub const PURGE_AFTER_SECS: i64 = 182 * 86_400;
+
 #[derive(Debug, Default)]
 pub struct InsertStats {
     pub inserted: u64,
@@ -24,6 +29,10 @@ pub struct InsertStats {
     pub generation: i64,
     /// True iff the walk finished and the generation was advanced.
     pub completed: bool,
+    /// Rows present in an earlier generation that this walk did not see.
+    pub tombstoned: u64,
+    /// Tombstoned rows old enough to be removed outright.
+    pub purged: u64,
 }
 
 /// Stream `paths` into the index in batches of `batch_size`, each batch
@@ -127,8 +136,12 @@ pub fn batched_insert(
         return Ok(stats);
     }
 
+    // Advance the generation, tombstone every row the walk did not
+    // visit, and purge tombstones old enough to be worthless, all in one
+    // transaction: a reader sees either the old state or the whole new one.
     let now = unix_now();
-    conn.execute(
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
         "UPDATE run_state SET
              current_generation = :gen,
              last_complete_generation = :gen,
@@ -136,6 +149,18 @@ pub fn batched_insert(
          WHERE id = 1",
         rusqlite::named_params! { ":gen": generation, ":now": now },
     )?;
+    let tombstoned = tx.execute(
+        "UPDATE paths SET tombstoned_at = :now
+          WHERE scan_generation < :gen AND tombstoned_at IS NULL",
+        rusqlite::named_params! { ":gen": generation, ":now": now },
+    )?;
+    let purged = tx.execute(
+        "DELETE FROM paths WHERE tombstoned_at IS NOT NULL AND tombstoned_at < :cutoff",
+        rusqlite::named_params! { ":cutoff": now - PURGE_AFTER_SECS },
+    )?;
+    tx.commit()?;
+    stats.tombstoned = tombstoned as u64;
+    stats.purged = purged as u64;
     stats.completed = true;
     tracing::info!(
         generation,
@@ -143,6 +168,8 @@ pub fn batched_insert(
         skipped = stats.skipped,
         errors = stats.errors,
         batches = stats.batches,
+        tombstoned = stats.tombstoned,
+        purged = stats.purged,
         "index.walk.complete"
     );
     pacing::passive_checkpoint(conn);
