@@ -152,11 +152,17 @@ pub fn prompt(
         }
         for step in &action.steps {
             match step {
-                Step::Spawn { argv, wait, cwd } => {
+                Step::Spawn { argv, wait, cwd, pause, pane } => {
                     let argv: Vec<String> = argv.iter().map(|t| show(&t.raw)).collect();
                     write!(err, "    spawn {argv:?} wait={wait}")?;
                     if let Some(cwd) = cwd {
                         write!(err, " cwd={}", show(&cwd.raw))?;
+                    }
+                    if !pause {
+                        write!(err, " pause=false")?;
+                    }
+                    if let Some(op) = pane {
+                        write!(err, " pane={}", op.as_str())?;
                     }
                     writeln!(err)?;
                 }

@@ -25,6 +25,11 @@ pub mod terminal;
 use std::io::Stderr;
 use std::path::PathBuf;
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::Receiver;
+use std::sync::Arc;
+use std::time::Duration;
+
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -62,6 +67,10 @@ pub struct DispatchRequest {
 pub enum Outcome {
     /// Run this action on this row.
     Run(DispatchRequest),
+    /// The user asked for the last indexed root to be walked again.
+    Reindex,
+    /// A running re-index finished; the caller reloads the candidates.
+    ReindexDone(Result<crate::index::write::InsertStats, String>),
     /// The user pressed `a` at the confirm prompt: accept every unaccepted
     /// finding at `high` or above on this row, then treat the pending
     /// dispatch as approved.
@@ -77,10 +86,22 @@ pub enum Outcome {
 /// change, supplied by the caller so the picker never opens the database.
 pub type FindingsLookup<'a> = dyn Fn(i64) -> Vec<StoredFinding> + 'a;
 
+/// A re-index running on another thread, watched by the picker.
+pub struct ReindexJob {
+    pub root: String,
+    /// Rows written so far.
+    pub progress: Arc<AtomicU64>,
+    /// Delivers the writer's result when the walk ends (or is cancelled).
+    pub done: Receiver<Result<crate::index::write::InsertStats, String>>,
+}
+
 struct App<'a> {
     config: &'a Config,
-    candidates: &'a [CandidateRow],
-    index_state: &'a IndexState,
+    candidates: Vec<CandidateRow>,
+    index_state: IndexState,
+    /// Session mode: actions return here instead of ending the process.
+    session: bool,
+    reindex: Option<ReindexJob>,
     home: String,
     matcher: NucleoMatcher,
     query: String,
@@ -124,7 +145,7 @@ struct App<'a> {
 impl App<'_> {
     fn refresh(&mut self) {
         let now = crate::platform::time::unix_now();
-        self.results = search(&mut self.matcher, self.candidates, &self.query, now, RESULT_LIMIT);
+        self.results = search(&mut self.matcher, &self.candidates, &self.query, now, RESULT_LIMIT);
         if self.selected >= self.results.len() {
             self.selected = self.results.len().saturating_sub(1);
         }
@@ -327,45 +348,152 @@ impl App<'_> {
     }
 }
 
-/// Run the picker. Returns what the user chose, or `None` on quit.
+/// Run the picker once. Returns what the user chose, or `None` on quit.
 pub fn run(
     config: &Config,
-    candidates: &[CandidateRow],
-    index_state: &IndexState,
+    candidates: Vec<CandidateRow>,
+    index_state: IndexState,
     findings_lookup: &FindingsLookup<'_>,
 ) -> std::io::Result<Option<Outcome>> {
-    let mut app = App {
-        config,
-        candidates,
-        index_state,
-        home: std::env::var("HOME").unwrap_or_default(),
-        matcher: NucleoMatcher::new(),
-        query: String::new(),
-        results: Vec::new(),
-        selected: 0,
-        caret: 0,
-        menu: None,
-        action_query: String::new(),
-        capacity: DISPLAY_CAP,
-        help: false,
-        no_config_banner: config.source.is_none(),
-        applicability: None,
-        marker_set: marker_set(config),
-        notice: None,
-        findings: Vec::new(),
-        findings_lookup,
-        pending: None,
-    };
-    app.refresh();
-
-    let mut terminal = terminal::enter()?;
-    let outcome = event_loop(&mut terminal, &mut app);
-
-    // Teardown must run whatever the loop produced, including a failed
-    // disable_raw_mode, which previously took the `?` and left the user
-    // inside the alternate screen.
-    terminal::restore();
+    let mut picker = Picker::new(config, candidates, index_state, findings_lookup, false);
+    let outcome = picker.pick();
+    picker.finish();
     outcome
+}
+
+/// The picker as a long-lived thing: a session calls `next` repeatedly,
+/// suspending the terminal around each in-process action, and the query,
+/// caret, selection and pane survive in between.
+pub struct Picker<'a> {
+    app: App<'a>,
+    terminal: Option<Terminal<CrosstermBackend<Stderr>>>,
+}
+
+impl<'a> Picker<'a> {
+    pub fn new(
+        config: &'a Config,
+        candidates: Vec<CandidateRow>,
+        index_state: IndexState,
+        findings_lookup: &'a FindingsLookup<'a>,
+        session: bool,
+    ) -> Picker<'a> {
+        let mut app = App {
+            config,
+            candidates,
+            index_state,
+            session,
+            reindex: None,
+            home: std::env::var("HOME").unwrap_or_default(),
+            matcher: NucleoMatcher::new(),
+            query: String::new(),
+            results: Vec::new(),
+            selected: 0,
+            caret: 0,
+            menu: None,
+            action_query: String::new(),
+            capacity: DISPLAY_CAP,
+            help: false,
+            no_config_banner: config.source.is_none(),
+            applicability: None,
+            marker_set: marker_set(config),
+            notice: None,
+            findings: Vec::new(),
+            findings_lookup,
+            pending: None,
+        };
+        app.refresh();
+        Picker { app, terminal: None }
+    }
+
+    /// Take the terminal (if not already held) and run until the user
+    /// chooses something or quits. The terminal stays held afterwards so
+    /// the next call resumes without a flicker; `suspend` releases it.
+    pub fn pick(&mut self) -> std::io::Result<Option<Outcome>> {
+        if self.terminal.is_none() {
+            self.terminal = Some(terminal::enter()?);
+        }
+        let terminal = self.terminal.as_mut().expect("entered above");
+        let outcome = event_loop(terminal, &mut self.app);
+        if outcome.is_err() {
+            // Teardown must run whatever the loop produced, including a
+            // failed disable_raw_mode, which previously took the `?` and
+            // left the user inside the alternate screen.
+            self.suspend();
+        }
+        outcome
+    }
+
+    /// Give the terminal back to the shell (and to a child about to run
+    /// on it). `next` takes it again.
+    pub fn suspend(&mut self) {
+        if self.terminal.take().is_some() {
+            terminal::restore();
+        }
+    }
+
+    /// Leave the picker for good.
+    pub fn finish(mut self) {
+        self.suspend();
+    }
+
+    /// The index was rewritten: swap the candidate set, keep the selection
+    /// by path if it survived, and re-rank.
+    pub fn replace_candidates(&mut self, candidates: Vec<CandidateRow>, index_state: IndexState) {
+        let keep = self.app.selected_result().map(|r| r.path.clone());
+        self.app.candidates = candidates;
+        self.app.index_state = index_state;
+        self.app.refresh();
+        if let Some(path) = keep {
+            if let Some(pos) = self.app.results.iter().position(|r| r.path == path) {
+                self.app.selected = pos.min(self.app.reachable().saturating_sub(1));
+            } else {
+                self.app.selected = 0;
+            }
+        }
+        self.app.applicability = None;
+    }
+
+    /// One row's frecency changed (a credit landed): update it in place and
+    /// re-rank, cheaper than reloading 100k rows.
+    pub fn update_row(&mut self, id: i64, s_stored: f64, last_update: i64, visits_total: i64) {
+        if let Some(row) = self.app.candidates.iter_mut().find(|c| c.id == id) {
+            row.s_stored = s_stored;
+            row.last_update = last_update;
+            row.visits_total = visits_total;
+        }
+        let keep = self.app.selected_result().map(|r| r.path.clone());
+        self.app.refresh();
+        if let Some(path) = keep {
+            if let Some(pos) = self.app.results.iter().position(|r| r.path == path) {
+                self.app.selected = pos.min(self.app.reachable().saturating_sub(1));
+            }
+        }
+        // Findings and applicability may have changed underneath (a fix
+        // action re-checked the row); fetch again on the next frame.
+        self.app.applicability = None;
+    }
+
+    /// A one-frame footer message for the next frame.
+    pub fn set_notice(&mut self, notice: impl Into<String>) {
+        self.app.notice = Some(notice.into());
+    }
+
+    /// Watch a re-index started by the caller.
+    pub fn start_reindex(&mut self, job: ReindexJob) {
+        self.app.reindex = Some(job);
+    }
+}
+
+/// Stop a running re-index: trip the interrupt flag the walker and writer
+/// poll, wait for the writer to report, then clear the flag so the
+/// session can index again. The generation stays unadvanced.
+fn cancel_reindex(app: &mut App<'_>) {
+    let Some(job) = app.reindex.take() else { return };
+    crate::platform::signals::request_interrupt();
+    let _ = job.done.recv_timeout(Duration::from_secs(10));
+    crate::platform::signals::reset_interrupt();
+    app.notice =
+        Some(format!("re-index of {} cancelled; the previous index still serves", job.root));
 }
 
 /// The union of every action's `marker` list, so one probe per selection
@@ -398,6 +526,26 @@ fn event_loop(
             app.selected = app.reachable().saturating_sub(1);
         }
         terminal.draw(|frame| draw(frame, app))?;
+        // While a re-index runs, redraw on a timer so progress shows and
+        // completion is noticed without a keystroke.
+        if let Some(job) = &app.reindex {
+            match job.done.try_recv() {
+                Ok(result) => {
+                    app.reindex = None;
+                    return Ok(Some(Outcome::ReindexDone(result)));
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    app.reindex = None;
+                    return Ok(Some(Outcome::ReindexDone(Err(
+                        "the index writer stopped without reporting".into(),
+                    ))));
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+            if !event::poll(Duration::from_millis(250))? {
+                continue;
+            }
+        }
         let Event::Key(key) = event::read()? else { continue };
         // Repeat as well as Press: under the kitty protocol and Windows
         // conhost a held key reports Repeat, and dropping it killed
@@ -480,6 +628,22 @@ fn event_loop(
             if let Some(outcome) = app.confirm_or_dispatch(&name, &chord) {
                 return Ok(Some(outcome));
             }
+            continue;
+        }
+
+        // Session-only keys: re-index the last root. Esc during a re-index
+        // cancels it and stays; a second Esc leaves.
+        if app.session
+            && key.code == KeyCode::Char('r')
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            if app.reindex.is_none() {
+                return Ok(Some(Outcome::Reindex));
+            }
+            continue;
+        }
+        if key.code == KeyCode::Esc && app.reindex.is_some() {
+            cancel_reindex(app);
             continue;
         }
 
@@ -627,7 +791,7 @@ fn draw(frame: &mut ratatui::Frame, app: &mut App<'_>) {
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(CHROME))
             .title(Span::styled(
-                " scout ",
+                if app.session { " scout: session " } else { " scout " },
                 Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
             )),
         outer,
@@ -683,7 +847,7 @@ fn draw(frame: &mut ratatui::Frame, app: &mut App<'_>) {
 
     draw_footer(frame, app, footer);
     if app.help {
-        draw_help(frame);
+        draw_help(frame, app.session);
     }
 }
 
@@ -923,6 +1087,13 @@ fn draw_action_pane(frame: &mut ratatui::Frame, app: &mut App<'_>, area: Rect) {
             if let Some(binding) = a.keybinding.as_deref() {
                 spans.push(Span::styled(format!("  {binding}"), Style::default().fg(ACCENT)));
             }
+            // In a session, say which actions will end it.
+            if app.session && a.ends_session() {
+                spans.push(Span::styled(
+                    format!(" {}", glyph::EXIT_ACTION),
+                    Style::default().fg(ACCENT),
+                ));
+            }
             ListItem::new(Line::from(spans))
         })
         .collect();
@@ -934,7 +1105,7 @@ fn draw_action_pane(frame: &mut ratatui::Frame, app: &mut App<'_>, area: Rect) {
 
 /// The cheatsheet. Before it existed, `tab` was
 /// discoverable only by reading the README.
-fn draw_help(frame: &mut ratatui::Frame) {
+fn draw_help(frame: &mut ratatui::Frame, session: bool) {
     const ROWS: [(&str, &str); 9] = [
         ("type", "filter - results rank by name, then match, then frecency"),
         ("left / right", "move the cursor inside the search text"),
@@ -946,9 +1117,18 @@ fn draw_help(frame: &mut ratatui::Frame) {
         ("?", "this help"),
         ("esc", "close this, or quit"),
     ];
+    const SESSION_ROWS: [(&str, &str); 2] = [
+        ("ctrl-r", "re-index the last indexed tree without leaving"),
+        ("a", "at a finding prompt: accept the findings and run"),
+    ];
     let key = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
     let label = Style::default().fg(CHROME);
-    let lines: Vec<Line> = ROWS
+    let rows: Vec<(&str, &str)> = if session {
+        ROWS.iter().chain(SESSION_ROWS.iter()).copied().collect()
+    } else {
+        ROWS.to_vec()
+    };
+    let lines: Vec<Line> = rows
         .iter()
         .map(|(k, v)| {
             Line::from(vec![
@@ -963,7 +1143,7 @@ fn draw_help(frame: &mut ratatui::Frame) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(CHROME))
         .title(Span::styled(" keys ", Style::default().fg(CHROME)));
-    let area = centered(frame.area(), 76, ROWS.len() as u16 + 2);
+    let area = centered(frame.area(), 76, rows.len() as u16 + 2);
     frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
@@ -1088,6 +1268,14 @@ fn draw_footer(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
     if let Some(action) = app.config.enter_action() {
         spans.push(Span::styled("enter", key));
         spans.push(Span::styled(format!(" {}", strip::clean(&action.name)), label));
+        if app.session && action.ends_session() {
+            spans.push(Span::styled(format!(" {}", glyph::EXIT_ACTION), key));
+        }
+        spans.push(Span::styled(format!("  {}  ", glyph::SEPARATOR), label));
+    }
+    if app.session {
+        spans.push(Span::styled("ctrl-r", key));
+        spans.push(Span::styled(" re-index", label));
         spans.push(Span::styled(format!("  {}  ", glyph::SEPARATOR), label));
     }
     spans.push(Span::styled("tab", key));
@@ -1109,7 +1297,18 @@ fn draw_footer(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
 fn banner_text(app: &App<'_>) -> Option<(String, Style)> {
     let warn = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
     let info = Style::default().fg(CHROME);
-    match app.index_state {
+    if let Some(job) = &app.reindex {
+        return Some((
+            format!(
+                "indexing {}: {} paths so far {} esc cancels",
+                job.root,
+                job.progress.load(Ordering::Relaxed),
+                glyph::SEPARATOR
+            ),
+            info,
+        ));
+    }
+    match &app.index_state {
         IndexState::Empty => Some((
             "no paths indexed - run 'scout index <path>' to populate".into(),
             warn,
@@ -1225,8 +1424,10 @@ mod tests {
             for width in [4usize, 8, 12, 20, 40, 100] {
                 let mut app = App {
                     config: &config,
-                    candidates: &candidates,
-                    index_state: &state,
+                    candidates: candidates.clone(),
+                    index_state: state.clone(),
+                    session: false,
+                    reindex: None,
                     home: String::new(),
                     matcher: crate::search::matcher::NucleoMatcher::new(),
                     query: query.to_string(),

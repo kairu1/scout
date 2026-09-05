@@ -11,6 +11,15 @@ use clap::{Parser, Subcommand};
 struct Cli {
     #[command(subcommand)]
     command: Option<Cmd>,
+    /// Stay in the picker after an action instead of exiting. Actions that
+    /// print a command for your shell still end the session, and are
+    /// marked in the picker. `[scout] session = true` sets this by default.
+    #[arg(short = 's', long)]
+    session: bool,
+    /// Write printed commands to this file instead of stdout. The shell
+    /// wrapper passes a temporary file so that children keep stdout.
+    #[arg(long, value_name = "FILE")]
+    print_to: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -118,7 +127,7 @@ fn main() -> ExitCode {
         Some(Cmd::Query { query, limit, format, print0 }) => {
             scout::commands::query(&query, limit, &format, print0)
         }
-        None => scout::commands::picker(),
+        None => scout::commands::picker(cli.session, cli.print_to),
     };
     match result {
         Ok(code) => ExitCode::from(code),

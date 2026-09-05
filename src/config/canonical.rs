@@ -133,7 +133,7 @@ fn emit_when(out: &mut String, action: &Action) {
 
 fn emit_step(out: &mut String, step: &Step) {
     match step {
-        Step::Spawn { argv, wait, cwd } => {
+        Step::Spawn { argv, wait, cwd, pause, pane } => {
             out.push_str("{\"kind\":\"spawn\",\"argv\":[");
             for (i, element) in argv.iter().enumerate() {
                 if i > 0 {
@@ -146,6 +146,13 @@ fn emit_step(out: &mut String, step: &Step) {
             out.push_str(",\"cwd\":");
             match cwd {
                 Some(template) => json_string(out, &template.raw),
+                None => out.push_str("null"),
+            }
+            out.push_str(",\"pause\":");
+            out.push_str(if *pause { "true" } else { "false" });
+            out.push_str(",\"pane\":");
+            match pane {
+                Some(op) => json_string(out, op.as_str()),
                 None => out.push_str("null"),
             }
             out.push('}');

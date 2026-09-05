@@ -15,8 +15,42 @@ pub fn enter() -> std::io::Result<Terminal<CrosstermBackend<Stderr>>> {
     install_panic_hook();
     enable_raw_mode()?;
     let mut stderr = std::io::stderr();
+    // A child that ran on this terminal may have left attributes, mouse
+    // reporting or bracketed paste behind. Reset what can be reset before
+    // taking the screen, so the picker never inherits a child's state.
+    let _ = crossterm::execute!(
+        stderr,
+        crossterm::style::ResetColor,
+        crossterm::style::SetAttribute(crossterm::style::Attribute::Reset),
+        crossterm::event::DisableMouseCapture,
+        crossterm::event::DisableBracketedPaste,
+        crossterm::terminal::EnableLineWrap
+    );
     crossterm::execute!(stderr, EnterAlternateScreen)?;
     Terminal::new(CrosstermBackend::new(std::io::stderr()))
+}
+
+/// Wait for one key with the terminal in raw mode but on the normal
+/// screen, for the "press any key" pause after an in-process child.
+/// Returns `true` when the key was Ctrl-C, which means leave scout.
+pub fn wait_for_key() -> std::io::Result<bool> {
+    enable_raw_mode()?;
+    let ctrl_c = loop {
+        match crossterm::event::read()? {
+            crossterm::event::Event::Key(key)
+                if matches!(
+                    key.kind,
+                    crossterm::event::KeyEventKind::Press | crossterm::event::KeyEventKind::Repeat
+                ) =>
+            {
+                break key.code == crossterm::event::KeyCode::Char('c')
+                    && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL);
+            }
+            _ => continue,
+        }
+    };
+    disable_raw_mode()?;
+    Ok(ctrl_c)
 }
 
 /// Best-effort return to the user's shell: leave raw mode, show the

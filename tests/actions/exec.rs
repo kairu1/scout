@@ -10,11 +10,17 @@ use scout::actions::{execute, ActionCtx, FailureKind, OnFailure, Step};
 use crate::{action, t, temp_dir};
 
 fn spawn_step(argv: &[&str]) -> Step {
-    Step::Spawn { argv: argv.iter().map(|a| t(a)).collect(), wait: true, cwd: None }
+    Step::Spawn {
+        argv: argv.iter().map(|a| t(a)).collect(),
+        wait: true,
+        cwd: None,
+        pause: true,
+        pane: None,
+    }
 }
 
 fn ctx(path: PathBuf) -> ActionCtx {
-    ActionCtx { path, query: String::new(), home: std::env::var("HOME").unwrap() }
+    ActionCtx { path, query: String::new(), home: std::env::var("HOME").unwrap(), print_to: None }
 }
 
 fn seeded_db(dir: &Path) -> (Connection, i64) {
@@ -130,7 +136,13 @@ fn a_failed_env_step_lands_nothing_and_a_later_reference_is_undefined() {
                     ("BAD".into(), t("{env.SCOUT_TEST_UNDEFINED_VAR}")),
                 ],
             },
-            Step::Spawn { argv: vec![t("printenv"), t("{env.GOOD}")], wait: true, cwd: None },
+            Step::Spawn {
+                argv: vec![t("printenv"), t("{env.GOOD}")],
+                wait: true,
+                cwd: None,
+                pause: true,
+                pane: None,
+            },
         ],
     );
     let outcome = execute(&a, &ctx(dir.clone()), Some((&conn, id)));
@@ -154,7 +166,13 @@ fn an_env_step_reaches_spawned_children() {
         OnFailure::Abort,
         vec![
             Step::Env { set: vec![("SCOUT_TEST_VALUE".into(), t("from-scout"))] },
-            Step::Spawn { argv: vec![t("sh"), t("-c"), t(&script)], wait: true, cwd: None },
+            Step::Spawn {
+                argv: vec![t("sh"), t("-c"), t(&script)],
+                wait: true,
+                cwd: None,
+                pause: true,
+                pane: None,
+            },
         ],
     );
     let outcome = execute(&a, &ctx(dir.clone()), None);
@@ -174,8 +192,12 @@ fn the_outcome_carries_the_failure_kind() {
     fs::create_dir_all(&target).unwrap();
 
     let a = action("status", OnFailure::Abort, vec![Step::Print { format: t("cd {repo_root}") }]);
-    let ctx =
-        ActionCtx { path: target.clone(), query: String::new(), home: dir.display().to_string() };
+    let ctx = ActionCtx {
+        path: target.clone(),
+        query: String::new(),
+        home: dir.display().to_string(),
+        print_to: None,
+    };
 
     let outcome = execute(&a, &ctx, None);
     assert!(!outcome.any_success);
@@ -195,8 +217,12 @@ fn an_env_placeholder_never_falls_back_to_the_inherited_environment() {
     let dir = temp_dir("env-nofallback");
     let a =
         action("leak", OnFailure::Abort, vec![Step::Print { format: t("printf '%s' {env.PATH}") }]);
-    let ctx =
-        ActionCtx { path: dir.clone(), query: String::new(), home: dir.display().to_string() };
+    let ctx = ActionCtx {
+        path: dir.clone(),
+        query: String::new(),
+        home: dir.display().to_string(),
+        print_to: None,
+    };
 
     let outcome = execute(&a, &ctx, None);
     assert!(!outcome.any_success, "the reference must not resolve");
@@ -219,8 +245,12 @@ fn an_env_placeholder_resolves_a_binding_set_by_an_earlier_step() {
             Step::Print { format: t("printf '%s' {env.SCOUT_STEP_SET}") },
         ],
     );
-    let ctx =
-        ActionCtx { path: dir.clone(), query: String::new(), home: dir.display().to_string() };
+    let ctx = ActionCtx {
+        path: dir.clone(),
+        query: String::new(),
+        home: dir.display().to_string(),
+        print_to: None,
+    };
 
     let outcome = execute(&a, &ctx, None);
     assert!(outcome.any_success, "failure: {:?}", outcome.failure);
@@ -244,10 +274,16 @@ fn a_spawned_child_still_inherits_the_process_environment() {
             ],
             wait: true,
             cwd: None,
+            pause: true,
+            pane: None,
         }],
     );
-    let ctx =
-        ActionCtx { path: dir.clone(), query: String::new(), home: dir.display().to_string() };
+    let ctx = ActionCtx {
+        path: dir.clone(),
+        query: String::new(),
+        home: dir.display().to_string(),
+        print_to: None,
+    };
 
     let outcome = execute(&a, &ctx, None);
     assert!(outcome.any_success, "failure: {:?}", outcome.failure);
@@ -274,14 +310,43 @@ fn an_env_step_exports_to_later_children() {
                 ],
                 wait: true,
                 cwd: None,
+                pause: true,
+                pane: None,
             },
         ],
     );
-    let ctx =
-        ActionCtx { path: dir.clone(), query: String::new(), home: dir.display().to_string() };
+    let ctx = ActionCtx {
+        path: dir.clone(),
+        query: String::new(),
+        home: dir.display().to_string(),
+        print_to: None,
+    };
 
     let outcome = execute(&a, &ctx, None);
     assert!(outcome.any_success, "failure: {:?}", outcome.failure);
     assert!(marker.exists(), "the env step did not reach the child");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// With `print_to` set, a print step writes to the file and nothing to
+/// stdout, which is what lets a session's children keep stdout.
+#[test]
+fn print_steps_go_to_the_print_to_file_when_one_is_given() {
+    let dir = temp_dir("print-to");
+    let sink = dir.join("commands");
+    let a = action("go", OnFailure::Abort, vec![Step::Print { format: t("cd {path}") }]);
+    let ctx = ActionCtx {
+        path: dir.clone(),
+        query: String::new(),
+        home: dir.display().to_string(),
+        print_to: Some(sink.clone()),
+    };
+    let outcome = execute(&a, &ctx, None);
+    assert!(outcome.any_success, "{:?}", outcome.failure);
+    let written = fs::read_to_string(&sink).unwrap();
+    assert_eq!(written, format!("cd '{}'\n", dir.display()));
+    // A second print appends: the wrapper reads the file whole.
+    execute(&a, &ctx, None);
+    assert_eq!(fs::read_to_string(&sink).unwrap().lines().count(), 2);
     fs::remove_dir_all(&dir).unwrap();
 }

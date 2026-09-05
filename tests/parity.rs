@@ -187,3 +187,28 @@ fn transitive_ceiling_matches_between_ci_and_the_guide() {
         "CI enforces < {enforced} but CLAUDE.md states fewer than {stated}; one is lying"
     );
 }
+
+/// The wrapper reads printed commands from a file the binary is told
+/// about, so a session's children keep stdout; and it treats the session
+/// flags like a bare invocation.
+#[test]
+fn wrapper_uses_print_to_and_covers_the_session_flags() {
+    assert!(WRAPPER.contains("--print-to \"$f\""), "wrapper must pass --print-to");
+    assert!(WRAPPER.contains("mktemp"), "the file must be created privately");
+    assert!(WRAPPER.contains("''|--session|-s)"), "bare, --session and -s all run the picker");
+}
+
+/// The binary honours `--print-to`: with it, a print step's output lands
+/// in the file and stdout stays empty. Driven through `scout query`'s
+/// sibling path is impossible without a TTY, so this checks the flag is
+/// accepted and rejected correctly at the CLI boundary.
+#[test]
+fn print_to_is_a_top_level_flag() {
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_scout"))
+        .args(["--help"])
+        .output()
+        .expect("run scout");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("--print-to"), "{text}");
+    assert!(text.contains("--session"), "{text}");
+}

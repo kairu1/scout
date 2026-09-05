@@ -72,6 +72,11 @@ pub const KIND_FILE: char = ' ';
 /// width tables say.
 pub const FINDING: char = '\u{2762}'; // ❢
 
+/// Marks an action that ends a session because it prints a command for
+/// the shell to run after scout has gone. U+23CE RETURN SYMBOL: one column
+/// everywhere and no emoji-presentation variant (unlike U+21A9).
+pub const EXIT_ACTION: char = '\u{23CE}'; // ⏎
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,6 +104,7 @@ mod tests {
             ("KIND_DIR", KIND_DIR.to_string()),
             ("KIND_FILE", KIND_FILE.to_string()),
             ("FINDING", FINDING.to_string()),
+            ("EXIT_ACTION", EXIT_ACTION.to_string()),
         ];
         for (name, text) in &sources {
             for c in text.chars() {

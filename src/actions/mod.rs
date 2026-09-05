@@ -23,6 +23,7 @@ pub use exec::{execute, sanitized_process_env, ActionCtx, ExecOutcome};
 pub use failure::{FailureKind, Hint};
 pub use template::Template;
 pub use when::{Applicability, Kind, When};
+pub use PaneOp as Pane;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OnFailure {
@@ -39,12 +40,47 @@ impl OnFailure {
     }
 }
 
+/// Where a `spawn` step runs when scout is inside tmux: a new pane or
+/// window at the selection, with scout staying in its own pane. Outside
+/// tmux the step runs in-process instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneOp {
+    SplitRight,
+    SplitDown,
+    NewWindow,
+}
+
+impl PaneOp {
+    pub fn parse(name: &str) -> Option<PaneOp> {
+        match name {
+            "split-right" => Some(PaneOp::SplitRight),
+            "split-down" => Some(PaneOp::SplitDown),
+            "new-window" => Some(PaneOp::NewWindow),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PaneOp::SplitRight => "split-right",
+            PaneOp::SplitDown => "split-down",
+            PaneOp::NewWindow => "new-window",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Step {
     Spawn {
         argv: Vec<Template>,
         wait: bool,
         cwd: Option<Template>,
+        /// In session mode, after a waited child exits, hold the screen
+        /// with a status line until a key is pressed. Default true; an
+        /// editor action sets it false. Meaningless outside a session.
+        pause: bool,
+        /// Run in a tmux pane or window instead of in-process.
+        pane: Option<PaneOp>,
     },
     Print {
         format: Template,
@@ -79,5 +115,21 @@ impl Action {
     /// applicability.
     pub fn applies(&self, a: &Applicability) -> bool {
         self.when.as_ref().is_none_or(|w| w.applies(a))
+    }
+
+    /// An action with a `print` step only works after scout has gone (the
+    /// wrapper evals what it printed), so it ends a session. Everything
+    /// else returns to the picker.
+    pub fn ends_session(&self) -> bool {
+        self.steps.iter().any(|s| matches!(s, Step::Print { .. }))
+    }
+
+    /// Whether running this action in a session should hold the screen
+    /// afterwards: some waited child asked for a pause, or the built-in
+    /// editor ran (which never pauses).
+    pub fn pauses(&self) -> bool {
+        self.steps
+            .iter()
+            .any(|s| matches!(s, Step::Spawn { wait: true, pause: true, pane: None, .. }))
     }
 }

@@ -44,7 +44,7 @@ fn one_hundred_thousand_paths_index_with_recon_under_budget() {
     assert!(stats.completed);
 
     let with_recon = std::time::Instant::now();
-    let options = WriteOptions { batch_size: 1000, root: Some(&tree), recon: true };
+    let options = WriteOptions { batch_size: 1000, root: Some(&tree), recon: true, progress: None };
     let stats =
         batched_insert_with(&mut conn, walk(&WalkConfig::new(tree.clone())), &options).unwrap();
     let with_recon = with_recon.elapsed();

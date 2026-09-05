@@ -12,7 +12,7 @@ use serde::Deserialize;
 use super::trust::{TrustStatus, TrustStore};
 use super::{canonical, merge_with_defaults, trust, Config};
 use crate::actions::template::is_posix_env_name;
-use crate::actions::{Action, Kind, OnFailure, Step, Template, When};
+use crate::actions::{Action, Kind, OnFailure, PaneOp, Step, Template, When};
 use crate::platform::fs as pfs;
 use crate::{Error, Result};
 
@@ -454,7 +454,7 @@ fn validate_step(
         .ok_or_else(|| bad("missing string field `kind`".into()))?;
 
     let allowed: &[&str] = match kind {
-        "spawn" => &["kind", "argv", "wait", "cwd"],
+        "spawn" => &["kind", "argv", "wait", "cwd", "pause", "pane"],
         "print" => &["kind", "format"],
         "env" => &["kind", "set"],
         other => return Err(bad(format!("unknown step kind `{other}` (want spawn|print|env)"))),
@@ -491,7 +491,29 @@ fn validate_step(
                 Some(toml::Value::String(s)) => Some(parse_template("cwd", s)?),
                 Some(_) => return Err(bad("`cwd` must be a string".into())),
             };
-            Ok(Step::Spawn { argv, wait, cwd })
+            let pause = match table.get("pause") {
+                None => true,
+                Some(toml::Value::Boolean(b)) => *b,
+                Some(_) => return Err(bad("`pause` must be a boolean".into())),
+            };
+            let pane = match table.get("pane") {
+                None => None,
+                Some(toml::Value::String(s)) => Some(PaneOp::parse(s).ok_or_else(|| {
+                    bad(format!("pane `{s}` (want split-right|split-down|new-window)"))
+                })?),
+                Some(_) => return Err(bad("`pane` must be a string".into())),
+            };
+            if pane.is_some() {
+                // A pane is not waited for and cannot pause: scout stays
+                // in its own pane while the command runs in the new one.
+                if table.get("wait").is_some_and(|w| w.as_bool() == Some(true)) {
+                    return Err(bad("`pane` cannot be combined with `wait = true`".into()));
+                }
+                if table.get("pause").is_some() {
+                    return Err(bad("`pane` cannot be combined with `pause`".into()));
+                }
+            }
+            Ok(Step::Spawn { argv, wait, cwd, pause, pane })
         }
         "print" => {
             let format = table

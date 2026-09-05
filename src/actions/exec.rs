@@ -20,6 +20,10 @@ pub struct ActionCtx {
     /// Query buffer at dispatch time (may be empty, which is valid).
     pub query: String,
     pub home: String,
+    /// Where `print` steps write. `None` is stdout, the one-shot contract
+    /// `eval "$(scout)"` relies on; the wrapper passes a file so that a
+    /// session's children keep stdout for themselves.
+    pub print_to: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -103,7 +107,7 @@ fn run_step(
     let expand_ctx =
         ExpandCtx { path: &ctx.path, query: &ctx.query, home: &ctx.home, env: bindings };
     match step {
-        Step::Spawn { argv, wait, cwd } => {
+        Step::Spawn { argv, wait, cwd, .. } => {
             let mut expanded = Vec::with_capacity(argv.len());
             for template in argv {
                 expanded.push(template.expand(&expand_ctx, false)?);
@@ -131,11 +135,25 @@ fn run_step(
         }
         Step::Print { format } => {
             let line = format.expand(&expand_ctx, true)?;
-            let mut out = std::io::stdout().lock();
-            out.write_all(line.as_bytes())
-                .and_then(|_| out.write_all(b"\n"))
-                .and_then(|_| out.flush())
-                .map_err(|_| FailureKind::PrintWrite)
+            match &ctx.print_to {
+                Some(file) => {
+                    let mut out = std::fs::OpenOptions::new()
+                        .append(true)
+                        .create(true)
+                        .open(file)
+                        .map_err(|_| FailureKind::PrintWrite)?;
+                    out.write_all(line.as_bytes())
+                        .and_then(|_| out.write_all(b"\n"))
+                        .map_err(|_| FailureKind::PrintWrite)
+                }
+                None => {
+                    let mut out = std::io::stdout().lock();
+                    out.write_all(line.as_bytes())
+                        .and_then(|_| out.write_all(b"\n"))
+                        .and_then(|_| out.flush())
+                        .map_err(|_| FailureKind::PrintWrite)
+                }
+            }
         }
         Step::Env { set } => {
             // All-or-nothing: evaluate every value before any binding lands.

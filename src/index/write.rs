@@ -3,6 +3,8 @@
 //! are explicit and yield to live queries.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use rusqlite::Connection;
 
@@ -46,6 +48,8 @@ pub struct WriteOptions<'a> {
     pub root: Option<&'a Path>,
     /// Run the stat-only recon checks on every path as it is written.
     pub recon: bool,
+    /// Rows written so far, bumped once per batch, for a live display.
+    pub progress: Option<Arc<AtomicU64>>,
 }
 
 /// Stream `paths` into the index in batches of `batch_size`, each batch
@@ -57,7 +61,11 @@ pub fn batched_insert(
     paths: impl Iterator<Item = PathBuf>,
     batch_size: usize,
 ) -> Result<InsertStats> {
-    batched_insert_with(conn, paths, &WriteOptions { batch_size, root: None, recon: false })
+    batched_insert_with(
+        conn,
+        paths,
+        &WriteOptions { batch_size, root: None, recon: false, progress: None },
+    )
 }
 
 /// `batched_insert` with the full set of options.
@@ -165,6 +173,9 @@ pub fn batched_insert_with(
         }
         tx.commit()?;
         stats.batches += 1;
+        if let Some(progress) = &options.progress {
+            progress.store(stats.inserted, Ordering::Relaxed);
+        }
 
         // Keep the WAL bounded: an explicit passive checkpoint, gated on
         // query quiet time.

@@ -77,11 +77,11 @@ fn the_canonical_projection_is_byte_stable_for_the_documented_example() {
     let expected = concat!(
         "[{\"name\":\"edit\",\"keybinding\":\"enter\",\"on_failure\":\"abort\",",
         "\"unsafe_shell_template\":false,\"steps\":[{\"kind\":\"spawn\",",
-        "\"argv\":[\"subl\",\"{path}\"],\"wait\":true,\"cwd\":null}],\"when\":null},\n",
+        "\"argv\":[\"subl\",\"{path}\"],\"wait\":true,\"cwd\":null,\"pause\":true,\"pane\":null}],\"when\":null},\n",
         "{\"name\":\"open-term\",\"keybinding\":null,\"on_failure\":\"abort\",",
         "\"unsafe_shell_template\":false,\"steps\":[{\"kind\":\"spawn\",",
         "\"argv\":[\"alacritty\",\"--working-directory\",\"{path}\"],",
-        "\"wait\":false,\"cwd\":null}],\"when\":null}]\n",
+        "\"wait\":false,\"cwd\":null,\"pause\":true,\"pane\":null}],\"when\":null}]\n",
         "{\"keys\":{}}\n",
     );
     assert_eq!(canonical::projection(&user_actions, &keys), expected);
@@ -169,6 +169,23 @@ fn the_loader_refuses_each_invalid_shape_and_names_it() {
         (
             "schema_version = 2\n[[action]]\nname = \"a\"\nwhen = { finding = \"World Writable\" }\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
             "check name",
+        ),
+        // session fields: a pane is neither waited for nor paused
+        (
+            "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"spawn\", argv = [\"x\"], pane = \"split-right\", wait = true } ]\n",
+            "`pane` cannot be combined with `wait = true`",
+        ),
+        (
+            "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"spawn\", argv = [\"x\"], pane = \"split-right\", pause = false } ]\n",
+            "`pane` cannot be combined with `pause`",
+        ),
+        (
+            "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"spawn\", argv = [\"x\"], pane = \"sideways\" } ]\n",
+            "split-right|split-down|new-window",
+        ),
+        (
+            "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"spawn\", argv = [\"x\"], pause = \"no\" } ]\n",
+            "`pause` must be a boolean",
         ),
         (
             "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"print\", format = \"{pat}\" } ]\n",
@@ -429,5 +446,43 @@ fn a_when_clause_parses_into_the_action() {
     assert_eq!(when.glob.as_deref(), Some("~/w/**"));
     assert_eq!(when.finding.as_deref(), Some("suid"));
     assert!(config.actions.iter().find(|a| a.name == "any").unwrap().when.is_none());
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// `pause` defaults on for a waited child and can be switched off; `pane`
+/// parses to its operation and drops the wait.
+#[test]
+fn session_step_fields_parse() {
+    use scout::actions::{PaneOp, Step};
+    let dir = temp_dir("session-fields");
+    let config = load_pretrusted(
+        &dir,
+        "schema_version = 2\n[[action]]\nname = \"edit\"\nsteps = [ { kind = \"spawn\", argv = [\"vi\", \"{path}\"], pause = false } ]\n\n[[action]]\nname = \"serve\"\nsteps = [ { kind = \"spawn\", argv = [\"npm\", \"start\"], pane = \"split-right\" } ]\n\n[[action]]\nname = \"test\"\nsteps = [ { kind = \"spawn\", argv = [\"make\", \"test\"] } ]\n\n[[action]]\nname = \"go\"\nsteps = [ { kind = \"print\", format = \"cd {path}\" } ]\n",
+    )
+    .unwrap();
+    let by = |name: &str| config.actions.iter().find(|a| a.name == name).unwrap();
+    match &by("edit").steps[0] {
+        Step::Spawn { pause, pane, wait, .. } => {
+            assert!(!pause);
+            assert!(pane.is_none());
+            assert!(wait);
+        }
+        other => panic!("{other:?}"),
+    }
+    match &by("serve").steps[0] {
+        Step::Spawn { pane, .. } => assert_eq!(*pane, Some(PaneOp::SplitRight)),
+        other => panic!("{other:?}"),
+    }
+    match &by("test").steps[0] {
+        Step::Spawn { pause, .. } => assert!(pause, "pause defaults on"),
+        other => panic!("{other:?}"),
+    }
+    // Session classification: only a print step ends the session; only a
+    // waited, pausing, in-process spawn pauses.
+    assert!(by("go").ends_session());
+    assert!(!by("test").ends_session());
+    assert!(by("test").pauses());
+    assert!(!by("edit").pauses(), "an editor owned the screen; nothing to read afterwards");
+    assert!(!by("serve").pauses(), "a pane is not waited for");
     fs::remove_dir_all(&dir).unwrap();
 }
