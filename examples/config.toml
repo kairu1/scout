@@ -1,73 +1,67 @@
-# scout reference config (schema: docs/configuration.md).
+# scout reference config (schema 2; the full reference is docs/configuration.md).
 #
 # Copy to $XDG_CONFIG_HOME/scout/config.toml (usually
-# ~/.config/scout/config.toml) — the installer deliberately never does
-# this for you: the first interactive launch shows a trust prompt for
-# exactly what these actions run, and you consent with `y`. Every later
-# edit re-prompts, because the file is hashed.
+# ~/.config/scout/config.toml). The installer deliberately never does this
+# for you: the first interactive launch shows a trust prompt for exactly
+# what these actions run, and you consent with `y`. Every later edit
+# re-prompts, because the file is hashed.
 #
 # ---------------------------------------------------------------------
-# THE ONE RULE THAT SHAPES EVERYTHING BELOW
+# TWO SHAPES OF ACTION
 # ---------------------------------------------------------------------
-# scout cannot change your shell's directory — no child process can. So
-# actions PRINT a command on stdout and the wrapper function
-# (shell/scout.bash) evals it in your shell.
+# `print` steps PRINT a command and the shell wrapper (shell/scout.bash)
+# evals it in your shell after scout has exited. That is how `cd` works:
+# no child process can change its parent's directory. The wrapper only
+# evals lines that start with `cd `, `printf `, `${EDITOR` or `${VISUAL`;
+# anything else is shown, never run. A print action always ends scout.
 #
-# The wrapper only evals lines that START WITH `cd `, `printf `,
-# `${EDITOR` or `${VISUAL`. Anything else is shown, never run.
-#
-# That is why almost every useful action below begins `cd {path} && ...`.
-# It is not a workaround: it is the shape that lets an action run *in the
-# right directory, in your shell*, which is the whole point.
-#
-# Because the eval happens AFTER scout exits, interactive programs work
-# normally — an editor or a pager opened this way owns the terminal.
+# `spawn` steps run a program directly, with an argv, no shell. In session
+# mode (`scout --session`, or `[scout] session = true` below) a spawned
+# program gets the terminal for its lifetime and scout returns to the
+# picker afterwards, so you can run one project's tests and then start
+# another's server without leaving. Inside tmux a spawn step with
+# `pane = "split-right"` runs in a new pane and scout stays in its own.
 #
 # Placeholders: {path} {parent} {name} {ext} {repo_root} {home} {query}
-# and {env.VAR} — where VAR must have been set by an earlier `env` step
-# in the SAME action. It is not your shell's environment: to use a shell
-# variable, write it in the printed command and let your shell expand
-# it. Every one is quoted at the print seam, so a directory called
-# `proj $(rm -rf ~)` is a filename, not an instruction.
+# and {env.VAR} (VAR set by an earlier `env` step in the SAME action; never
+# your shell's environment). Every placeholder is single-quoted at the print
+# seam, so a directory called `proj $(rm -rf ~)` is a filename, not an
+# instruction. In a `spawn` argv a placeholder must be a whole element.
 #
-# That quoting is what makes an untrusted filename safe, so a template
-# that needs a placeholder to expand UNQUOTED — to build a command line
-# out of one — is refused unless the action opts out explicitly with
-# `unsafe_shell_template = true`. Setting it means you have read the
-# template and accepted that a hostile filename becomes shell syntax.
-# No action below needs it.
-#
-# `enter` runs the default action. An action can also claim its own
-# chord — `alt-<letter>` or `ctrl-<letter>` — and fire straight from the
-# picker. `tab` is reserved for the action pane, which is how
-# every action without a chord is reached, and `ctrl-c` belongs to the
-# picker; both are refused at load rather than silently shadowed. Plain
-# letters go into the search field, which is why the chords below are
-# all `alt-`.
+# `when = { ... }` limits where an action is offered: `kind` (repo|dir|file),
+# `marker` (a file at the selection or its repo root), `ext`, `glob`, or a
+# recon `finding`. Keys are ANDed. An action without `when` is offered
+# everywhere. Chords are `alt-<letter>` or `ctrl-<letter>`; `tab` opens the
+# action pane and `ctrl-c` quits, so neither can be bound.
 #
 # ---------------------------------------------------------------------
 # WHAT THIS FILE IS, AND WHAT IT IS NOT
 # ---------------------------------------------------------------------
-# This is a PORTABLE reference. It names only tools you can expect
-# almost anywhere: a POSIX shell, `ls`, `grep`, `find`, `git`, `printf`.
-# It deliberately does not name the faster or nicer tool you may have —
-# a better grep, a better lister, your language's test runner, whatever
-# launches your terminal multiplexer.
+# A PORTABLE reference. The general actions name only tools that exist
+# almost everywhere (a POSIX shell, ls, grep, find, git, printf). Each
+# ecosystem section names only that ecosystem's own tool and is offered
+# only where its marker file exists. Copy this file once, then edit it into
+# something machine-specific and keep that in your dotfiles.
 #
-# Your own config is the opposite, and should be: it only ever runs on
-# your machine, so name whatever you actually have. The intended
-# workflow is to copy this file once, then edit it into something
-# machine-specific and keep that in your dotfiles.
-#
-# Two lines below name a program this file cannot know you have:
-#
-#   * `${EDITOR:-micro}` — the fallback after the colon fires only when
-#     $EDITOR is unset. Change `micro` to whatever your machine has, or
-#     export EDITOR and the fallback never runs.
-#   * the `copy-path` action — it tries the three common clipboard tools
-#     and then falls back to asking the terminal itself. See its comment.
+# One line names a program this file cannot know you have:
+# `${EDITOR:-micro}` falls back to `micro` when $EDITOR is unset.
 
 schema_version = 2
+
+# [scout]
+# session = true          # stay in the picker after every action by default
+
+# [keys]                  # pane operations (inside tmux) and re-index; all optional
+# split-right = "alt-right"
+# split-down  = "alt-down"
+# new-window  = "alt-w"
+# focus-left  = "alt-shift-left"
+# focus-right = "alt-shift-right"
+# focus-up    = "alt-shift-up"
+# focus-down  = "alt-shift-down"
+# close-pane  = "alt-x"
+# zoom        = "alt-z"
+# reindex     = "ctrl-r"
 
 # --- navigation -------------------------------------------------------
 
@@ -79,8 +73,9 @@ steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}" } ]
 
 [[action]]
 name = "root"
-description = "cd to the repository root, not the file's directory (git repos only)"
+description = "cd to the repository root (git repos only)"
 keybinding = "alt-r"
+when = { kind = "repo" }
 steps = [ { kind = "print", format = "cd {repo_root}" } ]
 
 [[action]]
@@ -99,55 +94,40 @@ steps = [ { kind = "print", format = "${{EDITOR:-micro}} {path}" } ]
 
 [[action]]
 name = "edit-here"
-description = "cd to the selection, then open it — leaves you in the project"
+description = "cd to the selection, then open it; leaves you in the project"
 steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; ${{EDITOR:-micro}} ." } ]
-
-[[action]]
-name = "edit-repo"
-description = "Open the whole repository (git repos only) — use edit-here otherwise"
-steps = [ { kind = "print", format = "cd {repo_root} && ${{EDITOR:-micro}} ." } ]
 
 # --- git --------------------------------------------------------------
 #
 # {repo_root} walks up from the selection looking for a `.git` entry, so
-# these work whether you selected the repository or a file three levels
-# inside it.
-#
-# If the selection has no `.git` anywhere above it, {repo_root} has
-# nothing to resolve to and the action FAILS, naming what to do instead.
-# That is deliberate — silently falling back to the plain directory
-# would run `git status` somewhere you did not ask for. Every action
-# that needs a repository marks the requirement in its description,
-# because the action pane shows descriptions and that is where you
-# choose.
+# these work whether you selected the repository or a file inside it. The
+# `.git` marker keeps them off the pane outside a repository.
 
 [[action]]
 name = "status"
-description = "git status, short form, at the repository root (git repos only)"
+description = "git status, short form, at the repository root"
 keybinding = "alt-s"
+when = { marker = ".git" }
 steps = [ { kind = "print", format = "cd {repo_root} && git status -sb" } ]
 
 [[action]]
 name = "log"
-description = "Last 20 commits as a graph (git repos only)"
+description = "Last 20 commits as a graph"
 keybinding = "alt-l"
+when = { marker = ".git" }
 steps = [ { kind = "print", format = "cd {repo_root} && git log --oneline --graph -20" } ]
 
 [[action]]
 name = "diff"
-description = "Uncommitted changes (git repos only)"
+description = "Uncommitted changes"
 keybinding = "alt-d"
+when = { marker = ".git" }
 steps = [ { kind = "print", format = "cd {repo_root} && git diff" } ]
 
 # --- search -----------------------------------------------------------
 #
-# {query} is what you typed in the picker — quoted, so it is an argument
-# to the search tool and never a second command.
-#
-# These use `grep` and `find` because every machine has them. If you
-# have a faster searcher, this is the first place to edit: swap the body
-# after the `;` and keep the `cd` prefix, which is what the wrapper
-# checks.
+# {query} is what you typed in the picker: quoted, so it is an argument to
+# the search tool and never a second command.
 
 [[action]]
 name = "grep"
@@ -159,19 +139,7 @@ steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; grep
 name = "files"
 description = "List files under the selection whose name matches what you typed"
 keybinding = "alt-f"
-# `find ... | grep -i` rather than `find -iname {query}`: every
-# placeholder is quoted at the print seam, so `-iname {query}` becomes
-# `-iname 'thing'` — an EXACT name match that finds nothing for a
-# partial query. Piping through grep keeps the substring behaviour a
-# picker user expects, and needs no glob-splicing to get it.
 steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; find . -path ./.git -prune -o -type f -print | grep -i {query} | head -60" } ]
-
-# --- terminal multiplexer --------------------------------------------
-
-[[action]]
-name = "tmux"
-description = "Open a tmux window in the selection (only works inside tmux)"
-steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; tmux new-window -c {path}" } ]
 
 # --- plumbing ---------------------------------------------------------
 
@@ -185,38 +153,130 @@ steps = [ { kind = "print", format = "printf '%s\\n' {path}" } ]
 name = "copy-path"
 description = "Copy the path to the clipboard"
 keybinding = "alt-y"
-# scout has no clipboard of its own by design (no clipboard crate),
-# so this hands off. The chain tries Wayland, then X11, then macOS, and
-# finally OSC 52 — a terminal escape that asks the TERMINAL EMULATOR to
-# do the copying, which needs no tool installed at all. That last link
-# is what makes this work on a machine with no clipboard utility;
-# support is common (kitty, wezterm, iTerm2, foot, Windows Terminal),
-# and inside tmux it additionally needs `set -g set-clipboard on`.
-#
-# `\033`/`\007` are written as literal backslash escapes for printf to
-# expand, so there are no control bytes in this file.
+# scout has no clipboard of its own. This tries Wayland, then X11, then
+# macOS, and finally OSC 52, a terminal escape that asks the terminal
+# emulator itself to copy; inside tmux that needs `set -g set-clipboard on`.
 steps = [ { kind = "print", format = "printf '%s' {path} | ( wl-copy || xclip -selection clipboard || pbcopy || printf '\\033]52;c;%s\\007' \"$(printf '%s' {path} | base64 -w0)\" ) 2>/dev/null" } ]
 
-# --- patterns worth copying, but not shippable ------------------------
+# --- rust -------------------------------------------------------------
 #
-# These are left commented because they name a tool this file cannot
-# assume. Uncomment and adapt in YOUR config — the shape is the useful
-# part.
+# Spawn actions: run directly, no shell. In a session they return you to
+# the picker; `pane = "split-right"` runs in a tmux pane when inside tmux
+# and falls back to running here otherwise.
+
+[[action]]
+name = "cargo-test"
+description = "cargo test at the repository root"
+keybinding = "alt-t"
+when = { marker = "Cargo.toml" }
+steps = [ { kind = "spawn", argv = ["cargo", "test"], cwd = "{repo_root}" } ]
+
+[[action]]
+name = "cargo-check"
+description = "cargo check at the repository root"
+when = { marker = "Cargo.toml" }
+steps = [ { kind = "spawn", argv = ["cargo", "check"], cwd = "{repo_root}" } ]
+
+[[action]]
+name = "cargo-run"
+description = "cargo run in a tmux split"
+when = { marker = "Cargo.toml" }
+steps = [ { kind = "spawn", argv = ["cargo", "run"], cwd = "{repo_root}", pane = "split-right" } ]
+
+# --- node -------------------------------------------------------------
+
+[[action]]
+name = "npm-test"
+description = "npm test at the package root"
+keybinding = "alt-n"
+when = { marker = "package.json" }
+steps = [ { kind = "spawn", argv = ["npm", "test"], cwd = "{repo_root}" } ]
+
+[[action]]
+name = "npm-dev"
+description = "npm run dev in a tmux split"
+when = { marker = "package.json" }
+steps = [ { kind = "spawn", argv = ["npm", "run", "dev"], cwd = "{repo_root}", pane = "split-right" } ]
+
+# --- python -----------------------------------------------------------
+
+[[action]]
+name = "pytest"
+description = "python -m pytest at the project root"
+keybinding = "alt-i"
+when = { marker = "pyproject.toml" }
+steps = [ { kind = "spawn", argv = ["python3", "-m", "pytest"], cwd = "{repo_root}" } ]
+
+# --- go ---------------------------------------------------------------
+
+[[action]]
+name = "go-test"
+description = "go test ./... at the module root"
+keybinding = "alt-o"
+when = { marker = "go.mod" }
+steps = [ { kind = "spawn", argv = ["go", "test", "./..."], cwd = "{repo_root}" } ]
+
+[[action]]
+name = "go-build"
+description = "go build ./... at the module root"
+when = { marker = "go.mod" }
+steps = [ { kind = "spawn", argv = ["go", "build", "./..."], cwd = "{repo_root}" } ]
+
+# --- make and just ----------------------------------------------------
+
+[[action]]
+name = "make"
+description = "make, the default target, at the repository root"
+keybinding = "alt-m"
+when = { marker = ["Makefile", "GNUmakefile"] }
+steps = [ { kind = "spawn", argv = ["make"], cwd = "{repo_root}" } ]
+
+[[action]]
+name = "make-test"
+description = "make test at the repository root"
+when = { marker = ["Makefile", "GNUmakefile"] }
+steps = [ { kind = "spawn", argv = ["make", "test"], cwd = "{repo_root}" } ]
+
+[[action]]
+name = "just"
+description = "just, the default recipe, at the repository root"
+keybinding = "alt-j"
+when = { marker = "justfile" }
+steps = [ { kind = "spawn", argv = ["just"], cwd = "{repo_root}" } ]
+
+# --- recon fixes ------------------------------------------------------
 #
-# Run your project's tests at the repository root:
-#
-# [[action]]
-# name = "test"
-# keybinding = "alt-t"
-# description = "Run the project's tests at the repository root"
-# steps = [ { kind = "print", format = "cd {repo_root} && make test" } ]
-#
-# Open a tool that takes a directory — a REPL, a notebook server, an
-# agent, a file manager. Because the eval runs after scout exits, an
-# interactive program launched this way owns the terminal normally:
-#
-# [[action]]
-# name = "shell-here"
-# keybinding = "alt-i"
-# description = "Start an interactive shell in the selection"
-# steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; $SHELL" } ]
+# Offered only on a row where `scout recon` found the matching problem.
+# Recon itself never changes anything; these are the fixes, run only when
+# you choose one, and shown in the trust prompt like every other action.
+# They run `chmod` on the path scout inspected, never through a link.
+
+[[action]]
+name = "fix-private"
+description = "chmod 600: only you can read or write this credential file"
+when = { finding = "secret-exposed" }
+steps = [ { kind = "spawn", argv = ["chmod", "600", "{path}"], pause = false } ]
+
+[[action]]
+name = "fix-no-world-write-dir"
+description = "chmod o-w: stop everyone else adding files here"
+when = { finding = "world-writable-dir" }
+steps = [ { kind = "spawn", argv = ["chmod", "o-w", "{path}"], pause = false } ]
+
+[[action]]
+name = "fix-no-world-write-file"
+description = "chmod o-w: stop everyone else rewriting this file"
+when = { finding = "world-writable-file" }
+steps = [ { kind = "spawn", argv = ["chmod", "o-w", "{path}"], pause = false } ]
+
+[[action]]
+name = "fix-no-suid"
+description = "chmod u-s: this file no longer runs as its owner"
+when = { finding = "suid" }
+steps = [ { kind = "spawn", argv = ["chmod", "u-s", "{path}"], pause = false } ]
+
+[[action]]
+name = "fix-no-sgid"
+description = "chmod g-s: this file no longer runs with its group"
+when = { finding = "sgid-file" }
+steps = [ { kind = "spawn", argv = ["chmod", "g-s", "{path}"], pause = false } ]

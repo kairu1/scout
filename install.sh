@@ -34,10 +34,11 @@ cat <<MSG
 next steps:
   1. shell integration (makes Enter cd your shell):
        echo 'source $here/shell/scout.bash' >> ~/.bashrc
-  2. config (optional — built-in defaults work without one):
+  2. config (optional; built-in defaults work without one):
        mkdir -p ~/.config/scout
        cp $here/examples/config.toml ~/.config/scout/config.toml
      first launch will show a trust prompt for these actions; answer y.
-  3. index something:
+  3. index something, then look at it:
        scout index ~/projects
+       scout recon
 MSG

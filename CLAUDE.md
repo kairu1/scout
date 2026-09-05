@@ -67,7 +67,13 @@ cargo deny check
 cargo audit
 cargo tree --prefix none | sed 's/ .*//' | sort -u | wc -l   # fewer than 150
 cargo test --locked --release --test index -- --ignored      # 100k-path gate
+cargo test --test tmux -- --ignored                          # tmux end-to-end, needs tmux
 ```
+
+The reference config's trust hash is pinned in `tests/parity.rs`; a
+change to `examples/config.toml` or to the canonical projection is a
+deliberate edit to that literal, and a projection change also bumps the
+header in `src/config/canonical.rs` so every user re-approves once.
 
 The musl cross-compile smoke for x86_64 and aarch64 runs in CI. Every
 CI job carries `timeout-minutes`.

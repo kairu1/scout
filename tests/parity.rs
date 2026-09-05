@@ -104,7 +104,7 @@ fn reference_config_loads_and_every_printed_line_survives_the_wrapper() {
 fn reference_config_trust_hash_is_pinned() {
     let dir = temp_dir("refhash");
     let (_, hash) = load_reference_pretrusted(&dir);
-    assert_eq!(hash, "940f36c2f705d085707e6b0080364284f5642fb6423045598aaf4c70e0b96c67");
+    assert_eq!(hash, "9223c39a0af66f8ff9417230cff1e760370be526ad8465424c00810db0e687db");
     fs::remove_dir_all(&dir).unwrap();
 }
 
