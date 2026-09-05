@@ -1,0 +1,222 @@
+# scout reference config (schema: docs/configuration.md).
+#
+# Copy to $XDG_CONFIG_HOME/scout/config.toml (usually
+# ~/.config/scout/config.toml) — the installer deliberately never does
+# this for you: the first interactive launch shows a trust prompt for
+# exactly what these actions run, and you consent with `y`. Every later
+# edit re-prompts, because the file is hashed.
+#
+# ---------------------------------------------------------------------
+# THE ONE RULE THAT SHAPES EVERYTHING BELOW
+# ---------------------------------------------------------------------
+# scout cannot change your shell's directory — no child process can. So
+# actions PRINT a command on stdout and the wrapper function
+# (shell/scout.bash) evals it in your shell.
+#
+# The wrapper only evals lines that START WITH `cd `, `printf `,
+# `${EDITOR` or `${VISUAL`. Anything else is shown, never run.
+#
+# That is why almost every useful action below begins `cd {path} && ...`.
+# It is not a workaround: it is the shape that lets an action run *in the
+# right directory, in your shell*, which is the whole point.
+#
+# Because the eval happens AFTER scout exits, interactive programs work
+# normally — an editor or a pager opened this way owns the terminal.
+#
+# Placeholders: {path} {parent} {name} {ext} {repo_root} {home} {query}
+# and {env.VAR} — where VAR must have been set by an earlier `env` step
+# in the SAME action. It is not your shell's environment: to use a shell
+# variable, write it in the printed command and let your shell expand
+# it. Every one is quoted at the print seam, so a directory called
+# `proj $(rm -rf ~)` is a filename, not an instruction.
+#
+# That quoting is what makes an untrusted filename safe, so a template
+# that needs a placeholder to expand UNQUOTED — to build a command line
+# out of one — is refused unless the action opts out explicitly with
+# `unsafe_shell_template = true`. Setting it means you have read the
+# template and accepted that a hostile filename becomes shell syntax.
+# No action below needs it.
+#
+# `enter` runs the default action. An action can also claim its own
+# chord — `alt-<letter>` or `ctrl-<letter>` — and fire straight from the
+# picker. `tab` is reserved for the action pane, which is how
+# every action without a chord is reached, and `ctrl-c` belongs to the
+# picker; both are refused at load rather than silently shadowed. Plain
+# letters go into the search field, which is why the chords below are
+# all `alt-`.
+#
+# ---------------------------------------------------------------------
+# WHAT THIS FILE IS, AND WHAT IT IS NOT
+# ---------------------------------------------------------------------
+# This is a PORTABLE reference. It names only tools you can expect
+# almost anywhere: a POSIX shell, `ls`, `grep`, `find`, `git`, `printf`.
+# It deliberately does not name the faster or nicer tool you may have —
+# a better grep, a better lister, your language's test runner, whatever
+# launches your terminal multiplexer.
+#
+# Your own config is the opposite, and should be: it only ever runs on
+# your machine, so name whatever you actually have. The intended
+# workflow is to copy this file once, then edit it into something
+# machine-specific and keep that in your dotfiles.
+#
+# Two lines below name a program this file cannot know you have:
+#
+#   * `${EDITOR:-micro}` — the fallback after the colon fires only when
+#     $EDITOR is unset. Change `micro` to whatever your machine has, or
+#     export EDITOR and the fallback never runs.
+#   * the `copy-path` action — it tries the three common clipboard tools
+#     and then falls back to asking the terminal itself. See its comment.
+
+schema_version = 1
+
+# --- navigation -------------------------------------------------------
+
+[[action]]
+name = "go"
+description = "cd into the selection (or its parent, for files)"
+keybinding = "enter"
+steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}" } ]
+
+[[action]]
+name = "root"
+description = "cd to the repository root, not the file's directory (git repos only)"
+keybinding = "alt-r"
+steps = [ { kind = "print", format = "cd {repo_root}" } ]
+
+[[action]]
+name = "ls"
+description = "cd in and list, so you land oriented"
+keybinding = "alt-k"
+steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; ls -lah" } ]
+
+# --- editing ----------------------------------------------------------
+
+[[action]]
+name = "edit"
+description = "Open in $EDITOR, in your shell so it owns the terminal"
+keybinding = "alt-e"
+steps = [ { kind = "print", format = "${{EDITOR:-micro}} {path}" } ]
+
+[[action]]
+name = "edit-here"
+description = "cd to the selection, then open it — leaves you in the project"
+steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; ${{EDITOR:-micro}} ." } ]
+
+[[action]]
+name = "edit-repo"
+description = "Open the whole repository (git repos only) — use edit-here otherwise"
+steps = [ { kind = "print", format = "cd {repo_root} && ${{EDITOR:-micro}} ." } ]
+
+# --- git --------------------------------------------------------------
+#
+# {repo_root} walks up from the selection looking for a `.git` entry, so
+# these work whether you selected the repository or a file three levels
+# inside it.
+#
+# If the selection has no `.git` anywhere above it, {repo_root} has
+# nothing to resolve to and the action FAILS, naming what to do instead.
+# That is deliberate — silently falling back to the plain directory
+# would run `git status` somewhere you did not ask for. Every action
+# that needs a repository marks the requirement in its description,
+# because the action pane shows descriptions and that is where you
+# choose.
+
+[[action]]
+name = "status"
+description = "git status, short form, at the repository root (git repos only)"
+keybinding = "alt-s"
+steps = [ { kind = "print", format = "cd {repo_root} && git status -sb" } ]
+
+[[action]]
+name = "log"
+description = "Last 20 commits as a graph (git repos only)"
+keybinding = "alt-l"
+steps = [ { kind = "print", format = "cd {repo_root} && git log --oneline --graph -20" } ]
+
+[[action]]
+name = "diff"
+description = "Uncommitted changes (git repos only)"
+keybinding = "alt-d"
+steps = [ { kind = "print", format = "cd {repo_root} && git diff" } ]
+
+# --- search -----------------------------------------------------------
+#
+# {query} is what you typed in the picker — quoted, so it is an argument
+# to the search tool and never a second command.
+#
+# These use `grep` and `find` because every machine has them. If you
+# have a faster searcher, this is the first place to edit: swap the body
+# after the `;` and keep the `cd` prefix, which is what the wrapper
+# checks.
+
+[[action]]
+name = "grep"
+description = "Search the selection's contents for the text you typed"
+keybinding = "alt-g"
+steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; grep -rn --exclude-dir=.git {query} . | head -60" } ]
+
+[[action]]
+name = "files"
+description = "List files under the selection whose name matches what you typed"
+keybinding = "alt-f"
+# `find ... | grep -i` rather than `find -iname {query}`: every
+# placeholder is quoted at the print seam, so `-iname {query}` becomes
+# `-iname 'thing'` — an EXACT name match that finds nothing for a
+# partial query. Piping through grep keeps the substring behaviour a
+# picker user expects, and needs no glob-splicing to get it.
+steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; find . -path ./.git -prune -o -type f -print | grep -i {query} | head -60" } ]
+
+# --- terminal multiplexer --------------------------------------------
+
+[[action]]
+name = "tmux"
+description = "Open a tmux window in the selection (only works inside tmux)"
+steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; tmux new-window -c {path}" } ]
+
+# --- plumbing ---------------------------------------------------------
+
+[[action]]
+name = "print-path"
+description = "Print the selection's absolute path"
+keybinding = "alt-p"
+steps = [ { kind = "print", format = "printf '%s\\n' {path}" } ]
+
+[[action]]
+name = "copy-path"
+description = "Copy the path to the clipboard"
+keybinding = "alt-y"
+# scout has no clipboard of its own by design (no clipboard crate),
+# so this hands off. The chain tries Wayland, then X11, then macOS, and
+# finally OSC 52 — a terminal escape that asks the TERMINAL EMULATOR to
+# do the copying, which needs no tool installed at all. That last link
+# is what makes this work on a machine with no clipboard utility;
+# support is common (kitty, wezterm, iTerm2, foot, Windows Terminal),
+# and inside tmux it additionally needs `set -g set-clipboard on`.
+#
+# `\033`/`\007` are written as literal backslash escapes for printf to
+# expand, so there are no control bytes in this file.
+steps = [ { kind = "print", format = "printf '%s' {path} | ( wl-copy || xclip -selection clipboard || pbcopy || printf '\\033]52;c;%s\\007' \"$(printf '%s' {path} | base64 -w0)\" ) 2>/dev/null" } ]
+
+# --- patterns worth copying, but not shippable ------------------------
+#
+# These are left commented because they name a tool this file cannot
+# assume. Uncomment and adapt in YOUR config — the shape is the useful
+# part.
+#
+# Run your project's tests at the repository root:
+#
+# [[action]]
+# name = "test"
+# keybinding = "alt-t"
+# description = "Run the project's tests at the repository root"
+# steps = [ { kind = "print", format = "cd {repo_root} && make test" } ]
+#
+# Open a tool that takes a directory — a REPL, a notebook server, an
+# agent, a file manager. Because the eval runs after scout exits, an
+# interactive program launched this way owns the terminal normally:
+#
+# [[action]]
+# name = "shell-here"
+# keybinding = "alt-i"
+# description = "Start an interactive shell in the selection"
+# steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; $SHELL" } ]

@@ -1,0 +1,25 @@
+/target
+**/*.rs.bk
+Cargo.lock.old
+
+# Operational runtime
+/ops/state/*.lock
+
+# Local DB (never committed)
+*.db
+*.db-shm
+*.db-wal
+
+# Worktrees — per AGENTS.md §Worktree Discipline, line officers operate in
+# physically isolated checkouts at /worktrees/sector-<name>/. These are
+# git-managed via `git worktree add` (Chief of Staff only) and must not
+# be tracked from the main working tree.
+/worktrees/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Internal engagement record (never committed)
+/.findings/

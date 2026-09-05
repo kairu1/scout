@@ -1,0 +1,54 @@
+[package]
+name = "scout"
+version = "0.2.1"
+rust-version = "1.96"
+edition = "2021"
+authors = ["Kairu Wangui <kairupeter58@gmail.com>"]
+description = "Fast project finder and action launcher"
+license = "MIT"
+publish = false
+
+# The dependency roster is closed. Adding a crate is a recorded decision
+# with a longevity argument, not a Cargo.toml edit; see CLAUDE.md.
+
+[dependencies]
+rusqlite = { version = "0.40", features = ["bundled", "functions"] }
+tracing = "0.1"
+# env-filter: SCOUT_LOG runtime verbosity control. The feature's
+# transitives count against the ceiling the CI tripwire enforces.
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ignore = "0.4"
+signal-hook = "0.3"
+nucleo-matcher = "0.3"
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.29"
+# ratatui 0.30 split into core/crossterm/macros crates, and its default
+# feature set (all-widgets, macros, underline-color, layout-cache) put
+# the transitive ceiling at 127 against a limit of 120. We use
+# none of what those pull in: no calendar widget, no macro DSL, no
+# underline colours, and `layout-cache` (which costs `critical-section`)
+# buys nothing for three Layout splits per frame. Trimming features is
+# the correct answer to a ceiling breach; raising the ceiling is what
+# you do only when trimming has failed. Result: 119.
+ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+thiserror = "2"
+# Layout is measured in terminal columns, not chars. Already in the
+# graph under ratatui, so admitting it costs no ceiling slot. Pinned to
+# unify with ratatui's resolution: deny.toml forbids duplicate versions,
+# so this requirement moves only when ratatui does.
+unicode-width = "0.2"
+
+[lib]
+name = "scout"
+path = "src/lib.rs"
+
+[[bin]]
+name = "scout"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"

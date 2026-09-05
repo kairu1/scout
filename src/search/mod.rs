@@ -1,0 +1,176 @@
+//! Search: turning a query into an ordered list of candidates.
+//!
+//! Owns: the candidate scope (every live row of the current generation),
+//! the three index states the picker renders as banners, and the ranking
+//! pipeline that blends match quality with frecency.
+//! Refuses to know about: the schema beyond its two SELECTs, drawing,
+//! executing. The matcher sits behind a trait so it can be swapped.
+//! Exposes: `index_state`, `load_candidates`, `search`, `CandidateRow`,
+//! `Ranked`, `IndexState`.
+
+pub mod matcher;
+pub mod ranking;
+
+use rusqlite::Connection;
+
+use crate::index::frecency::s_now;
+use crate::index::pacing;
+use crate::Result;
+
+use matcher::Matcher;
+
+/// One candidate row from the current generation.
+#[derive(Debug, Clone)]
+pub struct CandidateRow {
+    pub id: i64,
+    pub path: String,
+    pub s_stored: f64,
+    pub last_update: i64,
+    pub visits_total: i64,
+}
+
+/// A ranked result.
+#[derive(Debug, Clone)]
+pub struct Ranked {
+    pub id: i64,
+    pub path: String,
+    pub rank: f64,
+    pub s_now: f64,
+    pub visits_total: i64,
+    /// Char indices the matcher matched (empty on an empty query), for
+    /// highlighting.
+    pub match_indices: Vec<u32>,
+}
+
+/// What the index can serve right now. Rendered as banners, never as
+/// errors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IndexState {
+    /// Generation 0, no rows: nothing has been indexed.
+    Empty,
+    /// Generation 0 with rows: a first scan is (or was) in flight; serve
+    /// nothing from it.
+    FirstScanInProgress { rows_so_far: i64 },
+    /// Generation 1 or later: serve normally.
+    Ready { generation: i64, candidates: i64 },
+}
+
+pub fn index_state(conn: &Connection) -> Result<IndexState> {
+    let generation: i64 =
+        conn.query_row("SELECT current_generation FROM run_state WHERE id = 1", [], |row| {
+            row.get(0)
+        })?;
+    if generation >= 1 {
+        let candidates: i64 = conn.query_row(
+            "SELECT count(*) FROM paths
+              WHERE scan_generation = :gen AND tombstoned_at IS NULL",
+            rusqlite::named_params! { ":gen": generation },
+            |row| row.get(0),
+        )?;
+        return Ok(IndexState::Ready { generation, candidates });
+    }
+    let rows: i64 = conn.query_row("SELECT count(*) FROM paths", [], |row| row.get(0))?;
+    if rows > 0 {
+        return Ok(IndexState::FirstScanInProgress { rows_so_far: rows });
+    }
+    Ok(IndexState::Empty)
+}
+
+/// Every non-tombstoned row in the current generation. No project
+/// filter: the candidate set is the whole index.
+pub fn load_candidates(conn: &Connection) -> Result<Vec<CandidateRow>> {
+    let generation: i64 =
+        conn.query_row("SELECT current_generation FROM run_state WHERE id = 1", [], |row| {
+            row.get(0)
+        })?;
+    if generation < 1 {
+        return Ok(Vec::new());
+    }
+    let mut stmt = conn.prepare_cached(
+        "SELECT rowid, path, S, last_update, visits_total
+           FROM paths
+          WHERE scan_generation = :gen AND tombstoned_at IS NULL",
+    )?;
+    let rows = stmt
+        .query_map(rusqlite::named_params! { ":gen": generation }, |row| {
+            Ok(CandidateRow {
+                id: row.get(0)?,
+                path: row.get(1)?,
+                s_stored: row.get(2)?,
+                last_update: row.get(3)?,
+                visits_total: row.get(4)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// Rank `candidates` for `query`. An empty query ranks by decayed
+/// frecency alone; a non-empty one blends match and frecency norms. Tells
+/// the index writer a query ran, so it holds its checkpoints.
+pub fn search(
+    matcher: &mut dyn Matcher,
+    candidates: &[CandidateRow],
+    query: &str,
+    now: i64,
+    limit: usize,
+) -> Vec<Ranked> {
+    pacing::note_query_activity();
+    let span = tracing::debug_span!("search.query", query_len = query.len());
+    let _guard = span.enter();
+
+    let mut ranked: Vec<Ranked> = if query.is_empty() {
+        candidates
+            .iter()
+            .map(|c| {
+                let s = s_now(c.s_stored, c.last_update, now);
+                Ranked {
+                    id: c.id,
+                    path: c.path.clone(),
+                    rank: s,
+                    s_now: s,
+                    visits_total: c.visits_total,
+                    match_indices: Vec::new(),
+                }
+            })
+            .collect()
+    } else {
+        let query_chars = query.chars().count();
+        let mut scorer = matcher.compile(query);
+        candidates
+            .iter()
+            .filter_map(|c| {
+                scorer.score_with_indices(&c.path).map(|(m, match_indices)| {
+                    // The final path component, scored on its own: a query
+                    // is nearly always the name of the thing wanted.
+                    let base = c.path.rsplit('/').next().unwrap_or(&c.path);
+                    let base_score = scorer.score(base);
+                    tracing::trace!(
+                        raw_match = m,
+                        raw_base = base_score,
+                        path = %c.path,
+                        "match score"
+                    );
+                    let s = s_now(c.s_stored, c.last_update, now);
+                    let score = ranking::MatchScore {
+                        path: m,
+                        base: base_score,
+                        base_chars: base.chars().count(),
+                    };
+                    Ranked {
+                        id: c.id,
+                        path: c.path.clone(),
+                        rank: ranking::blend(score, s, query_chars),
+                        s_now: s,
+                        visits_total: c.visits_total,
+                        match_indices,
+                    }
+                })
+            })
+            .collect()
+    };
+
+    ranked.sort_by(ranking::compare);
+    ranked.truncate(limit);
+    ranked
+}

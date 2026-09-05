@@ -1,0 +1,63 @@
+# CI tripwires: tests + clippy, cargo-audit and cargo-deny as hard
+# failures, the transitive ceiling (shipped-target reading), and the musl
+# cross-compile smoke (reusable musl-build.yml) for both arches.
+# Third-party actions are pinned to commit SHAs (supply-chain posture).
+# Every job carries timeout-minutes: a test that spawned a real editor
+# once blocked on stdin and ran to GitHub's six-hour default before
+# anyone cancelled it. A hung job should cost minutes.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # A new advisory lands against a lockfile that has not changed, so a
+  # push-only trigger reports supply-chain health as of the last commit,
+  # not as of today. RUSTSEC-2026-0204 (crossbeam-epoch, under `ignore`)
+  # was published the day after the last push and sat undetected until a
+  # local audit found it. Weekly means the tripwire fires on its own.
+  schedule:
+    - cron: "17 6 * * 1"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable (toolchain file pins the version)
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo fmt --all --check
+      - run: cargo test --locked --all-targets
+      - run: cargo clippy --all-targets -- -D warnings
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      - uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2
+        with:
+          tool: cargo-audit,cargo-deny
+      - run: cargo audit
+      - run: cargo deny check
+      - name: transitive ceiling (<150 shipped-target crates)
+        run: |
+          count=$(cargo tree --prefix none | sed 's/ .*//' | sort -u | wc -l)
+          echo "transitive crates: $count"
+          test "$count" -lt 150
+
+  # The 100k-path gate (under 30 s wall, RSS under 100 MB) is #[ignore]d,
+  # so `cargo test` never runs it; this job does. Release profile because
+  # the budget was set against an optimised build.
+  perf-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable (toolchain file pins the version)
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo test --locked --release --test index -- --ignored --nocapture
+
+  musl:
+    uses: ./.github/workflows/musl-build.yml

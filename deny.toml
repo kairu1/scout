@@ -1,0 +1,65 @@
+# cargo-deny policy. CI runs `cargo deny check` as a hard failure.
+
+[licenses]
+# An allow-list entry is a POLICY statement — "this licence family is
+# acceptable to this project" — not a record of what happens to be in
+# the graph today. So an entry no crate currently carries is expected,
+# and cargo-deny's `license-not-encountered` warning about it is noise:
+# three of them fire on every run. Left unsaid, that noise trains a
+# reader to skim cargo-deny output, and skimming cargo-deny output is
+# exactly how the MPL-2.0 gap survived several reviewers. Declared
+# explicitly here so a clean run means clean.
+#
+# Note the asymmetry with the [bans] skip list below, which is annotated
+# the opposite way: a skip entry is an EXCEPTION to a rule, so a stale
+# one silences a real alarm and gets removed. A stale allowance silences
+# nothing. Same tool, two lists, opposite correct answers.
+unused-allowed-license = "allow"
+# Allow-list, extended after the tripwire caught two gaps in the original
+# list:
+#   - Unicode-3.0: modern unicode-ident relicensed to it (same Unicode terms).
+#   - MPL-2.0: the licence of nucleo-matcher, a roster crate. File-level
+#     weak copyleft; we link an UNMODIFIED build, so it imposes no
+#     obligation on scout's own MIT source.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MPL-2.0",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[bans]
+# Duplicate versions fail the build beyond a small allow-list. The skip
+# list IS that allow-list: irreducible transitive duplicates.
+# Adding to it is a review decision, so a NEW duplicate elsewhere fails
+# the build loudly. Reviewed 2026-08-14 with the dependency refresh:
+#
+#   hashbrown — 0.16 and 0.17 arrive under different transitives; no
+#     version satisfies both. Ships in the binary.
+#   syn       — 2.x under ratatui's derive_more/strum macros, 3.x under
+#     clap_derive. Both are proc-macro BUILD dependencies and neither
+#     reaches the shipped artifact; holding clap back to unify a
+#     compile-time graph would be paying a real cost for a cosmetic one.
+#
+# Removed in the same review, because they had become single-version:
+# itertools and windows-sys. A skip entry that no longer describes a
+# real duplicate is not harmless — it is a silenced alarm for the next
+# duplicate that appears under that name.
+multiple-versions = "deny"
+skip = [
+    { crate = "hashbrown" },
+    { crate = "syn" },
+]
+
+[advisories]
+unmaintained = "workspace"
+yanked = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
