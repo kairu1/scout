@@ -89,5 +89,9 @@ dated, terse, append-only engagement log that records mistakes as well as
 progress. Read `.findings/decisions/` before changing anything a decision
 binds; append to `log.md` as you go.
 
+Work outside the current directive is proposed in `.findings/questions.md`
+first and built after a ruling. A small, well-reasoned exception is still
+an exception, and is logged as one in `log.md`.
+
 Git: you never write to the remote. Commit locally on `main`; the user
 pushes. The old history is on `legacy/v0.2` and must never be rewritten.
