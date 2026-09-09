@@ -6,12 +6,20 @@ use std::path::{Path, PathBuf};
 use super::{logging, open_default_db};
 use crate::platform::time::unix_now;
 use crate::recon::checks::Context;
+use crate::recon::report::Since;
 use crate::recon::{run, store, Check, Report, Severity};
 use crate::{config, index, locations, platform, Error};
 
 /// The report. `path` narrows to one tree; `fail_on` sets the severity
-/// that makes the exit code 1; `all` shows accepted findings too.
-pub fn recon(path: Option<PathBuf>, format: &str, fail_on: &str, all: bool) -> crate::Result<u8> {
+/// that makes the exit code 1; `all` shows accepted findings too;
+/// `since_last` narrows to findings first seen after the previous run.
+pub fn recon(
+    path: Option<PathBuf>,
+    format: &str,
+    fail_on: &str,
+    all: bool,
+    since_last: bool,
+) -> crate::Result<u8> {
     if !matches!(format, "human" | "tsv") {
         return Err(Error::UnknownFormat { given: format.to_string(), wanted: "human|tsv" });
     }
@@ -31,14 +39,27 @@ pub fn recon(path: Option<PathBuf>, format: &str, fail_on: &str, all: bool) -> c
         None => None,
     };
     let ctx = Context { euid: platform::fs::euid(), now: unix_now(), home: &home };
+    // The previous run's time, read before this run records its own.
+    let previous = run::last_recon_at(&conn)?;
     let stats = run::scan(&conn, under.as_deref(), &ctx)?;
     tracing::info!(paths = stats.paths, findings = stats.findings, "recon.scan");
 
-    let findings = store::load(&conn, under.as_deref().map(|p| p.to_str().unwrap_or_default()))?;
-    let own_state = match under {
+    let mut findings =
+        store::load(&conn, under.as_deref().map(|p| p.to_str().unwrap_or_default()))?;
+    let since = if since_last {
+        // Own-state findings are computed fresh and carry no first-seen
+        // time, so the "new" view is about stored findings only.
+        if let Some(t) = previous {
+            findings.retain(|f| f.first_seen > t);
+        }
+        Some(Since { previous })
+    } else {
+        None
+    };
+    let (own_state, wrapper_sites) = match (&under, since_last) {
         // A narrowed run is about that tree, not about scout itself.
-        Some(_) => Vec::new(),
-        None => {
+        (Some(_), _) | (None, true) => (Vec::new(), Vec::new()),
+        (None, false) => {
             let chain = locations::discovery_chain()?;
             let config_path = config::discover(&chain)?;
             run::own_state(
@@ -46,11 +67,12 @@ pub fn recon(path: Option<PathBuf>, format: &str, fail_on: &str, all: bool) -> c
                 &locations::trust_store()?,
                 &locations::index_db()?,
                 &wrapper_candidates(),
+                &run::rc_files(&home),
                 ctx.euid,
             )
         }
     };
-    let report = Report { findings, own_state, show_accepted: all };
+    let report = Report { findings, own_state, wrapper_sites, show_accepted: all, since };
     match format {
         "tsv" => print!("{}", report.render_tsv()),
         _ => print!("{}", report.render(home.to_str())),

@@ -215,6 +215,12 @@ pub fn is_secret_name(name: &str) -> bool {
     })
 }
 
+/// The line the installer's shell snippet is wrapped in, so recon can
+/// say which rc file sources the wrapper without reading anything else
+/// in it. `install.sh` and the README carry the same text; a parity
+/// test keeps them equal.
+pub const WRAPPER_MARKER: &str = "# >>> scout shell integration >>>";
+
 /// Files an action is likely to run: what the integrity baseline hashes.
 pub const ENTRY_POINTS: &[&str] = &[
     "Makefile",

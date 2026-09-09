@@ -328,3 +328,95 @@ fn a_dotenv_is_a_finding_without_hidden_and_never_a_candidate_without_it() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `--since-last` shows what appeared after the previous run and exits 1
+/// only for that; a second run in a row shows nothing new and exits 0;
+/// a new loose file is one new finding.
+#[test]
+fn since_last_reports_only_findings_first_seen_after_the_previous_run() {
+    let dir = sandbox("since");
+    plant(&dir);
+    let tree = dir.join("tree");
+    assert!(run(&dir, &["index", tree.to_str().unwrap(), "--hidden"]).status.success());
+
+    // First run: no previous run, so everything is new.
+    let out = run(&dir, &["recon", "--since-last"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stdout(&out));
+    let text = stdout(&out);
+    assert!(text.contains("new (first run)"), "{text}");
+    assert!(text.contains("world-writable-dir"), "{text}");
+
+    // Nothing has changed: nothing is new, exit 0, even though the tree
+    // still carries critical findings.
+    let out = run(&dir, &["recon", "--since-last"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stdout(&out));
+    assert!(stdout(&out).starts_with("nothing new since "), "{}", stdout(&out));
+    assert_eq!(run(&dir, &["recon"]).status.code(), Some(1), "the full report still fails");
+
+    // Timestamps are whole seconds: a change in the same second as the
+    // previous run would be invisible, so cross the boundary first.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    // A new world-writable file appears: exactly one new finding, TSV too.
+    std::fs::write(tree.join("clean/loose"), b"x").unwrap();
+    chmod(&tree.join("clean/loose"), 0o666);
+    assert!(run(&dir, &["index", tree.to_str().unwrap()]).status.success());
+    let out = run(&dir, &["recon", "--since-last", "--format", "tsv"]);
+    assert_eq!(out.status.code(), Some(1));
+    let rows = tsv_rows(&stdout(&out));
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0][1], "world-writable-file");
+    assert!(rows[0][5].ends_with("/clean/loose"));
+
+    // A new low finding alone does not fail the default threshold.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    std::fs::write(tree.join("clean/groupy"), b"x").unwrap();
+    chmod(&tree.join("clean/groupy"), 0o664);
+    assert!(run(&dir, &["index", tree.to_str().unwrap()]).status.success());
+    // Every --since-last run is a run, so each change gets one look.
+    let out = run(&dir, &["recon", "--since-last"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stdout(&out));
+    assert!(stdout(&out).starts_with("1 new since "), "{}", stdout(&out));
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    std::fs::write(tree.join("clean/groupy2"), b"x").unwrap();
+    chmod(&tree.join("clean/groupy2"), 0o664);
+    assert!(run(&dir, &["index", tree.to_str().unwrap()]).status.success());
+    assert_eq!(run(&dir, &["recon", "--since-last", "--fail-on", "low"]).status.code(), Some(1));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The wrapper is found where it lives: an rc file carrying the
+/// installer's marker is reported with its line, and an rc file others
+/// can edit is a finding whether or not the marker is in it.
+#[test]
+fn the_wrapper_is_located_in_rc_files_and_a_writable_rc_is_a_finding() {
+    let dir = sandbox("rc");
+    std::fs::create_dir_all(dir.join("tree/p")).unwrap();
+    assert!(run(&dir, &["index", dir.join("tree").to_str().unwrap()]).status.success());
+    let home = dir.join("home");
+    std::fs::write(
+        home.join(".bashrc"),
+        "export X=1\n\n# >>> scout shell integration >>>\nsource /opt/scout/shell/scout.bash\n\
+         # <<< scout shell integration <<<\n",
+    )
+    .unwrap();
+    chmod(&home.join(".bashrc"), 0o644);
+    std::fs::write(home.join(".zshrc"), "setopt something\n").unwrap();
+    chmod(&home.join(".zshrc"), 0o664);
+
+    let text = stdout(&run(&dir, &["recon"]));
+    assert!(text.contains("wrapper: ~/.bashrc line 3"), "{text}");
+    assert!(!text.contains("export X"), "rc contents are never reported: {text}");
+    let tsv = stdout(&run(&dir, &["recon", "--format", "tsv"]));
+    let rows = tsv_rows(&tsv);
+    let rc = rows.iter().find(|r| r[1] == "own-wrapper-writable").expect("writable rc found");
+    assert!(rc[5].ends_with("/.zshrc"), "{rc:?}");
+    assert!(rc[6].contains("664"), "{rc:?}");
+    assert!(
+        !rows.iter().any(|r| r[1] == "own-wrapper-writable" && r[5].ends_with(".bashrc")),
+        "a 644 rc is fine: {tsv}"
+    );
+    // --since-last is about stored findings; own-state lines stay out.
+    let since = stdout(&run(&dir, &["recon", "--since-last", "--format", "tsv"]));
+    assert!(!since.contains("own-wrapper-writable"), "{since}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -16,7 +16,8 @@ dotfiles.
 ```sh
 git clone <this-repo> && cd scout
 ./install.sh                                       # builds, installs to ~/.local/bin
-echo "source $PWD/shell/scout.bash" >> ~/.bashrc    # guarded eval wrapper
+printf '\n# >>> scout shell integration >>>\nsource %s\n# <<< scout shell integration <<<\n' \
+  "$PWD/shell/scout.bash" >> ~/.bashrc              # guarded eval wrapper, marked so recon can find it
 ```
 
 Or take a musl release tarball (x86_64 / aarch64): binary, shell snippet,

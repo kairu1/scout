@@ -212,3 +212,14 @@ fn print_to_is_a_top_level_flag() {
     assert!(text.contains("--print-to"), "{text}");
     assert!(text.contains("--session"), "{text}");
 }
+
+/// The wrapper marker is what `scout recon` looks for in rc files; the
+/// installer and the README tell people to write it. One constant, three
+/// places.
+#[test]
+fn the_wrapper_marker_in_the_installer_and_readme_is_the_one_recon_scans_for() {
+    let marker = scout::recon::checks::WRAPPER_MARKER;
+    let installer = include_str!("../install.sh");
+    assert!(installer.contains(marker), "install.sh must write the marker recon scans for");
+    assert!(README.contains(marker), "README must show the marker recon scans for");
+}

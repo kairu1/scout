@@ -1,6 +1,7 @@
 //! Running the checks over the index, over one path, and over scout's own
 //! files.
 
+use std::io::Read;
 use std::path::Path;
 
 use rusqlite::Connection;
@@ -71,6 +72,48 @@ pub fn symlink_escapes(dir: &Path, ctx: &Context<'_>) -> Option<Finding> {
     })
 }
 
+/// When the previous full run happened, if ever. Read before a run
+/// updates it, so "new since last" has a last to be since.
+pub fn last_recon_at(conn: &Connection) -> Result<Option<i64>> {
+    Ok(conn.query_row("SELECT last_recon_at FROM run_state WHERE id = 1", [], |r| r.get(0))?)
+}
+
+/// Where the shell wrapper turned up: an rc file with the installer's
+/// marker (or a `scout.bash` source line) at a 1-based line, or a
+/// wrapper file itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WrapperSite {
+    pub path: std::path::PathBuf,
+    /// The line the marker sits on; `None` for a wrapper file.
+    pub line: Option<usize>,
+}
+
+/// Bytes of an rc file read while looking for the marker: the config
+/// cap. A shell rc beyond it is not a file scout will scan.
+const RC_SCAN_CAP: usize = 256 * 1024;
+
+/// The shell rc files a wrapper is sourced from, relative to `home`.
+pub fn rc_files(home: &Path) -> Vec<std::path::PathBuf> {
+    [".bashrc", ".bash_profile", ".zshrc", ".profile", ".config/fish/config.fish"]
+        .iter()
+        .map(|name| home.join(name))
+        .collect()
+}
+
+/// The line number (1-based) of the first line in `rc` that carries the
+/// installer's marker or names `scout.bash`; `None` when neither is
+/// there or the file cannot be read. Nothing else about the content is
+/// kept.
+pub fn wrapper_line(rc: &Path) -> Option<usize> {
+    let mut file = std::fs::File::open(rc).ok()?;
+    let mut buf = Vec::new();
+    std::io::Read::take(&mut file, RC_SCAN_CAP as u64).read_to_end(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf);
+    text.lines()
+        .position(|l| l.contains(checks::WRAPPER_MARKER) || l.contains("scout.bash"))
+        .map(|i| i + 1)
+}
+
 /// What a full run covered.
 #[derive(Debug, Default)]
 pub struct RunStats {
@@ -139,15 +182,19 @@ pub fn scan(conn: &Connection, under: Option<&Path>, ctx: &Context<'_>) -> Resul
 }
 
 /// Scout's own files: the config that won discovery, the trust store, the
-/// index and its siblings, and the shell wrapper where it can be found.
-/// Not index rows, so computed fresh on every run and never stored.
+/// index and its siblings, the shell wrapper where it can be found, and
+/// the rc files a shell sources at every start. Not index rows, so
+/// computed fresh on every run and never stored. Returns the findings
+/// and where the wrapper was seen.
 pub fn own_state(
     config: Option<&Path>,
     trust_store: &Path,
     index_db: &Path,
     wrapper_candidates: &[std::path::PathBuf],
+    rc_files: &[std::path::PathBuf],
     euid: u32,
-) -> Vec<OwnStateFinding> {
+) -> (Vec<OwnStateFinding>, Vec<WrapperSite>) {
+    let mut sites = Vec::new();
     let mut out = Vec::new();
     let mut push = |check: &'static str, severity: Severity, path: &Path, detail: String| {
         out.push(OwnStateFinding { check, severity, path: path.display().to_string(), detail });
@@ -219,6 +266,7 @@ pub fn own_state(
     }
     for wrapper in wrapper_candidates {
         if let Ok(f) = pfs::facts(wrapper) {
+            sites.push(WrapperSite { path: wrapper.clone(), line: None });
             if f.uid != euid {
                 push(
                     "own-wrapper-writable",
@@ -236,5 +284,31 @@ pub fn own_state(
             }
         }
     }
-    out
+    // An rc file is sourced by every shell the user starts: one others
+    // can edit is a finding whether or not the wrapper is in it.
+    for rc in rc_files {
+        let Ok(f) = pfs::facts(rc) else { continue };
+        if !f.is_file {
+            continue;
+        }
+        if let Some(line) = wrapper_line(rc) {
+            sites.push(WrapperSite { path: rc.clone(), line: Some(line) });
+        }
+        if f.uid != euid {
+            push(
+                "own-wrapper-writable",
+                Severity::High,
+                rc,
+                format!("shell rc owned by uid {}", f.uid),
+            );
+        } else if f.mode & 0o022 != 0 {
+            push(
+                "own-wrapper-writable",
+                Severity::High,
+                rc,
+                format!("mode {:o}: a file your shell sources on every start", f.mode & 0o777),
+            );
+        }
+    }
+    (out, sites)
 }

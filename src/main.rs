@@ -93,6 +93,11 @@ enum Cmd {
         /// Show accepted findings too.
         #[arg(long)]
         all: bool,
+        /// Only findings first seen after the previous `scout recon`
+        /// run. Exits 1 when one of them is at or above --fail-on, so a
+        /// script can branch on "anything new".
+        #[arg(long)]
+        since_last: bool,
     },
     /// Run a command in a directory, then become a shell there. What tmux
     /// starts in a pane scout opened; not meant to be typed.
@@ -176,8 +181,8 @@ fn main() -> ExitCode {
         Some(Cmd::Recon { cmd: Some(ReconCmd::Baseline { path }), .. }) => {
             scout::commands::recon::baseline(&path)
         }
-        Some(Cmd::Recon { cmd: None, path, format, fail_on, all }) => {
-            scout::commands::recon(path, &format, &fail_on, all)
+        Some(Cmd::Recon { cmd: None, path, format, fail_on, all, since_last }) => {
+            scout::commands::recon(path, &format, &fail_on, all, since_last)
         }
         Some(Cmd::PaneRun { cwd, argv }) => scout::commands::pane_run(&cwd, &argv),
         Some(Cmd::OpenDb { path }) => scout::commands::open_db(path),

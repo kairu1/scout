@@ -2,6 +2,7 @@
 //! as TSV with the two unconstrained fields last.
 
 use super::checks::Severity;
+use super::run::WrapperSite;
 use super::store::StoredFinding;
 
 /// Findings on scout's own files (config, trust store, index, wrapper),
@@ -14,11 +15,23 @@ pub struct OwnStateFinding {
     pub detail: String,
 }
 
+/// The `--since-last` view: findings first seen after the previous run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Since {
+    /// When the previous run happened; `None` on the first run, when
+    /// everything is new.
+    pub previous: Option<i64>,
+}
+
 pub struct Report {
     pub findings: Vec<StoredFinding>,
     pub own_state: Vec<OwnStateFinding>,
+    /// Where the shell wrapper was found.
+    pub wrapper_sites: Vec<WrapperSite>,
     /// Show accepted findings too.
     pub show_accepted: bool,
+    /// Set when the findings were narrowed to what is new.
+    pub since: Option<Since>,
 }
 
 impl Report {
@@ -50,6 +63,13 @@ impl Report {
             _ => p.to_string(),
         };
         let mut out = String::new();
+        if let Some(since) = self.since {
+            let new = self.findings.iter().filter(|f| f.accepted.is_none()).count();
+            out.push_str(&match since.previous {
+                Some(t) => format!("{new} new since {}\n", iso_date(t)),
+                None => format!("{new} new (first run)\n"),
+            });
+        }
         let mut counts = [0usize; 4];
         let mut hidden = 0usize;
         for severity in [Severity::Critical, Severity::High, Severity::Low] {
@@ -112,7 +132,20 @@ impl Report {
             if own > 0 { format!("; {own} on scout's own files") } else { String::new() },
         ));
         if self.findings.is_empty() && self.own_state.is_empty() {
-            out = "no findings\n".to_string();
+            out = match self.since {
+                Some(Since { previous: Some(t) }) => format!("nothing new since {}\n", iso_date(t)),
+                Some(Since { previous: None }) => "no findings (first run)\n".to_string(),
+                None => "no findings\n".to_string(),
+            };
+        }
+        for site in &self.wrapper_sites {
+            out.push_str(&match site.line {
+                Some(line) => format!(
+                    "wrapper: {} line {line}\n",
+                    show(&tilde(&site.path.display().to_string()))
+                ),
+                None => format!("wrapper: {}\n", show(&tilde(&site.path.display().to_string()))),
+            });
         }
         out
     }
@@ -153,6 +186,12 @@ impl Report {
     }
 }
 
+/// A unix timestamp as an ISO-8601 date-time, for the human report.
+fn iso_date(t: i64) -> String {
+    let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(t.max(0) as u64);
+    crate::platform::time::iso8601(at)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,14 +224,56 @@ mod tests {
                 stored(Check::Suid, Severity::Critical, "/b", Some("known")),
             ],
             own_state: vec![],
+            wrapper_sites: vec![],
             show_accepted: false,
+            since: None,
         };
         assert_eq!(report.worst(), Some(Severity::Low));
         assert_eq!(report.exit_code(Severity::High), 0, "an accepted critical does not fail");
         assert_eq!(report.exit_code(Severity::Low), 1);
-        let clean = Report { findings: vec![], own_state: vec![], show_accepted: false };
+        let clean = Report {
+            findings: vec![],
+            own_state: vec![],
+            wrapper_sites: vec![],
+            show_accepted: false,
+            since: None,
+        };
         assert_eq!(clean.exit_code(Severity::Low), 0);
         assert!(clean.render(None).contains("no findings"));
+    }
+
+    /// `--since-last` heads the report with how many are new and since
+    /// when; a clean view says so; the first run says it is the first.
+    #[test]
+    fn since_last_heads_the_report_with_the_count_and_the_previous_run() {
+        let report = Report {
+            findings: vec![stored(Check::Suid, Severity::Critical, "/b", None)],
+            own_state: vec![],
+            wrapper_sites: vec![],
+            show_accepted: false,
+            since: Some(Since { previous: Some(1_700_000_000) }),
+        };
+        let text = report.render(None);
+        assert!(text.starts_with("1 new since 2023-11-14T22:13:20Z\n"), "{text}");
+        let clean = Report { findings: vec![], ..report };
+        assert!(clean.render(None).starts_with("nothing new since 2023"), "{}", clean.render(None));
+        let first = Report { since: Some(Since { previous: None }), ..clean };
+        assert!(first.render(None).starts_with("no findings (first run)"));
+    }
+
+    /// The wrapper's location closes the human report and never enters
+    /// the TSV, which lists findings only.
+    #[test]
+    fn the_wrapper_site_is_reported_with_its_line_and_kept_out_of_tsv() {
+        let report = Report {
+            findings: vec![],
+            own_state: vec![],
+            wrapper_sites: vec![WrapperSite { path: "/home/u/.bashrc".into(), line: Some(42) }],
+            show_accepted: false,
+            since: None,
+        };
+        assert!(report.render(Some("/home/u")).ends_with("wrapper: ~/.bashrc line 42\n"));
+        assert_eq!(report.render_tsv(), "");
     }
 
     #[test]
@@ -204,7 +285,9 @@ mod tests {
                 stored(Check::Suid, Severity::Critical, "/home/u/c", Some("ok")),
             ],
             own_state: vec![],
+            wrapper_sites: vec![],
             show_accepted: false,
+            since: None,
         };
         let text = report.render(Some("/home/u"));
         let crit = text.find("\ncritical\n").unwrap();
@@ -221,7 +304,13 @@ mod tests {
     fn tsv_puts_path_then_detail_last_and_folds_tabs() {
         let mut f = stored(Check::WorldWritableFile, Severity::High, "/x/we\tird", None);
         f.detail = "line\nbreak".into();
-        let report = Report { findings: vec![f], own_state: vec![], show_accepted: false };
+        let report = Report {
+            findings: vec![f],
+            own_state: vec![],
+            wrapper_sites: vec![],
+            show_accepted: false,
+            since: None,
+        };
         let line = report.render_tsv();
         let fields: Vec<&str> = line.trim_end().splitn(7, '\t').collect();
         assert_eq!(fields[0], "high");
