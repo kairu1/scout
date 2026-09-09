@@ -23,7 +23,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::keys::Operation;
+use crate::config::keys::{tmux_key_name, Keys, Operation};
 use crate::platform::fs as pfs;
 
 /// The server name scout's own sessions live on (`tmux -L scout`). One
@@ -416,6 +416,45 @@ impl Tmux {
         handoff_sink(Path::new(value))
     }
 
+    /// The tmux `bind-key -n` argvs that make the operations which work
+    /// from any pane answer to the same keys everywhere on this server:
+    /// focus moves, zoom, and focus-picker aimed at this pane. Installed
+    /// only on a server scout owns; a shared server's root key table is
+    /// the user's.
+    pub fn root_bindings(&self, keys: &Keys) -> Vec<Vec<String>> {
+        let mut out = Vec::new();
+        for (op, chord) in keys.iter() {
+            if !op.works_from_any_pane() {
+                continue;
+            }
+            let Some(key) = tmux_key_name(chord) else { continue };
+            let Some(command) = self.argv(op, None, None) else { continue };
+            let mut argv = vec!["bind-key".to_string(), "-n".to_string(), key];
+            argv.extend(command);
+            out.push(argv);
+        }
+        out
+    }
+
+    /// Install the root bindings; failures are logged, the picker's own
+    /// keys still work in its pane.
+    pub fn bind_root_keys(&self, keys: &Keys) {
+        for argv in self.root_bindings(keys) {
+            if let Err(err) = run_tmux(&argv) {
+                tracing::warn!(%err, "could not install a tmux key binding");
+            }
+        }
+    }
+
+    /// Remove what `bind_root_keys` installed. Called when the picker
+    /// leaves: the focus-picker target is about to vanish.
+    pub fn unbind_root_keys(&self, keys: &Keys) {
+        for argv in self.root_bindings(keys) {
+            let unbind = ["unbind-key".to_string(), "-n".to_string(), argv[2].clone()];
+            let _ = run_tmux(&unbind);
+        }
+    }
+
     /// Detach every client of this session, returning the terminal to
     /// whoever ran the launcher. Nothing is killed.
     pub fn detach_clients(&self) -> Result<(), String> {
@@ -445,6 +484,9 @@ impl Tmux {
             Operation::ClosePane => {
                 let pane = self.opened.last()?;
                 vec!["kill-pane".into(), "-t".into(), pane.clone()]
+            }
+            Operation::FocusPicker => {
+                vec!["select-pane".into(), "-t".into(), self.own_pane.clone()]
             }
             Operation::Reindex => return None,
         };
@@ -574,6 +616,32 @@ mod tests {
         assert_eq!(t.argv(Operation::Zoom, None, None).unwrap(), ["resize-pane", "-Z"]);
         assert_eq!(t.argv(Operation::ClosePane, None, None).unwrap(), ["kill-pane", "-t", "%7"]);
         assert_eq!(t.argv(Operation::Reindex, None, None), None);
+    }
+
+    #[test]
+    fn root_bindings_cover_focus_zoom_and_the_picker_and_nothing_else() {
+        let t = tmux();
+        let bindings = t.root_bindings(&Keys::default());
+        assert_eq!(bindings.len(), 6, "{bindings:?}");
+        assert!(bindings.contains(
+            &["bind-key", "-n", "M-S-Left", "select-pane", "-L"].map(String::from).to_vec()
+        ));
+        assert!(bindings
+            .contains(&["bind-key", "-n", "M-z", "resize-pane", "-Z"].map(String::from).to_vec()));
+        assert!(bindings.contains(
+            &["bind-key", "-n", "M-h", "select-pane", "-t", "%0"].map(String::from).to_vec()
+        ));
+        assert!(
+            !bindings
+                .iter()
+                .any(|b| b.contains(&"split-window".to_string())
+                    || b.contains(&"kill-pane".to_string())),
+            "splits and close stay the picker's: {bindings:?}"
+        );
+        assert_eq!(
+            t.argv(Operation::FocusPicker, None, None).unwrap(),
+            ["select-pane", "-t", "%0"]
+        );
     }
 
     #[test]

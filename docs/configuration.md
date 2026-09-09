@@ -123,7 +123,14 @@ a binding (it types into the search).
 | `focus-left/right/up/down` | `alt-shift-<arrow>` | move focus |
 | `close-pane` | `alt-x` | close the last pane scout opened |
 | `zoom` | `alt-z` | zoom the current pane |
+| `focus-picker` | `alt-h` | focus the picker's pane, from wherever you are |
 | `reindex` | `ctrl-r` | walk every indexed tree again, each the way it was walked, without leaving (works without tmux too) |
+
+On scout's own tmux server (`tmux_server = "private"`) the focus keys,
+`zoom` and `focus-picker` are also installed as tmux key bindings while
+the picker runs, so the same keys work from any pane, including the way
+back to the picker. Splits, windows and `close-pane` stay the picker's.
+Nothing is installed on a shared server.
 
 A `[keys]` entry may not use a key the picker owns (`Esc`, `Enter`,
 `Tab`, `Ctrl-C`, plain arrows, `Home`, `End`, `Backspace`, `Delete`, `?`,

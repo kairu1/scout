@@ -357,6 +357,14 @@ fn a_session_outside_tmux_lands_in_a_picker_with_panes_and_returns_the_cd() {
         || world.screen(&picker).contains("scout: session").then_some(()),
     );
     assert_eq!(world.pane_count(), 2);
+    // While the picker runs on scout's own server, the focus keys and
+    // focus-picker are tmux bindings too, aimed at this picker's pane.
+    let root_keys = world.tmux_ok(&["list-keys", "-T", "root"]);
+    assert!(root_keys.contains("M-S-Left") && root_keys.contains("select-pane -L"), "{root_keys}");
+    assert!(
+        root_keys.contains("M-h") && root_keys.contains(&format!("select-pane -t \"{picker}\"")),
+        "{root_keys}"
+    );
     world.send(&picker, &["?"]);
     wait_for(
         "the help overlay",
@@ -380,6 +388,8 @@ fn a_session_outside_tmux_lands_in_a_picker_with_panes_and_returns_the_cd() {
         transcript.lines().rev().find(|l| l.contains(world.dir.to_str().unwrap())).unwrap_or("");
     assert!(!last.trim().ends_with("alpha"), "Esc must not cd anywhere:\n{transcript}");
     assert!(world.tmux(&["has-session", "-t", "=scout"]).status.success(), "session survives Esc");
+    let root_keys = world.tmux_ok(&["list-keys", "-T", "root"]);
+    assert!(!root_keys.contains("M-h"), "bindings are removed when the picker leaves: {root_keys}");
 
     // 7. Nothing was killed by scout; the test kills its own server.
     world.tmux_ok(&["kill-server"]);

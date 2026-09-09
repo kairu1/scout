@@ -149,11 +149,24 @@ fn run(
             None
         });
     let in_tmux = tmux.borrow().is_some();
+    // On scout's own server the focus and zoom keys, and focus-picker,
+    // are tmux bindings as well, so the same keys work from every pane.
+    let own_server = owned && config.tmux_server == tmux::Server::Private;
     if owned {
         if let Some(t) = tmux.borrow().as_ref() {
             t.claim_picker(print_to.as_deref());
+            if own_server {
+                t.bind_root_keys(&config.keys);
+            }
         }
     }
+    let leave = |tmux: &RefCell<Option<Tmux>>| {
+        if own_server {
+            if let Some(t) = tmux.borrow().as_ref() {
+                t.unbind_root_keys(&config.keys);
+            }
+        }
+    };
     let pane_runner = |op: actions::PaneOp, cwd: &Path, argv: &[String]| -> Result<(), String> {
         let mut guard = tmux.borrow_mut();
         let Some(t) = guard.as_mut() else { return Err("not inside tmux".into()) };
@@ -176,6 +189,7 @@ fn run(
         let outcome = picker.pick().map_err(Error::Ui)?;
         let Some(outcome) = outcome else {
             picker.finish();
+            leave(&tmux);
             let _ = index::recovery::shutdown(conn);
             return Ok(0);
         };
@@ -241,6 +255,7 @@ fn run(
 
         let Some(action) = config.actions.iter().find(|a| a.name == request.action_name) else {
             picker.finish();
+            leave(&tmux);
             return Err(Error::ActionVanished(request.action_name));
         };
         let uses_pane =
@@ -264,6 +279,7 @@ fn run(
         if !session || action.ends_session() {
             // The v0.2.1 shape: leave the terminal, run, exit.
             picker.finish();
+            leave(&tmux);
             let outcome = actions::execute(action, &ctx, Some((&conn, request.candidate_id)));
             after_fix_action(&conn, action, &ctx, request.candidate_id, &home);
             let _ = index::recovery::shutdown(conn);
@@ -311,6 +327,7 @@ fn run(
                 started.elapsed().as_secs_f64()
             );
             if ui::terminal::wait_for_key().map_err(Error::Ui)? {
+                leave(&tmux);
                 let _ = index::recovery::shutdown(conn);
                 return Ok(0);
             }

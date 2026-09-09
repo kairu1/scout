@@ -2,6 +2,12 @@
 
 ## 0.4.1 (unreleased)
 
+### Added
+- `[keys] focus-picker` (default `alt-h`) focuses the picker from any
+  pane. On scout's own tmux server the focus keys, `zoom` and
+  `focus-picker` are installed as tmux bindings while the picker runs,
+  so one set of keys works everywhere.
+
 ### Fixed
 - The tmux client scout execs is told the terminal takes UTF-8 (`tmux -u`),
   so a shell with no UTF-8 locale no longer gets `_` for the picker's

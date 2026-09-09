@@ -76,9 +76,11 @@ plain shell starts a tmux session on scout's own server (`tmux -L scout`;
 your `~/.tmux.conf` still applies) and lands you in the picker inside it.
 A spawn step with `pane = "split-right"` runs in a new pane and scout
 stays in its own; the `[keys]` table binds `split-right`, `split-down`,
-`new-window`, `focus-left/right/up/down`, `close-pane`, `zoom` and
-`reindex` to keys you choose (defaults: `alt-right`, `alt-down`, `alt-w`,
-`alt-shift-<arrow>`, `alt-x`, `alt-z`, `ctrl-r`). When you `cd` into a
+`new-window`, `focus-left/right/up/down`, `close-pane`, `zoom`,
+`focus-picker` and `reindex` to keys you choose (defaults: `alt-right`,
+`alt-down`, `alt-w`, `alt-shift-<arrow>`, `alt-x`, `alt-z`, `alt-h`,
+`ctrl-r`); on scout's own server the focus and zoom keys work from every
+pane, and `focus-picker` brings you back. When you `cd` into a
 project, or press Esc, scout detaches and your shell gets its prompt
 back; everything you started in a pane keeps running, and the next
 `scout -s` re-attaches to it with a fresh picker. Nothing is ever killed

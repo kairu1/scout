@@ -22,10 +22,13 @@ pub enum Operation {
     FocusDown,
     ClosePane,
     Zoom,
+    /// Focus the picker's pane from wherever focus is. Installed as a
+    /// tmux binding on scout's own server, so it works from any pane.
+    FocusPicker,
     Reindex,
 }
 
-pub const ALL_OPERATIONS: [Operation; 10] = [
+pub const ALL_OPERATIONS: [Operation; 11] = [
     Operation::SplitRight,
     Operation::SplitDown,
     Operation::NewWindow,
@@ -35,6 +38,7 @@ pub const ALL_OPERATIONS: [Operation; 10] = [
     Operation::FocusDown,
     Operation::ClosePane,
     Operation::Zoom,
+    Operation::FocusPicker,
     Operation::Reindex,
 ];
 
@@ -50,6 +54,7 @@ impl Operation {
             Operation::FocusDown => "focus-down",
             Operation::ClosePane => "close-pane",
             Operation::Zoom => "zoom",
+            Operation::FocusPicker => "focus-picker",
             Operation::Reindex => "reindex",
         }
     }
@@ -70,6 +75,7 @@ impl Operation {
             Operation::FocusDown => "focus the pane below",
             Operation::ClosePane => "close the last pane scout opened",
             Operation::Zoom => "zoom the current pane in or out",
+            Operation::FocusPicker => "focus the picker, from any pane",
             Operation::Reindex => "re-index every indexed tree without leaving",
         }
     }
@@ -94,9 +100,65 @@ impl Operation {
             Operation::FocusDown => "alt-shift-down",
             Operation::ClosePane => "alt-x",
             Operation::Zoom => "alt-z",
+            Operation::FocusPicker => "alt-h",
             Operation::Reindex => "ctrl-r",
         }
     }
+
+    /// Operations that also work from a pane other than the picker's,
+    /// when scout runs on its own tmux server: installed there as tmux
+    /// key bindings so one set of keys serves every pane.
+    pub fn works_from_any_pane(&self) -> bool {
+        matches!(
+            self,
+            Operation::FocusLeft
+                | Operation::FocusRight
+                | Operation::FocusUp
+                | Operation::FocusDown
+                | Operation::Zoom
+                | Operation::FocusPicker
+        )
+    }
+}
+
+/// A normalised chord as tmux names the same key: `alt-shift-left` is
+/// `M-S-Left`, `ctrl-alt-f5` is `C-M-F5`, `pageup` is `PPage`.
+pub fn tmux_key_name(chord: &str) -> Option<String> {
+    let chord = normalise_chord(chord)?;
+    let mut parts: Vec<&str> = chord.split('-').collect();
+    let key = parts.pop()?;
+    let mut out = String::new();
+    for m in parts {
+        out.push_str(match m {
+            "ctrl" => "C-",
+            "alt" => "M-",
+            "shift" => "S-",
+            _ => return None,
+        });
+    }
+    let named = match key {
+        "left" => "Left",
+        "right" => "Right",
+        "up" => "Up",
+        "down" => "Down",
+        "home" => "Home",
+        "end" => "End",
+        "pageup" => "PPage",
+        "pagedown" => "NPage",
+        other => {
+            if let Some(n) = other.strip_prefix('f') {
+                if n.parse::<u8>().is_ok() {
+                    out.push('F');
+                    out.push_str(n);
+                    return Some(out);
+                }
+            }
+            out.push_str(other);
+            return Some(out);
+        }
+    };
+    out.push_str(named);
+    Some(out)
 }
 
 /// Keys the picker itself handles, written in the same normalised form
@@ -244,6 +306,22 @@ mod tests {
         {
             assert_eq!(normalise_chord(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn chords_translate_to_tmux_key_names() {
+        for (chord, tmux) in [
+            ("alt-shift-left", "M-S-Left"),
+            ("ctrl-alt-f5", "C-M-F5"),
+            ("alt-h", "M-h"),
+            ("pageup", "PPage"),
+            ("shift-pagedown", "S-NPage"),
+            ("ctrl-alt-shift-up", "C-M-S-Up"),
+            ("alt-end", "M-End"),
+        ] {
+            assert_eq!(tmux_key_name(chord).as_deref(), Some(tmux), "{chord}");
+        }
+        assert_eq!(tmux_key_name("meta-w"), None);
     }
 
     #[test]
