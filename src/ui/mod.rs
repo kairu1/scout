@@ -109,6 +109,8 @@ struct App<'a> {
     session: bool,
     /// Inside tmux: pane operations are offered and shown in the help.
     in_tmux: bool,
+    /// Why a session has no panes, for the help overlay.
+    no_tmux_reason: Option<&'static str>,
     reindex: Option<ReindexJob>,
     /// The last key received, in the `[keys]` grammar, for the help
     /// overlay's key-test line.
@@ -395,6 +397,7 @@ impl<'a> Picker<'a> {
             index_state,
             session,
             in_tmux,
+            no_tmux_reason: None,
             reindex: None,
             last_key: None,
             home: std::env::var("HOME").unwrap_or_default(),
@@ -493,6 +496,11 @@ impl<'a> Picker<'a> {
     }
 
     /// Watch a re-index started by the caller.
+    /// One line for the help overlay saying why there are no panes.
+    pub fn set_no_tmux_reason(&mut self, reason: &'static str) {
+        self.app.no_tmux_reason = Some(reason);
+    }
+
     pub fn start_reindex(&mut self, job: ReindexJob) {
         self.app.reindex = Some(job);
     }
@@ -612,8 +620,19 @@ fn event_loop(
             }
         }
 
+        // The help overlay is also the key test: a key pressed while it
+        // is open is named in its last row and the overlay stays, so a
+        // binding can be checked against what the terminal delivers.
+        // Esc and `?` close it; Ctrl-C leaves from here as from anywhere.
         if app.help {
-            app.help = false;
+            if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                return Ok(None);
+            }
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
+                app.help = false;
+            } else {
+                app.last_key = chord_name(&key);
+            }
             continue;
         }
 
@@ -1177,7 +1196,7 @@ fn draw_help(frame: &mut ratatui::Frame, app: &App<'_>) {
         ("up / down", "move the selection"),
         ("enter", "run the default action on the selection"),
         ("tab", "open the action pane - it filters, so type to narrow"),
-        ("?", "this help"),
+        ("?", "this help; while it is open, keys are named below"),
         ("esc", "close this, or quit"),
     ];
     let key = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
@@ -1194,6 +1213,11 @@ fn draw_help(frame: &mut ratatui::Frame, app: &App<'_>) {
                 continue;
             }
             rows.push((chord.to_string(), op.describe().to_string()));
+        }
+        if !app.in_tmux {
+            if let Some(reason) = app.no_tmux_reason {
+                rows.push(("panes".into(), reason.to_string()));
+            }
         }
         // What the terminal actually delivered for the last key, so a
         // binding that does not fire can be diagnosed without guessing.
@@ -1504,6 +1528,7 @@ mod tests {
                     index_state: state.clone(),
                     session: false,
                     in_tmux: false,
+                    no_tmux_reason: None,
                     reindex: None,
                     last_key: None,
                     home: String::new(),

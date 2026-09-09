@@ -533,3 +533,45 @@ fn keys_table_resolves_over_defaults_and_is_hashed() {
     assert_eq!(empty_table.trust_hash, without.trust_hash, "an empty table hashes like none");
     fs::remove_dir_all(&dir).unwrap();
 }
+
+/// `[scout]` names how a session uses tmux: a policy, a session name and
+/// a server. Values outside the closed sets, and a session name tmux
+/// would rewrite, refuse the file. None of it enters the trust hash.
+#[test]
+fn scout_tmux_settings_parse_validate_and_stay_out_of_the_hash() {
+    use scout::tmux::{Policy, Server};
+    let dir = temp_dir("tmux-settings");
+    let config = load_pretrusted(
+        &dir,
+        "schema_version = 2\n[scout]\nsession = true\ntmux = \"require\"\n\
+         tmux_session = \"work-2\"\ntmux_server = \"shared\"\n",
+    )
+    .unwrap();
+    assert_eq!(config.tmux, Policy::Require);
+    assert_eq!(config.tmux_session, "work-2");
+    assert_eq!(config.tmux_server, Server::Shared);
+    let hash_a = config.trust_hash.clone().unwrap();
+
+    let config = load_pretrusted(&dir, "schema_version = 2\n").unwrap();
+    assert_eq!(config.tmux, Policy::Auto, "default policy");
+    assert_eq!(config.tmux_session, "scout");
+    assert_eq!(config.tmux_server, Server::Private);
+    assert_eq!(config.trust_hash.unwrap(), hash_a, "tmux settings do not change what runs");
+
+    for (text, problem) in [
+        ("schema_version = 2\n[scout]\ntmux = \"sometimes\"\n", "auto"),
+        ("schema_version = 2\n[scout]\ntmux = true\n", "string"),
+        ("schema_version = 2\n[scout]\ntmux_session = \"a;b\"\n", "not allowed"),
+        ("schema_version = 2\n[scout]\ntmux_session = \"a.b\"\n", "not allowed"),
+        ("schema_version = 2\n[scout]\ntmux_session = \"\"\n", "1 to 64"),
+        ("schema_version = 2\n[scout]\ntmux_server = \"mine\"\n", "private"),
+    ] {
+        match load_pretrusted(&dir, text) {
+            Err(Error::ConfigInvalid { message, .. }) => {
+                assert!(message.contains(problem), "{text:?}: {message}")
+            }
+            other => panic!("{text:?} must be refused as invalid: {other:?}"),
+        }
+    }
+    fs::remove_dir_all(&dir).unwrap();
+}

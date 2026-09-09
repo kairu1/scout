@@ -130,8 +130,13 @@ pub fn load_file(
             supported: SUPPORTED_SCHEMA,
         });
     }
-    // `[scout]` carries exactly one setting.
+    // `[scout]`: the session switch and how a session uses tmux. None of
+    // these enter the trust hash: they change where the picker runs, not
+    // what runs.
     let mut session = false;
+    let mut tmux_policy = crate::tmux::Policy::default();
+    let mut tmux_session = crate::tmux::DEFAULT_SESSION.to_string();
+    let mut tmux_server = crate::tmux::Server::default();
     if let Some(scout_table) = &raw.scout {
         for (key, value) in scout_table {
             match (key.as_str(), value) {
@@ -139,10 +144,60 @@ pub fn load_file(
                 ("session", _) => {
                     return Err(validation(config_path, "[scout] session must be a boolean".into()))
                 }
+                ("tmux", toml::Value::String(s)) => match crate::tmux::Policy::parse(s) {
+                    Some(policy) => tmux_policy = policy,
+                    None => {
+                        return Err(validation(
+                            config_path,
+                            format!(
+                                "[scout] tmux = {s:?}: want \"auto\", \"never\" or \"require\""
+                            ),
+                        ))
+                    }
+                },
+                ("tmux", _) => {
+                    return Err(validation(
+                        config_path,
+                        "[scout] tmux must be a string: \"auto\", \"never\" or \"require\"".into(),
+                    ))
+                }
+                ("tmux_session", toml::Value::String(s)) => {
+                    if let Err(why) = crate::tmux::validate_session_name(s) {
+                        return Err(validation(
+                            config_path,
+                            format!("[scout] tmux_session = {s:?}: {why}"),
+                        ));
+                    }
+                    tmux_session = s.clone();
+                }
+                ("tmux_session", _) => {
+                    return Err(validation(
+                        config_path,
+                        "[scout] tmux_session must be a string".into(),
+                    ))
+                }
+                ("tmux_server", toml::Value::String(s)) => match crate::tmux::Server::parse(s) {
+                    Some(server) => tmux_server = server,
+                    None => {
+                        return Err(validation(
+                            config_path,
+                            format!("[scout] tmux_server = {s:?}: want \"private\" or \"shared\""),
+                        ))
+                    }
+                },
+                ("tmux_server", _) => {
+                    return Err(validation(
+                        config_path,
+                        "[scout] tmux_server must be a string: \"private\" or \"shared\"".into(),
+                    ))
+                }
                 (other, _) => {
                     return Err(validation(
                         config_path,
-                        format!("[scout]: unknown key `{other}` (the only setting is `session`)"),
+                        format!(
+                            "[scout]: unknown key `{other}` (settings: session, tmux, \
+                             tmux_session, tmux_server)"
+                        ),
                     ))
                 }
             }
@@ -276,6 +331,9 @@ pub fn load_file(
         source: Some(config_path.to_path_buf()),
         trust_hash: Some(hash),
         session,
+        tmux: tmux_policy,
+        tmux_session,
+        tmux_server,
         keys: resolved_keys,
     })
 }

@@ -1,5 +1,5 @@
-//! The two ways scout starts a child: wait for it on the terminal, or
-//! detach it so it can never wedge the terminal scout is drawing on.
+//! The ways scout starts a child: wait for it on the terminal, detach it
+//! so it can never wedge the terminal scout is drawing on, or become it.
 
 use std::collections::HashMap;
 use std::io;
@@ -29,6 +29,16 @@ pub fn exec_shell(cwd: &Path) -> io::Error {
     let shell =
         std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "sh".into());
     Command::new(shell).current_dir(cwd).exec()
+}
+
+/// Replace this process with `argv`, environment and directory inherited.
+/// Only returns on failure. What the session launcher does to become the
+/// tmux client.
+pub fn exec_argv(argv: &[String]) -> io::Error {
+    if argv.is_empty() {
+        return io::Error::new(io::ErrorKind::InvalidInput, "empty argv");
+    }
+    Command::new(&argv[0]).args(&argv[1..]).exec()
 }
 
 /// Start `argv` in its own process group with null stdio and return at

@@ -83,6 +83,10 @@ pub enum Error {
     #[error("nothing indexed yet")]
     NoRoots,
 
+    /// `[scout] tmux = "require"` and no tmux to run the session in.
+    #[error("session mode requires tmux and none was found on PATH")]
+    TmuxRequired,
+
     #[error("could not install signal handlers: {0}")]
     Signals(#[source] std::io::Error),
 
@@ -116,6 +120,14 @@ impl Error {
                      parent",
                     existing.display()
                 )),
+                context: "",
+            }),
+            Error::TmuxRequired => Some(Hint {
+                why: "[scout] tmux = \"require\" refuses a session without panes".into(),
+                next: Some(
+                    "install tmux, or set `tmux = \"auto\"` to run the session in this terminal"
+                        .into(),
+                ),
                 context: "",
             }),
             Error::NoRoots => Some(Hint {

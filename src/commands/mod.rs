@@ -23,7 +23,7 @@ pub use doctor::doctor;
 pub use index::index;
 pub use open_db::open_db;
 pub use pane_run::pane_run;
-pub use picker::picker;
+pub use picker::{picker, PickerArgs};
 pub use query::query;
 pub use recon::recon;
 

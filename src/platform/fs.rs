@@ -71,6 +71,13 @@ pub fn open_or_create_private(path: &Path) -> io::Result<(File, bool)> {
     Ok((file, existed))
 }
 
+/// Open `path` for appending without following a symlink, creating it
+/// 0600 when absent. The print sink: a line for the shell wrapper goes
+/// into the file it named, never into wherever a link points.
+pub fn open_append_nofollow(path: &Path) -> io::Result<File> {
+    OpenOptions::new().append(true).create(true).mode(0o600).custom_flags(O_NOFOLLOW).open(path)
+}
+
 /// Create `path` 0600 if it does not exist yet; leave it alone otherwise.
 pub fn ensure_private_file(path: &Path) -> io::Result<()> {
     if path.symlink_metadata().is_err() {

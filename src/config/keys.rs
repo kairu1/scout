@@ -70,7 +70,7 @@ impl Operation {
             Operation::FocusDown => "focus the pane below",
             Operation::ClosePane => "close the last pane scout opened",
             Operation::Zoom => "zoom the current pane in or out",
-            Operation::Reindex => "re-index the last indexed tree without leaving",
+            Operation::Reindex => "re-index every indexed tree without leaving",
         }
     }
 

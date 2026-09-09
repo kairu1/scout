@@ -35,6 +35,12 @@ pub struct Config {
     pub trust_hash: Option<String>,
     /// `[scout] session = true`: stay in the picker after an action.
     pub session: bool,
+    /// `[scout] tmux`: whether a session may start tmux.
+    pub tmux: crate::tmux::Policy,
+    /// `[scout] tmux_session`: the session scout starts or attaches to.
+    pub tmux_session: String,
+    /// `[scout] tmux_server`: scout's own server or the user's default.
+    pub tmux_server: crate::tmux::Server,
     /// Pane operations and the re-index key, resolved over the defaults.
     pub keys: Keys,
 }
@@ -47,6 +53,9 @@ impl Config {
             source: None,
             trust_hash: None,
             session: false,
+            tmux: crate::tmux::Policy::default(),
+            tmux_session: crate::tmux::DEFAULT_SESSION.to_string(),
+            tmux_server: crate::tmux::Server::default(),
             keys: Keys::default(),
         }
     }

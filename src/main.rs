@@ -20,6 +20,14 @@ struct Cli {
     /// wrapper passes a temporary file so that children keep stdout.
     #[arg(long, value_name = "FILE")]
     print_to: Option<PathBuf>,
+    /// Run this session in the current terminal without tmux, even when
+    /// tmux is installed (`[scout] tmux = "never"` for one run).
+    #[arg(long)]
+    no_tmux: bool,
+    /// The picker was started by scout's own tmux launch; on exit,
+    /// detach the client instead of just ending. Not meant to be typed.
+    #[arg(long, hide = true)]
+    tmux_owned: bool,
 }
 
 #[derive(Subcommand)]
@@ -177,7 +185,12 @@ fn main() -> ExitCode {
         Some(Cmd::Query { query, limit, format, print0 }) => {
             scout::commands::query(&query, limit, &format, print0)
         }
-        None => scout::commands::picker(cli.session, cli.print_to),
+        None => scout::commands::picker(scout::commands::PickerArgs {
+            session: cli.session,
+            print_to: cli.print_to,
+            no_tmux: cli.no_tmux,
+            tmux_owned: cli.tmux_owned,
+        }),
     };
     match result {
         Ok(code) => ExitCode::from(code),

@@ -4,6 +4,12 @@
 //! indexed tree can be walked again without leaving, and an action
 //! that prints a command for the shell still ends the session because it
 //! only works once scout is gone.
+//!
+//! A session outside tmux, with tmux installed, does not run here: after
+//! the trust prompt this process becomes the tmux client of a session
+//! whose first pane runs the picker again with `--tmux-owned`. That inner
+//! picker detaches every client when it leaves, which is what returns
+//! the launcher's shell wrapper to its prompt.
 
 use std::cell::RefCell;
 use std::io::IsTerminal;
@@ -18,36 +24,136 @@ use super::{logging, open_default_db, warn};
 use crate::actions::{self, Action, ActionCtx, ExecOutcome};
 use crate::platform::time::unix_now;
 use crate::recon;
-use crate::tmux::Tmux;
+use crate::tmux::{self, Decision, Tmux};
 use crate::ui::{self, Outcome, Picker, ReindexJob};
 use crate::{config, index, locations, platform, search, Error};
 
-pub fn picker(session_flag: bool, print_to: Option<PathBuf>) -> crate::Result<u8> {
+/// The top-level flags that reach the picker.
+#[derive(Debug, Clone, Default)]
+pub struct PickerArgs {
+    pub session: bool,
+    pub print_to: Option<PathBuf>,
+    pub no_tmux: bool,
+    pub tmux_owned: bool,
+}
+
+pub fn picker(args: PickerArgs) -> crate::Result<u8> {
     logging::init(logging::Sink::StateFile);
     if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         return Err(Error::PickerNeedsTty);
     }
-    let home = platform::xdg::home()?;
 
     // Config load, including the trust prompt, happens before the
     // alternate screen: a broken config is a fix-and-rerun moment, not a
-    // degraded-UI moment.
+    // degraded-UI moment. In a launch it happens in the user's own
+    // terminal, before tmux, so the prompt is where they can see it.
     let chain = locations::discovery_chain()?;
     let trust_store = locations::trust_store()?;
     let config = config::load(&chain, trust_store, true)?;
     for warning in &config.warnings {
         warn(warning);
     }
-    let session = session_flag || config.session;
+    let session = args.session || config.session;
 
+    let decision = if session && !args.tmux_owned {
+        tmux::decide(config.tmux, args.no_tmux, tmux::installed(), tmux::inside())
+    } else if session {
+        Decision::UseSurrounding
+    } else {
+        Decision::InProcess
+    };
+    let mut no_tmux_reason: Option<&'static str> = None;
+    match decision {
+        Decision::Launch => {
+            let launch = tmux::Launch {
+                server: config.tmux_server,
+                session: config.tmux_session.clone(),
+                scout_exe: std::env::current_exe().unwrap_or_else(|_| "scout".into()),
+                cwd: std::env::current_dir().ok(),
+                print_to: args.print_to.clone(),
+            };
+            match launch.prepare() {
+                Ok(client) => {
+                    // Only returns on failure; the process is the client
+                    // from here until it detaches.
+                    let err = platform::process::exec_argv(&client);
+                    if config.tmux == tmux::Policy::Require {
+                        return Err(Error::io("exec tmux", err));
+                    }
+                    warn(format!("could not start tmux ({err}); running the session here"));
+                    no_tmux_reason = Some("tmux failed to start; run scout doctor");
+                }
+                Err(message) => {
+                    if config.tmux == tmux::Policy::Require {
+                        return Err(Error::io("start tmux", std::io::Error::other(message)));
+                    }
+                    warn(format!("{message}; running the session here"));
+                    no_tmux_reason = Some("tmux failed to start; run scout doctor");
+                }
+            }
+        }
+        Decision::Refuse => return Err(Error::TmuxRequired),
+        Decision::InProcess if session => {
+            no_tmux_reason = Some(if args.no_tmux || config.tmux == tmux::Policy::Never {
+                "tmux is off for this session (--no-tmux or [scout] tmux); no panes"
+            } else {
+                "install tmux and scout will open panes and windows for you"
+            });
+        }
+        Decision::InProcess | Decision::UseSurrounding => {}
+    }
+
+    let owned = args.tmux_owned && session;
+    let result = run(&config, session, args.print_to, decision, no_tmux_reason, owned);
+    if owned {
+        // The pane is about to vanish with this process. An error the
+        // user has not seen yet is shown and held; then every client is
+        // detached so the launcher's shell gets its prompt back.
+        if let Err(err) = &result {
+            eprintln!("scout: {err}");
+            if let Some(hint) = err.hint() {
+                eprintln!("scout: {hint}");
+            }
+            eprintln!("scout: press any key to return to your shell");
+            let _ = ui::terminal::wait_for_key();
+        }
+        if let Some(t) = Tmux::detect() {
+            if let Err(message) = t.detach_clients() {
+                warn(format!("could not detach: {message}"));
+            }
+        }
+    }
+    result
+}
+
+fn run(
+    config: &config::Config,
+    session: bool,
+    print_to: Option<PathBuf>,
+    decision: Decision,
+    no_tmux_reason: Option<&'static str>,
+    owned: bool,
+) -> crate::Result<u8> {
+    let home = platform::xdg::home()?;
     let conn = open_default_db()?;
     let index_state = search::index_state(&conn)?;
     let candidates = search::load_candidates(&conn)?;
 
     // tmux is detected once. Outside a session there is nothing to keep a
-    // pane for, so the check is skipped.
-    let tmux: RefCell<Option<Tmux>> = RefCell::new(if session { Tmux::detect() } else { None });
+    // pane for, so the check is skipped; with tmux switched off it is
+    // ignored even inside one.
+    let tmux: RefCell<Option<Tmux>> =
+        RefCell::new(if session && decision == Decision::UseSurrounding {
+            Tmux::detect()
+        } else {
+            None
+        });
     let in_tmux = tmux.borrow().is_some();
+    if owned {
+        if let Some(t) = tmux.borrow().as_ref() {
+            t.claim_picker(print_to.as_deref());
+        }
+    }
     let pane_runner = |op: actions::PaneOp, cwd: &Path, argv: &[String]| -> Result<(), String> {
         let mut guard = tmux.borrow_mut();
         let Some(t) = guard.as_mut() else { return Err("not inside tmux".into()) };
@@ -60,7 +166,10 @@ pub fn picker(session_flag: bool, print_to: Option<PathBuf>) -> crate::Result<u8
     };
 
     let lookup = |id: i64| recon::store::unaccepted_for_row(&conn, id).unwrap_or_default();
-    let mut picker = Picker::new(&config, candidates, index_state, &lookup, session, in_tmux);
+    let mut picker = Picker::new(config, candidates, index_state, &lookup, session, in_tmux);
+    if let Some(reason) = no_tmux_reason {
+        picker.set_no_tmux_reason(reason);
+    }
     let home_text = home.display().to_string();
 
     loop {
@@ -136,11 +245,19 @@ pub fn picker(session_flag: bool, print_to: Option<PathBuf>) -> crate::Result<u8
         };
         let uses_pane =
             action.steps.iter().any(|s| matches!(s, actions::Step::Spawn { pane: Some(_), .. }));
+        // In an owned session the exit command goes to the file of the
+        // shell that most recently attached, when that file passes the
+        // sink checks; the launch-time file is the fallback.
+        let sink = if owned && action.ends_session() {
+            tmux.borrow().as_ref().and_then(|t| t.handoff_print_to()).or_else(|| print_to.clone())
+        } else {
+            print_to.clone()
+        };
         let ctx = ActionCtx {
             path: request.path.clone(),
             query: request.query.clone(),
             home: home_text.clone(),
-            print_to: print_to.clone(),
+            print_to: sink,
             pane_runner: if in_tmux && session { Some(&pane_runner) } else { None },
         };
 

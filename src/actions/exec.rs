@@ -154,10 +154,7 @@ fn run_step(
             let line = format.expand(&expand_ctx, true)?;
             match &ctx.print_to {
                 Some(file) => {
-                    let mut out = std::fs::OpenOptions::new()
-                        .append(true)
-                        .create(true)
-                        .open(file)
+                    let mut out = crate::platform::fs::open_append_nofollow(file)
                         .map_err(|_| FailureKind::PrintWrite)?;
                     out.write_all(line.as_bytes())
                         .and_then(|_| out.write_all(b"\n"))
