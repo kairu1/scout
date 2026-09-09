@@ -1,11 +1,33 @@
 //! The streaming, gitignore-aware, parallel walker. Every path is
 //! canonicalised here and passed through the boundary refusals before it
 //! enters a bounded channel; the tree is never held in memory.
+//!
+//! Besides the entries the ignore rules admit, the walker lists every
+//! directory it descends for credential-bearing names (`.env`, `id_rsa`,
+//! the `.ssh` directory and one level inside it) and sends those too,
+//! marked as not candidates: a `.env` that gitignore hides, or that a
+//! walk without hidden entries never sees, is exactly the file whose
+//! mode recon must look at. The picker never shows such a row.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
 use crate::platform::signals;
+use crate::recon::checks::is_secret_name;
+
+/// One path from the walk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalkItem {
+    pub path: PathBuf,
+    /// False for a row recorded only so recon can examine it.
+    pub candidate: bool,
+}
+
+impl WalkItem {
+    pub fn candidate(path: PathBuf) -> Self {
+        WalkItem { path, candidate: true }
+    }
+}
 
 /// Trees that must never enter the index.
 const SYSTEM_DENYLIST: &[&str] = &["/proc", "/sys", "/dev"];
@@ -38,10 +60,10 @@ pub fn refused_at_boundary(path: &Path) -> bool {
 /// Walk `config.root` in parallel, canonicalising every yielded path.
 /// Canonicalisation failure skips the path (debug log, never fatal).
 /// The iterator ends early if an interrupt is requested.
-pub fn walk(config: &WalkConfig) -> impl Iterator<Item = PathBuf> {
+pub fn walk(config: &WalkConfig) -> impl Iterator<Item = WalkItem> {
     // A bounded channel is what makes this streaming: the walker blocks
     // when the writer falls behind instead of buffering the tree.
-    let (tx, rx) = mpsc::sync_channel::<PathBuf>(1024);
+    let (tx, rx) = mpsc::sync_channel::<WalkItem>(1024);
 
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or_else(|err| {
         tracing::warn!(%err, "available_parallelism failed; walking single-threaded");
@@ -80,15 +102,70 @@ pub fn walk(config: &WalkConfig) -> impl Iterator<Item = PathBuf> {
                     tracing::debug!(path = %canonical.display(), "refused at boundary");
                     return ignore::WalkState::Continue;
                 }
-                match tx.send(canonical) {
-                    Ok(()) => ignore::WalkState::Continue,
+                let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
+                if tx.send(WalkItem::candidate(canonical)).is_err() {
                     // Receiver dropped: the consumer is gone, stop walking.
-                    Err(_) => ignore::WalkState::Quit,
+                    return ignore::WalkState::Quit;
                 }
+                if is_dir {
+                    for secret in secret_entries(entry.path()) {
+                        if tx.send(WalkItem { path: secret, candidate: false }).is_err() {
+                            return ignore::WalkState::Quit;
+                        }
+                    }
+                }
+                ignore::WalkState::Continue
             })
         });
         tracing::info!("index.walk.complete");
     });
 
     rx.into_iter()
+}
+
+/// Credential-bearing entries directly inside `dir`, canonicalised and
+/// boundary-checked, plus one level inside a `.ssh` directory. Symlinks
+/// are skipped: a link named `.env` is the link's business, and the
+/// symlink check reports where it leads.
+fn secret_entries(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else { return out };
+    for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_symlink() {
+            continue;
+        }
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name == ".ssh" && kind.is_dir() {
+            if let Some(canonical) = admitted(&entry.path()) {
+                out.push(canonical);
+            }
+            if let Ok(inner) = std::fs::read_dir(entry.path()) {
+                for child in inner.flatten() {
+                    let is_link = child.file_type().is_ok_and(|t| t.is_symlink());
+                    let child_name = child.file_name();
+                    let Some(child_name) = child_name.to_str() else { continue };
+                    if !is_link && is_secret_name(child_name) {
+                        if let Some(canonical) = admitted(&child.path()) {
+                            out.push(canonical);
+                        }
+                    }
+                }
+            }
+        } else if is_secret_name(name) {
+            if let Some(canonical) = admitted(&entry.path()) {
+                out.push(canonical);
+            }
+        }
+    }
+    out
+}
+
+fn admitted(path: &Path) -> Option<PathBuf> {
+    let canonical = std::fs::canonicalize(path).ok()?;
+    if refused_at_boundary(&canonical) {
+        return None;
+    }
+    Some(canonical)
 }

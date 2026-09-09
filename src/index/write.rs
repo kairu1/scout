@@ -12,7 +12,7 @@ use rusqlite::Connection;
 
 use super::pacing;
 use super::roots::{self, Root, WalkFlags};
-use super::walk::refused_at_boundary;
+use super::walk::{refused_at_boundary, WalkItem};
 use crate::platform::signals;
 use crate::platform::time::unix_now;
 use crate::recon;
@@ -90,7 +90,7 @@ pub struct WriteOptions<'a> {
 pub fn batched_insert(
     conn: &mut Connection,
     root: &Path,
-    paths: impl Iterator<Item = PathBuf>,
+    paths: impl Iterator<Item = WalkItem>,
     batch_size: usize,
 ) -> Result<InsertStats> {
     let root = roots::ensure(conn, root, WalkFlags::default())?;
@@ -104,7 +104,7 @@ pub fn batched_insert(
 /// `batched_insert` with the full set of options.
 pub fn batched_insert_with(
     conn: &mut Connection,
-    paths: impl Iterator<Item = PathBuf>,
+    paths: impl Iterator<Item = WalkItem>,
     options: &WriteOptions<'_>,
 ) -> Result<InsertStats> {
     let batch_size = options.batch_size.max(1);
@@ -132,7 +132,7 @@ pub fn batched_insert_with(
     )?;
 
     let mut paths = paths.peekable();
-    let mut batch: Vec<PathBuf> = Vec::with_capacity(batch_size);
+    let mut batch: Vec<WalkItem> = Vec::with_capacity(batch_size);
 
     while paths.peek().is_some() {
         // Interrupt is honoured at batch boundaries only; a batch in
@@ -145,12 +145,12 @@ pub fn batched_insert_with(
         batch.clear();
         while batch.len() < batch_size {
             match paths.next() {
-                Some(path) => {
-                    if refused_at_boundary(&path) {
+                Some(item) => {
+                    if refused_at_boundary(&item.path) {
                         stats.skipped += 1;
                         continue;
                     }
-                    batch.push(path);
+                    batch.push(item);
                 }
                 None => break,
             }
@@ -168,7 +168,7 @@ pub fn batched_insert_with(
             // and once as a recon-only entry.
             let mut stmt = tx.prepare_cached(
                 "INSERT INTO paths (path, scan_generation, root_id, candidate)
-                 VALUES (:path, :gen, :root, 1)
+                 VALUES (:path, :gen, :root, :candidate)
                  ON CONFLICT(path) DO UPDATE SET
                      candidate = CASE WHEN scan_generation = excluded.scan_generation
                                       THEN max(candidate, excluded.candidate)
@@ -178,7 +178,8 @@ pub fn batched_insert_with(
                      tombstoned_at = NULL
                  RETURNING rowid",
             )?;
-            for path in &batch {
+            for item in &batch {
+                let path = &item.path;
                 let path_str = match path.to_str() {
                     Some(s) => s,
                     None => {
@@ -190,7 +191,12 @@ pub fn batched_insert_with(
                     }
                 };
                 match stmt.query_row(
-                    rusqlite::named_params! { ":path": path_str, ":gen": generation, ":root": root_id },
+                    rusqlite::named_params! {
+                        ":path": path_str,
+                        ":gen": generation,
+                        ":root": root_id,
+                        ":candidate": item.candidate as i64,
+                    },
                     |r| r.get::<_, i64>(0),
                 ) {
                     Ok(rowid) => {

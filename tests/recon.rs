@@ -274,3 +274,57 @@ fn unknown_check_names_and_formats_are_refused() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A credential file is examined whether or not hidden entries are
+/// candidates, and whether or not gitignore hides it: the walker records
+/// it for recon only, and the picker never sees it. With `--hidden` the
+/// same row becomes an ordinary candidate and keeps its finding.
+#[test]
+fn a_dotenv_is_a_finding_without_hidden_and_never_a_candidate_without_it() {
+    let dir = sandbox("dotenv");
+    let tree = dir.join("tree");
+    // A git repository that ignores .env, the common shape.
+    std::fs::create_dir_all(tree.join("repo/.git")).unwrap();
+    std::fs::write(tree.join("repo/.gitignore"), ".env\n").unwrap();
+    std::fs::write(tree.join("repo/.env"), "SECRET=1\n").unwrap();
+    chmod(&tree.join("repo/.env"), 0o644);
+    std::fs::write(tree.join("repo/README"), "hi\n").unwrap();
+    // A home-shaped .ssh directory with a readable private key inside.
+    std::fs::create_dir_all(tree.join("home/.ssh")).unwrap();
+    chmod(&tree.join("home/.ssh"), 0o755);
+    std::fs::write(tree.join("home/.ssh/id_ed25519"), "key\n").unwrap();
+    chmod(&tree.join("home/.ssh/id_ed25519"), 0o644);
+    std::fs::write(tree.join("home/.ssh/id_ed25519.pub"), "pub\n").unwrap();
+
+    let out = run(&dir, &["index", tree.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let report = stdout(&run(&dir, &["recon", "--format", "tsv"]));
+    let rows = tsv_rows(&report);
+    let secret_paths: Vec<&str> =
+        rows.iter().filter(|r| r[1] == "secret-exposed").map(|r| r[5].as_str()).collect();
+    assert!(secret_paths.iter().any(|p| p.ends_with("/repo/.env")), "{report}");
+    assert!(secret_paths.iter().any(|p| p.ends_with("/home/.ssh/id_ed25519")), "{report}");
+    assert!(secret_paths.iter().any(|p| p.ends_with("/home/.ssh")), ".ssh not 700: {report}");
+    assert!(!secret_paths.iter().any(|p| p.ends_with(".pub")), "{report}");
+
+    // Not candidates: the picker's set is what `query` ranks.
+    assert_eq!(run(&dir, &["query", ".env"]).status.code(), Some(1), "hidden rows stay hidden");
+    assert_eq!(run(&dir, &["query", "id_ed25519"]).status.code(), Some(1));
+    assert_eq!(run(&dir, &["query", "README"]).status.code(), Some(0));
+
+    // With --hidden the .ssh key is an ordinary candidate with its finding;
+    // the gitignored .env is still recon-only.
+    assert!(run(&dir, &["index", tree.to_str().unwrap(), "--hidden"]).status.success());
+    assert_eq!(run(&dir, &["query", "id_ed25519"]).status.code(), Some(0));
+    assert_eq!(
+        run(&dir, &["query", ".env"]).status.code(),
+        Some(1),
+        "gitignored: never a candidate"
+    );
+    let report = stdout(&run(&dir, &["recon", "--format", "tsv"]));
+    assert!(
+        tsv_rows(&report).iter().any(|r| r[1] == "secret-exposed" && r[5].ends_with("/repo/.env")),
+        "{report}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
