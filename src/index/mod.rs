@@ -8,15 +8,16 @@
 //! under a live query.
 //! Refuses to know about: ranking, config, actions, terminals. It hands
 //! out rows and takes credits; what they mean is someone else's job.
-//! Exposes: functions over a `rusqlite::Connection`. Every reader filters
-//! to the current scan generation, which advances only when a walk
-//! completes; a walk that stops early leaves the previous generation
-//! serving.
+//! Exposes: functions over a `rusqlite::Connection`. The index holds many
+//! roots; every reader filters each row to its root's current scan
+//! generation, which advances only when a walk of that root completes; a
+//! walk that stops early leaves the previous generation serving.
 
 pub mod frecency;
 mod open;
 pub mod pacing;
 pub mod recovery;
+pub mod roots;
 pub mod schema;
 pub mod walk;
 pub mod write;

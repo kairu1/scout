@@ -227,6 +227,44 @@ pub(super) fn index_section(home: Option<&Path>) -> Section {
         Err(err) => checks.push(Check::new("generation", Level::Fail, err.to_string())),
     }
 
+    // Which trees the index holds and how each was walked. A database
+    // from before roots existed has no table; that is a warning to
+    // re-index, never a repair.
+    let roots: std::result::Result<Vec<String>, _> = conn
+        .prepare("SELECT path, hidden, follow, recon FROM roots ORDER BY id")
+        .and_then(|mut stmt| {
+            stmt.query_map([], |r| {
+                let mut flags = Vec::new();
+                if r.get::<_, i64>(1)? != 0 {
+                    flags.push("hidden");
+                }
+                if r.get::<_, i64>(2)? != 0 {
+                    flags.push("follow");
+                }
+                if r.get::<_, i64>(3)? == 0 {
+                    flags.push("no-recon");
+                }
+                let path: String = r.get(0)?;
+                Ok(if flags.is_empty() { path } else { format!("{path} ({})", flags.join(", ")) })
+            })?
+            .collect()
+        });
+    match roots {
+        Ok(roots) if roots.is_empty() => {
+            checks.push(Check::new("roots", Level::Warn, "none - run 'scout index <path>'"))
+        }
+        Ok(roots) => checks.push(Check::new(
+            "roots",
+            Level::Ok,
+            format!("{}: {}", roots.len(), roots.join("; ")),
+        )),
+        Err(err) => checks.push(Check::new(
+            "roots",
+            Level::Warn,
+            format!("no roots table ({err}); run 'scout index <path>' to migrate"),
+        )),
+    }
+
     let journal: String = conn
         .query_row("PRAGMA journal_mode", [], |r| r.get(0))
         .unwrap_or_else(|_| "unknown".into());

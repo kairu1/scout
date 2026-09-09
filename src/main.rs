@@ -24,19 +24,36 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Walk a tree into the index (streaming, gitignore-aware).
+    /// Walk a tree into the index (streaming, gitignore-aware). With no
+    /// path, walk every indexed tree again the way it was walked before.
+    /// A path inside an indexed tree re-walks that tree; a new path adds
+    /// a tree; a path that would contain one is refused.
     Index {
-        path: PathBuf,
-        /// Include hidden entries.
-        #[arg(long)]
+        path: Option<PathBuf>,
+        /// Include hidden entries (remembered for this tree).
+        #[arg(long, overrides_with = "no_hidden")]
         hidden: bool,
-        /// Follow symlinks while walking.
-        #[arg(long)]
+        /// Stop including hidden entries for this tree.
+        #[arg(long, overrides_with = "hidden")]
+        no_hidden: bool,
+        /// Follow symlinks while walking (remembered for this tree).
+        #[arg(long, overrides_with = "no_follow")]
         follow: bool,
-        /// Run the cheap recon checks (ownership, mode, special bits,
-        /// exposed secrets, symlink escapes) on every path as it is indexed.
-        #[arg(long)]
+        /// Stop following symlinks for this tree.
+        #[arg(long, overrides_with = "follow")]
+        no_follow: bool,
+        /// Skip the cheap recon checks (ownership, mode, special bits,
+        /// exposed secrets) that otherwise run on every path as it is
+        /// indexed. Remembered for this tree.
+        #[arg(long, overrides_with = "recon")]
+        no_recon: bool,
+        /// Run the cheap recon checks again for a tree that opted out.
+        #[arg(long, overrides_with = "no_recon")]
         recon: bool,
+        /// Drop the tree at PATH from the index. Its rows keep their
+        /// history for a while and come back if the tree is indexed again.
+        #[arg(long, requires = "path")]
+        forget: bool,
     },
     /// Open (and if needed recover) an index DB, print its vitals.
     OpenDb { path: PathBuf },
@@ -116,8 +133,31 @@ enum ReconCmd {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
-        Some(Cmd::Index { path, hidden, follow, recon }) => {
-            scout::commands::index(path, hidden, follow, recon)
+        Some(Cmd::Index {
+            path,
+            hidden,
+            no_hidden,
+            follow,
+            no_follow,
+            no_recon,
+            recon,
+            forget,
+        }) => {
+            let pick = |on: bool, off: bool| {
+                if on {
+                    Some(true)
+                } else if off {
+                    Some(false)
+                } else {
+                    None
+                }
+            };
+            let flags = scout::index::roots::WalkFlags {
+                hidden: pick(hidden, no_hidden),
+                follow: pick(follow, no_follow),
+                recon: pick(recon, no_recon),
+            };
+            scout::commands::index(path, flags, forget)
         }
         Some(Cmd::Recon { cmd: Some(ReconCmd::Accept { path, check, reason }), .. }) => {
             scout::commands::recon::accept(&path, &check, &reason)

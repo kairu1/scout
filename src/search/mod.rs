@@ -1,6 +1,7 @@
 //! Search: turning a query into an ordered list of candidates.
 //!
-//! Owns: the candidate scope (every live row of the current generation),
+//! Owns: the candidate scope (every live candidate row at its root's
+//! current generation),
 //! the three index states the picker renders as banners, and the ranking
 //! pipeline that blends match quality with frecency.
 //! Refuses to know about: the schema beyond its two SELECTs, drawing,
@@ -67,9 +68,10 @@ pub fn index_state(conn: &Connection) -> Result<IndexState> {
         })?;
     if generation >= 1 {
         let candidates: i64 = conn.query_row(
-            "SELECT count(*) FROM paths
-              WHERE scan_generation = :gen AND tombstoned_at IS NULL",
-            rusqlite::named_params! { ":gen": generation },
+            "SELECT count(*) FROM paths p JOIN roots r ON p.root_id = r.id
+              WHERE p.scan_generation = r.current_generation
+                AND p.tombstoned_at IS NULL AND p.candidate = 1",
+            [],
             |row| row.get(0),
         )?;
         return Ok(IndexState::Ready { generation, candidates });
@@ -81,8 +83,9 @@ pub fn index_state(conn: &Connection) -> Result<IndexState> {
     Ok(IndexState::Empty)
 }
 
-/// Every non-tombstoned row in the current generation. No project
-/// filter: the candidate set is the whole index.
+/// Every non-tombstoned candidate row at its root's current generation.
+/// No project filter: the candidate set is the whole index. A row whose
+/// root has been forgotten, or that predates every root, is not served.
 pub fn load_candidates(conn: &Connection) -> Result<Vec<CandidateRow>> {
     let generation: i64 =
         conn.query_row("SELECT current_generation FROM run_state WHERE id = 1", [], |row| {
@@ -92,12 +95,13 @@ pub fn load_candidates(conn: &Connection) -> Result<Vec<CandidateRow>> {
         return Ok(Vec::new());
     }
     let mut stmt = conn.prepare_cached(
-        "SELECT rowid, path, S, last_update, visits_total, worst_finding
-           FROM paths
-          WHERE scan_generation = :gen AND tombstoned_at IS NULL",
+        "SELECT p.rowid, p.path, p.S, p.last_update, p.visits_total, p.worst_finding
+           FROM paths p JOIN roots r ON p.root_id = r.id
+          WHERE p.scan_generation = r.current_generation
+            AND p.tombstoned_at IS NULL AND p.candidate = 1",
     )?;
     let rows = stmt
-        .query_map(rusqlite::named_params! { ":gen": generation }, |row| {
+        .query_map([], |row| {
             Ok(CandidateRow {
                 id: row.get(0)?,
                 path: row.get(1)?,

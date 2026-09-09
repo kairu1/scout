@@ -27,7 +27,7 @@ use std::path::PathBuf;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -74,7 +74,7 @@ pub enum Outcome {
     /// the ones that open a pane there.
     Pane(Operation, Option<PathBuf>),
     /// A running re-index finished; the caller reloads the candidates.
-    ReindexDone(Result<crate::index::write::InsertStats, String>),
+    ReindexDone(Result<crate::index::write::MultiWalk, String>),
     /// The user pressed `a` at the confirm prompt: accept every unaccepted
     /// finding at `high` or above on this row, then treat the pending
     /// dispatch as approved.
@@ -92,11 +92,13 @@ pub type FindingsLookup<'a> = dyn Fn(i64) -> Vec<StoredFinding> + 'a;
 
 /// A re-index running on another thread, watched by the picker.
 pub struct ReindexJob {
-    pub root: String,
-    /// Rows written so far.
+    /// "root (i of n)" for the walk in progress, set by the writer.
+    pub label: Arc<RwLock<String>>,
+    /// Rows written so far in the current walk.
     pub progress: Arc<AtomicU64>,
-    /// Delivers the writer's result when the walk ends (or is cancelled).
-    pub done: Receiver<Result<crate::index::write::InsertStats, String>>,
+    /// Delivers the writer's report when every walk has ended (or one
+    /// was cancelled).
+    pub done: Receiver<Result<crate::index::write::MultiWalk, String>>,
 }
 
 struct App<'a> {
@@ -536,8 +538,8 @@ fn cancel_reindex(app: &mut App<'_>) {
     crate::platform::signals::request_interrupt();
     let _ = job.done.recv_timeout(Duration::from_secs(10));
     crate::platform::signals::reset_interrupt();
-    app.notice =
-        Some(format!("re-index of {} cancelled; the previous index still serves", job.root));
+    let label = job.label.read().map(|l| l.clone()).unwrap_or_default();
+    app.notice = Some(format!("re-index of {label} cancelled; the previous index still serves"));
 }
 
 /// The union of every action's `marker` list, so one probe per selection
@@ -1375,7 +1377,7 @@ fn banner_text(app: &App<'_>) -> Option<(String, Style)> {
         return Some((
             format!(
                 "indexing {}: {} paths so far {} esc cancels",
-                job.root,
+                job.label.read().map(|l| l.clone()).unwrap_or_default(),
                 job.progress.load(Ordering::Relaxed),
                 glyph::SEPARATOR
             ),

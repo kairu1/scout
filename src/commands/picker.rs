@@ -1,7 +1,7 @@
 //! Bare `scout`: the picker. One action and exit by default; with
 //! `--session` (or `[scout] session = true`) the picker returns after each
-//! action, in-process children get the terminal for their lifetime, the
-//! last indexed tree can be walked again without leaving, and an action
+//! action, in-process children get the terminal for their lifetime, every
+//! indexed tree can be walked again without leaving, and an action
 //! that prints a command for the shell still ends the session because it
 //! only works once scout is gone.
 
@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 use rusqlite::Connection;
@@ -100,17 +100,30 @@ pub fn picker(session_flag: bool, print_to: Option<PathBuf>) -> crate::Result<u8
             }
             Outcome::ReindexDone(result) => {
                 match result {
-                    Ok(stats) if stats.completed => {
-                        let index_state = search::index_state(&conn)?;
-                        let candidates = search::load_candidates(&conn)?;
-                        picker.replace_candidates(candidates, index_state);
-                        picker.set_notice(format!(
-                            "re-indexed: {} paths, generation {}",
-                            stats.inserted, stats.generation
-                        ));
+                    Ok(report) => {
+                        // Any completed walk moved rows; reload so the
+                        // markers are current, then say how far it got.
+                        if report.completed() > 0 {
+                            let index_state = search::index_state(&conn)?;
+                            let candidates = search::load_candidates(&conn)?;
+                            picker.replace_candidates(candidates, index_state);
+                        }
+                        if report.all_completed() {
+                            picker.set_notice(format!(
+                                "re-indexed {} root(s): {} paths, generation {}",
+                                report.roots_total,
+                                report.inserted(),
+                                report.generation().unwrap_or(0)
+                            ));
+                        } else {
+                            picker.set_notice(format!(
+                                "re-index stopped after {} of {} root(s); the previous index \
+                                 still serves for the rest",
+                                report.completed(),
+                                report.roots_total
+                            ));
+                        }
                     }
-                    Ok(_) => picker
-                        .set_notice("re-index did not complete; the previous index still serves"),
                     Err(message) => picker.set_notice(format!("re-index failed: {message}")),
                 }
                 continue;
@@ -238,25 +251,28 @@ fn row_frecency(conn: &Connection, id: i64) -> rusqlite::Result<(f64, i64, i64)>
     )
 }
 
-/// Start walking the last indexed root on its own thread with its own
-/// connection. `None` when nothing has been indexed yet.
+/// Start walking every root again, each the way it was walked before,
+/// on its own thread with its own connection. `None` when nothing has
+/// been indexed yet.
 fn start_reindex(conn: &Connection) -> crate::Result<Option<ReindexJob>> {
-    let Some(root) = super::index::last_root(conn) else { return Ok(None) };
+    if index::roots::list(conn)?.is_empty() {
+        return Ok(None);
+    }
     let db_path = locations::index_db()?;
     let progress = Arc::new(AtomicU64::new(0));
+    let label = Arc::new(RwLock::new(String::new()));
     let (tx, rx) = std::sync::mpsc::channel();
-    let request = super::index::WalkRequest {
-        root: root.clone(),
-        hidden: false,
-        follow: false,
-        recon: false,
-        progress: Some(progress.clone()),
-    };
+    let (thread_progress, thread_label) = (progress.clone(), label.clone());
     std::thread::spawn(move || {
         let result = index::open(&db_path)
-            .and_then(|writer| super::index::run_walk(writer, &request))
+            .and_then(|mut writer| {
+                let report =
+                    super::index::walk_all(&mut writer, Some(thread_progress), Some(thread_label));
+                let _ = index::recovery::shutdown(writer);
+                report
+            })
             .map_err(|err| err.to_string());
         let _ = tx.send(result);
     });
-    Ok(Some(ReindexJob { root: root.display().to_string(), progress, done: rx }))
+    Ok(Some(ReindexJob { label, progress, done: rx }))
 }

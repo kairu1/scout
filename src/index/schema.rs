@@ -9,6 +9,7 @@ use crate::Result;
 const MIGRATIONS: &[(u32, &str)] = &[
     (1, include_str!("../../migrations/0001_initial.sql")),
     (2, include_str!("../../migrations/0002_recon.sql")),
+    (3, include_str!("../../migrations/0003_roots.sql")),
 ];
 
 /// Current schema version; 0 when the database has no schema yet.

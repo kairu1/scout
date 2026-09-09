@@ -75,6 +75,14 @@ pub enum Error {
     #[error("the picker needs a TTY; use 'scout query <q>' for non-interactive use")]
     PickerNeedsTty,
 
+    /// A path that would contain an existing root.
+    #[error("{given} contains the indexed root {existing}; roots never nest")]
+    NestedRoot { given: PathBuf, existing: PathBuf },
+
+    /// `scout index` with no path and nothing to walk again.
+    #[error("nothing indexed yet")]
+    NoRoots,
+
     #[error("could not install signal handlers: {0}")]
     Signals(#[source] std::io::Error),
 
@@ -101,6 +109,20 @@ impl Error {
     pub fn hint(&self) -> Option<Hint> {
         match self {
             Error::ActionFailed { kind, .. } => kind.hint(),
+            Error::NestedRoot { existing, .. } => Some(Hint {
+                why: "two roots over the same rows would fight over their generations".into(),
+                next: Some(format!(
+                    "index the parent instead: `scout index --forget {}` first, then index the \
+                     parent",
+                    existing.display()
+                )),
+                context: "",
+            }),
+            Error::NoRoots => Some(Hint {
+                why: "`scout index` with no path walks every known tree again".into(),
+                next: Some("run `scout index <path>` once".into()),
+                context: "",
+            }),
             Error::ConfigSchemaVersion { found: 1, .. } => Some(Hint {
                 why: "what changed in schema 2: actions may carry `when = { ... }` (optional), \
                       `[keys]` maps pane operations to keys (optional), and `[scout] session = \
@@ -172,8 +194,10 @@ mod tests {
     }
 
     #[test]
-    fn only_action_failures_and_v1_refusals_carry_a_hint() {
+    fn only_action_failures_v1_refusals_and_root_errors_carry_a_hint() {
         assert!(Error::HomeUnset.hint().is_none());
+        assert!(Error::NoRoots.hint().is_some());
+        assert!(Error::NestedRoot { given: "/a".into(), existing: "/a/b".into() }.hint().is_some());
         let err = Error::ActionFailed {
             action: "a".into(),
             step: 1,

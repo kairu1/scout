@@ -192,3 +192,57 @@ fn pane_run_runs_the_argv_in_the_directory_and_reports_its_status() {
     assert!(matches!(out.status.code(), Some(126) | Some(127)), "{:?}", out.status.code());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `scout index` with no path walks every root again the way it was
+/// walked; a path that would contain a root is refused with the root
+/// named; `--forget` drops one.
+#[test]
+fn index_without_a_path_rewalks_every_root_and_nesting_is_refused() {
+    let dir = sandbox("roots");
+    std::fs::create_dir_all(dir.join("tree/a/.hidden-dir")).unwrap();
+    std::fs::create_dir_all(dir.join("tree/b")).unwrap();
+    let a = dir.join("tree/a");
+    let b = dir.join("tree/b");
+    assert!(run(&dir, &["index", a.to_str().unwrap(), "--hidden"]).status.success());
+    assert!(run(&dir, &["index", b.to_str().unwrap()]).status.success());
+
+    // Both trees serve.
+    let out = run(&dir, &["query", "hidden-dir"]);
+    assert_eq!(out.status.code(), Some(0), "a's hidden row (walked --hidden) is served");
+    assert_eq!(run(&dir, &["query", "b"]).status.code(), Some(0));
+
+    // No path: two report lines, a still walked with --hidden.
+    let out = run(&dir, &["index"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = stdout(&out);
+    assert_eq!(text.lines().count(), 2, "{text}");
+    assert!(text.lines().all(|l| l.starts_with("indexed ")), "{text}");
+    assert_eq!(run(&dir, &["query", "hidden-dir"]).status.code(), Some(0));
+
+    // Nesting refused, exit 1, the existing root named.
+    let out = run(&dir, &["index", dir.join("tree").to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("roots never nest"), "{err}");
+    assert!(err.contains("--forget"), "the hint says how to proceed: {err}");
+
+    // Forget b: its rows vanish from the candidate set.
+    let out = run(&dir, &["index", "--forget", b.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout(&out).starts_with("forgot "));
+    assert_eq!(run(&dir, &["query", "b"]).status.code(), Some(1));
+    assert_eq!(run(&dir, &["index", "--forget", b.to_str().unwrap()]).status.code(), Some(1));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// With nothing indexed, `scout index` alone says what to do.
+#[test]
+fn index_without_a_path_and_without_roots_says_to_index_something() {
+    let dir = sandbox("no-roots");
+    let out = run(&dir, &["index"]);
+    assert_eq!(out.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("nothing indexed yet"), "{err}");
+    assert!(err.contains("scout index <path>"), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

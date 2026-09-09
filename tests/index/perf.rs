@@ -4,6 +4,7 @@
 
 use std::fs;
 
+use scout::index::roots::{self, WalkFlags};
 use scout::index::walk::{walk, WalkConfig};
 use scout::index::write::{batched_insert, batched_insert_with, WriteOptions};
 use scout::platform::signals;
@@ -23,11 +24,10 @@ fn plant_100k(tree: &std::path::Path) {
     }
 }
 
-/// The same walk with the stat-only recon checks running per path. The
-/// hard budget is the walk's own 30 s; the ratio to the plain walk is
-/// printed and recorded, not asserted: an `lstat` per path is a real cost
-/// against a walk that finishes 100k paths in half a second, which is why
-/// `--recon` at index time is opt-in.
+/// The same walk with the stat-only recon checks running per path, which
+/// is what every walk does unless the root opted out. The hard budget is
+/// the walk's own 30 s; the ratio to the plain walk is printed and
+/// recorded (1.2x when measured for 0.3.0).
 #[test]
 #[ignore]
 fn one_hundred_thousand_paths_index_with_recon_under_budget() {
@@ -39,12 +39,14 @@ fn one_hundred_thousand_paths_index_with_recon_under_budget() {
 
     let mut conn = open_db(&dir);
     let plain = std::time::Instant::now();
-    let stats = batched_insert(&mut conn, walk(&WalkConfig::new(tree.clone())), 1000).unwrap();
+    let stats =
+        batched_insert(&mut conn, &tree, walk(&WalkConfig::new(tree.clone())), 1000).unwrap();
     let plain = plain.elapsed();
     assert!(stats.completed);
 
     let with_recon = std::time::Instant::now();
-    let options = WriteOptions { batch_size: 1000, root: Some(&tree), recon: true, progress: None };
+    let root = roots::ensure(&conn, &tree, WalkFlags::default()).unwrap();
+    let options = WriteOptions { batch_size: 1000, root: &root, recon: true, progress: None };
     let stats =
         batched_insert_with(&mut conn, walk(&WalkConfig::new(tree.clone())), &options).unwrap();
     let with_recon = with_recon.elapsed();
@@ -69,7 +71,8 @@ fn one_hundred_thousand_paths_index_under_budget() {
 
     let mut conn = open_db(&dir);
     let started = std::time::Instant::now();
-    let stats = batched_insert(&mut conn, walk(&WalkConfig::new(tree.clone())), 1000).unwrap();
+    let stats =
+        batched_insert(&mut conn, &tree, walk(&WalkConfig::new(tree.clone())), 1000).unwrap();
     let elapsed = started.elapsed();
 
     assert!(stats.completed);

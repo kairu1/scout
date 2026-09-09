@@ -17,10 +17,18 @@ fn db_with_rows(rows: &[FixtureRow]) -> Connection {
         rusqlite::named_params! { ":gen": max_gen },
     )
     .unwrap();
+    // One root holds every fixture row; its current generation is the
+    // newest one seeded, so older rows are stale the way a real walk
+    // leaves them.
+    conn.execute(
+        "INSERT INTO roots (id, path, current_generation) VALUES (1, '/', :gen)",
+        rusqlite::named_params! { ":gen": max_gen },
+    )
+    .unwrap();
     for (path, s, last, visits, generation, tomb) in rows {
         conn.execute(
-            "INSERT INTO paths (path, S, last_update, visits_total, scan_generation, tombstoned_at)
-             VALUES (:path, :s, :last, :visits, :gen, :tomb)",
+            "INSERT INTO paths (path, S, last_update, visits_total, scan_generation, tombstoned_at, root_id)
+             VALUES (:path, :s, :last, :visits, :gen, :tomb, 1)",
             rusqlite::named_params! {
                 ":path": path, ":s": s, ":last": last,
                 ":visits": visits, ":gen": generation, ":tomb": tomb,
@@ -129,9 +137,12 @@ fn the_limit_truncates_after_ranking() {
     let conn = Connection::open_in_memory().unwrap();
     apply_migrations(&conn).unwrap();
     conn.execute("UPDATE run_state SET current_generation = 1", []).unwrap();
+    conn.execute("INSERT INTO roots (id, path, current_generation) VALUES (1, '/', 1)", [])
+        .unwrap();
     for (path, s) in &rows {
         conn.execute(
-            "INSERT INTO paths (path, S, last_update, scan_generation) VALUES (:p, :s, :now, 1)",
+            "INSERT INTO paths (path, S, last_update, scan_generation, root_id)
+             VALUES (:p, :s, :now, 1, 1)",
             rusqlite::named_params! { ":p": path, ":s": s, ":now": NOW },
         )
         .unwrap();

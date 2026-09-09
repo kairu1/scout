@@ -37,9 +37,15 @@ pub fn temp_dir(tag: &str) -> PathBuf {
 
 pub fn seed_paths(conn: &rusqlite::Connection, count: usize) {
     let tx = conn.unchecked_transaction().unwrap();
+    tx.execute(
+        "INSERT OR IGNORE INTO roots (id, path, current_generation) VALUES (1, '/fixture', 1)",
+        [],
+    )
+    .unwrap();
     {
-        let mut stmt =
-            tx.prepare("INSERT INTO paths (path, scan_generation) VALUES (:path, 1)").unwrap();
+        let mut stmt = tx
+            .prepare("INSERT INTO paths (path, scan_generation, root_id) VALUES (:path, 1, 1)")
+            .unwrap();
         for i in 0..count {
             stmt.execute(rusqlite::named_params! { ":path": format!("/fixture/p{i:06}") }).unwrap();
         }

@@ -13,8 +13,9 @@ These decisions are settled. Refine how they are implemented; do not
 reopen them.
 
 - Rust, single binary, no network surface. SQLite (bundled, WAL) is the
-  index and the frecency store; `scan_generation` advances only on a
-  completed walk and readers filter to the current generation.
+  index and the frecency store; the index holds many roots;
+  `scan_generation` advances only on a completed walk and readers filter
+  each row to its root's current generation.
 - Ranking: continuous-decay frecency (7-day half-life) blended with a
   `nucleo-matcher` score under `tanh`, `k_match = 25 × query_chars`, a
   coverage-scaled basename term. Visits are credited only on action

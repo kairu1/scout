@@ -82,13 +82,15 @@ pub struct RunStats {
 /// under `under`), including the ACL probe and the baseline comparison,
 /// and record when the run happened.
 pub fn scan(conn: &Connection, under: Option<&Path>, ctx: &Context<'_>) -> Result<RunStats> {
-    let generation: i64 =
-        conn.query_row("SELECT current_generation FROM run_state WHERE id = 1", [], |r| r.get(0))?;
+    // Every live row at its root's current generation, candidate or not:
+    // a credential file recorded only for recon is exactly what this
+    // pass is for.
     let mut stmt = conn.prepare(
-        "SELECT rowid, path FROM paths WHERE scan_generation = :gen AND tombstoned_at IS NULL",
+        "SELECT p.rowid, p.path FROM paths p JOIN roots r ON p.root_id = r.id
+          WHERE p.scan_generation = r.current_generation AND p.tombstoned_at IS NULL",
     )?;
     let rows: Vec<(i64, String)> = stmt
-        .query_map(rusqlite::named_params! { ":gen": generation }, |r| Ok((r.get(0)?, r.get(1)?)))?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let under_str = under.map(|u| u.display().to_string());
     let mut evaluated = stat_checks();

@@ -12,11 +12,11 @@ fn a_fresh_db_migrates_to_the_current_version() {
     let conn = fresh();
     assert_eq!(schema_version(&conn).unwrap(), 0);
     apply_migrations(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 2);
+    assert_eq!(schema_version(&conn).unwrap(), 3);
 }
 
-/// A database left at schema 1 by v0.2.x picks up migration 2 on open,
-/// keeping its rows.
+/// A database left at schema 1 by v0.2.x picks up every later migration
+/// on open, keeping its rows.
 #[test]
 fn a_version_1_db_migrates_forward_keeping_its_rows() {
     let conn = fresh();
@@ -25,7 +25,7 @@ fn a_version_1_db_migrates_forward_keeping_its_rows() {
         .unwrap();
     assert_eq!(schema_version(&conn).unwrap(), 1);
     apply_migrations(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 2);
+    assert_eq!(schema_version(&conn).unwrap(), 3);
     let (visits, worst): (i64, i64) = conn
         .query_row("SELECT visits_total, worst_finding FROM paths WHERE path = '/p'", [], |r| {
             Ok((r.get(0)?, r.get(1)?))
@@ -39,7 +39,7 @@ fn reapplying_migrations_is_idempotent() {
     let conn = fresh();
     apply_migrations(&conn).unwrap();
     apply_migrations(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 2);
+    assert_eq!(schema_version(&conn).unwrap(), 3);
     // Single row in schema_version, single row in run_state.
     let rows: i64 =
         conn.query_row("SELECT count(*) FROM schema_version", [], |r| r.get(0)).unwrap();
@@ -62,6 +62,8 @@ fn paths_table_has_frecency_generation_tombstone_and_finding_columns() {
         ("scan_generation", "INTEGER", true),
         ("tombstoned_at", "INTEGER", false),
         ("worst_finding", "INTEGER", true),
+        ("root_id", "INTEGER", false),
+        ("candidate", "INTEGER", true),
     ];
 
     let mut stmt = conn.prepare("PRAGMA table_info(paths)").unwrap();
@@ -152,7 +154,58 @@ fn recon_tables_exist_with_their_keys() {
                   VALUES (:id, 'suid', 3, 'd', 'f', 1, 1)";
     conn.execute(insert, rusqlite::named_params! { ":id": id }).unwrap();
     assert!(conn.execute(insert, rusqlite::named_params! { ":id": id }).is_err());
-    let last_root: Option<String> =
-        conn.query_row("SELECT last_root FROM run_state WHERE id = 1", [], |r| r.get(0)).unwrap();
-    assert_eq!(last_root, None);
+    let roots: i64 = conn.query_row("SELECT count(*) FROM roots", [], |r| r.get(0)).unwrap();
+    assert_eq!(roots, 0, "a fresh index has no roots");
+    assert!(
+        conn.query_row("SELECT last_root FROM run_state", [], |r| r.get::<_, Option<String>>(0))
+            .is_err(),
+        "last_root is gone: the roots table replaces it"
+    );
+}
+
+/// A 0.3 index held one tree, named in run_state.last_root. Migration 3
+/// turns it into the first root and hands every row to it, so the tree
+/// keeps serving without a re-index; a 0.3 index that never recorded a
+/// tree keeps its rows but serves none until a walk claims them.
+#[test]
+fn a_version_2_db_becomes_one_root_holding_every_row() {
+    let conn = fresh();
+    conn.execute_batch(include_str!("../../migrations/0001_initial.sql")).unwrap();
+    conn.execute_batch(include_str!("../../migrations/0002_recon.sql")).unwrap();
+    conn.execute("UPDATE schema_version SET version = 2", []).unwrap();
+    conn.execute(
+        "UPDATE run_state SET current_generation = 4, last_complete_generation = 4,
+                last_root = '/home/u/work', last_run_completed_at = 1700000000",
+        [],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO paths (path, scan_generation) VALUES ('/home/u/work/a', 4)", [])
+        .unwrap();
+    conn.execute("INSERT INTO paths (path, scan_generation) VALUES ('/home/u/work/b', 3)", [])
+        .unwrap();
+    apply_migrations(&conn).unwrap();
+    assert_eq!(schema_version(&conn).unwrap(), 3);
+    let (path, generation, recon): (String, i64, i64) = conn
+        .query_row("SELECT path, current_generation, recon FROM roots", [], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .unwrap();
+    assert_eq!((path.as_str(), generation, recon), ("/home/u/work", 4, 1));
+    let served: Vec<String> =
+        scout::search::load_candidates(&conn).unwrap().into_iter().map(|c| c.path).collect();
+    assert_eq!(served, vec!["/home/u/work/a".to_string()], "current rows serve, stale ones do not");
+
+    // No last_root: rows survive, nothing is served, no root is invented.
+    let conn = fresh();
+    conn.execute_batch(include_str!("../../migrations/0001_initial.sql")).unwrap();
+    conn.execute_batch(include_str!("../../migrations/0002_recon.sql")).unwrap();
+    conn.execute("UPDATE schema_version SET version = 2", []).unwrap();
+    conn.execute("UPDATE run_state SET current_generation = 1", []).unwrap();
+    conn.execute("INSERT INTO paths (path, scan_generation) VALUES ('/orphan', 1)", []).unwrap();
+    apply_migrations(&conn).unwrap();
+    let roots: i64 = conn.query_row("SELECT count(*) FROM roots", [], |r| r.get(0)).unwrap();
+    assert_eq!(roots, 0);
+    assert!(scout::search::load_candidates(&conn).unwrap().is_empty());
+    let rows: i64 = conn.query_row("SELECT count(*) FROM paths", [], |r| r.get(0)).unwrap();
+    assert_eq!(rows, 1, "the row is kept for a walk to claim");
 }

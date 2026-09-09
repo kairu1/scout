@@ -36,8 +36,8 @@ fn chmod(path: &Path, mode: u32) {
 
 /// A tree with one of each cheap finding: a world-writable directory, a
 /// readable credential file, a setuid file, a link into /proc, and a
-/// clean project beside them. The credential file is a dotfile, so the
-/// index is built with `--hidden`: recon sees what the index holds.
+/// clean project beside them. The credential file is a dotfile; these
+/// tests index with `--hidden` so it is an ordinary row.
 fn plant(dir: &Path) {
     let tree = dir.join("tree");
     std::fs::create_dir_all(tree.join("clean/src")).unwrap();
@@ -56,10 +56,10 @@ fn tsv_rows(text: &str) -> Vec<Vec<String>> {
 }
 
 #[test]
-fn index_with_recon_stores_findings_and_recon_reports_them() {
+fn indexing_stores_findings_and_recon_reports_them() {
     let dir = sandbox("report");
     plant(&dir);
-    let out = run(&dir, &["index", dir.join("tree").to_str().unwrap(), "--recon", "--hidden"]);
+    let out = run(&dir, &["index", dir.join("tree").to_str().unwrap(), "--hidden"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     assert!(stdout(&out).contains("recon finding(s)"), "{}", stdout(&out));
 
@@ -104,7 +104,7 @@ fn accept_hides_a_finding_until_the_fact_changes_and_revoke_restores_it() {
     let dir = sandbox("accept");
     plant(&dir);
     let tree = dir.join("tree");
-    assert!(run(&dir, &["index", tree.to_str().unwrap(), "--recon", "--hidden"]).status.success());
+    assert!(run(&dir, &["index", tree.to_str().unwrap(), "--hidden"]).status.success());
     let open = tree.join("open");
     let open_s = open.to_str().unwrap();
 
@@ -161,7 +161,7 @@ fn fixing_the_mode_clears_the_finding_on_the_next_run_and_a_clean_tree_exits_0()
     let dir = sandbox("clear");
     plant(&dir);
     let tree = dir.join("tree");
-    assert!(run(&dir, &["index", tree.to_str().unwrap(), "--recon", "--hidden"]).status.success());
+    assert!(run(&dir, &["index", tree.to_str().unwrap(), "--hidden"]).status.success());
     // A first full run records the symlink escape too.
     assert_eq!(run(&dir, &["recon"]).status.code(), Some(1));
     chmod(&tree.join("open"), 0o755);
@@ -183,7 +183,7 @@ fn the_summary_column_always_equals_the_aggregate() {
     let dir = sandbox("summary");
     plant(&dir);
     let tree = dir.join("tree");
-    assert!(run(&dir, &["index", tree.to_str().unwrap(), "--recon"]).status.success());
+    assert!(run(&dir, &["index", tree.to_str().unwrap()]).status.success());
     let open_s = tree.join("open").to_str().unwrap().to_string();
     assert_eq!(
         run(&dir, &["recon", "accept", &open_s, "world-writable-dir", "--reason", "x"])
