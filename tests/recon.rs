@@ -420,3 +420,42 @@ fn the_wrapper_is_located_in_rc_files_and_a_writable_rc_is_a_finding() {
     assert!(!since.contains("own-wrapper-writable"), "{since}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The ACL check firing for real: a file given a POSIX ACL is reported
+/// `acl-present`. Needs `setfacl`; without it this says so and skips,
+/// never passes silently. CI installs `acl` and runs it un-ignored:
+/// `cargo test --test recon -- --ignored acl`.
+#[test]
+#[ignore]
+fn a_posix_acl_on_an_indexed_file_is_reported_as_acl_present() {
+    let have_setfacl = Command::new("setfacl")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !have_setfacl {
+        eprintln!("setfacl not installed; the ACL positive case was not exercised here");
+        return;
+    }
+    let dir = sandbox("acl");
+    let tree = dir.join("tree");
+    std::fs::create_dir_all(tree.join("p")).unwrap();
+    std::fs::write(tree.join("p/widened"), b"x").unwrap();
+    std::fs::write(tree.join("p/plain"), b"x").unwrap();
+    let uid = scout::platform::fs::euid().to_string();
+    let set = Command::new("setfacl")
+        .args(["-m", &format!("u:{uid}:r"), tree.join("p/widened").to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(set.status.success(), "setfacl: {}", String::from_utf8_lossy(&set.stderr));
+
+    assert!(run(&dir, &["index", tree.to_str().unwrap()]).status.success());
+    let out = run(&dir, &["recon", "--format", "tsv", "--fail-on", "low"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stdout(&out));
+    let rows = tsv_rows(&stdout(&out));
+    let acl: Vec<&Vec<String>> = rows.iter().filter(|r| r[1] == "acl-present").collect();
+    assert_eq!(acl.len(), 1, "exactly the widened file: {rows:?}");
+    assert_eq!(acl[0][0], "low");
+    assert!(acl[0][5].ends_with("/p/widened"), "{:?}", acl[0]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

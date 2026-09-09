@@ -59,5 +59,19 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo test --locked --release --test index -- --ignored --nocapture
 
+  # The ACL check's positive case needs a POSIX ACL on a fixture, which
+  # needs setfacl. The test is #[ignore]d and skips with a message where
+  # the tool is absent; this job installs it and runs the test for real.
+  acl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable (toolchain file pins the version)
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: sudo apt-get update && sudo apt-get install -y acl
+      - run: setfacl --version
+      - run: cargo test --locked --test recon -- --ignored acl --nocapture
+
   musl:
     uses: ./.github/workflows/musl-build.yml

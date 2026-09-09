@@ -74,8 +74,8 @@ mod tests {
     use super::*;
 
     /// A file scout just created has no ACL. The positive case needs
-    /// `setfacl`, which is absent on the machines this runs on; it was
-    /// verified by hand once and recorded in the internal notes.
+    /// `setfacl`; the ignored test in `tests/recon.rs` sets one and CI
+    /// runs it with the `acl` package installed.
     #[test]
     fn a_fresh_file_has_no_acl() {
         let dir = std::env::temp_dir().join(format!("scout-xattr-{}", std::process::id()));

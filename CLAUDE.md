@@ -69,6 +69,7 @@ cargo audit
 cargo tree --prefix none | sed 's/ .*//' | sort -u | wc -l   # fewer than 150
 cargo test --locked --release --test index -- --ignored      # 100k-path gate
 cargo test --test tmux -- --ignored                          # tmux end-to-end, needs tmux
+cargo test --test recon -- --ignored acl                     # ACL positive case, needs setfacl (CI has it)
 ```
 
 The reference config's trust hash is pinned in `tests/parity.rs`; a
