@@ -130,7 +130,8 @@ pub fn scan(conn: &Connection, under: Option<&Path>, ctx: &Context<'_>) -> Resul
     // pass is for.
     let mut stmt = conn.prepare(
         "SELECT p.rowid, p.path FROM paths p JOIN roots r ON p.root_id = r.id
-          WHERE p.scan_generation = r.current_generation AND p.tombstoned_at IS NULL",
+          WHERE r.current_generation >= 1
+            AND p.scan_generation >= r.current_generation AND p.tombstoned_at IS NULL",
     )?;
     let rows: Vec<(i64, String)> = stmt
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -173,10 +174,15 @@ pub fn scan(conn: &Connection, under: Option<&Path>, ctx: &Context<'_>) -> Resul
         stats.findings += found.len();
         store::store_for_path(&tx, path_id, &found, &[Check::EntrypointChanged], ctx.now)?;
     }
-    tx.execute(
-        "UPDATE run_state SET last_recon_at = :now WHERE id = 1",
-        rusqlite::named_params! { ":now": ctx.now },
-    )?;
+    // Only a run over everything is "the last run": a run narrowed to
+    // one tree has not looked at the rest, so --since-last must not
+    // count from it.
+    if under.is_none() {
+        tx.execute(
+            "UPDATE run_state SET last_recon_at = :now WHERE id = 1",
+            rusqlite::named_params! { ":now": ctx.now },
+        )?;
+    }
     tx.commit()?;
     Ok(stats)
 }
@@ -287,6 +293,10 @@ pub fn own_state(
     // An rc file is sourced by every shell the user starts: one others
     // can edit is a finding whether or not the wrapper is in it.
     for rc in rc_files {
+        // Dotfile managers symlink rc files; the file that is sourced is
+        // the one the link points to, and that is the one to judge.
+        let target = std::fs::canonicalize(rc).unwrap_or_else(|_| rc.clone());
+        let rc = &target;
         let Ok(f) = pfs::facts(rc) else { continue };
         if !f.is_file {
             continue;

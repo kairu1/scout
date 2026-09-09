@@ -3,6 +3,11 @@
 //! walked before unless a flag says otherwise; a new path is a new root;
 //! a path that would contain a root is refused. `--forget PATH` drops a
 //! root, keeping its rows' history for a while.
+//!
+//! Owns: resolving a path to a root, walking one or every root, the
+//! per-root report line, forgetting. Refuses to know about: rows,
+//! ranking, the picker. Exposes: `index`, `walk_root`, `walk_known_root`,
+//! `walk_all`, `WalkRequest`.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
@@ -34,7 +39,16 @@ pub fn walk_root(
     conn: &mut Connection,
     request: &WalkRequest,
 ) -> crate::Result<(Root, InsertStats)> {
-    let canonical = std::fs::canonicalize(&request.path).unwrap_or_else(|_| request.path.clone());
+    // A root is a directory that exists, by its canonical name: a typo
+    // or a relative path must not become a tree scout walks forever.
+    let canonical = std::fs::canonicalize(&request.path)
+        .map_err(|e| Error::io(format!("index {}", request.path.display()), e))?;
+    if !canonical.is_dir() {
+        return Err(Error::io(
+            format!("index {}", request.path.display()),
+            std::io::Error::new(std::io::ErrorKind::NotADirectory, "not a directory"),
+        ));
+    }
     let root = roots::ensure(conn, &canonical, request.flags)?;
     let stats = walk_known_root(conn, &root, request.progress.clone())?;
     Ok((root, stats))
@@ -46,6 +60,12 @@ pub fn walk_known_root(
     root: &Root,
     progress: Option<Arc<AtomicU64>>,
 ) -> crate::Result<InsertStats> {
+    // A root whose directory is gone (unmounted, deleted) is not an empty
+    // tree: walking it would tombstone every row. Report it and leave
+    // the previous generation serving.
+    if !root.path.is_dir() {
+        return Ok(InsertStats { absent: true, ..InsertStats::default() });
+    }
     let config =
         WalkConfig { root: root.path.clone(), follow_symlinks: root.follow, hidden: root.hidden };
     let options =
@@ -97,7 +117,13 @@ fn report_line(root: &Path, stats: &InsertStats, recon: bool) -> String {
         stats.errors,
         stats.generation,
         if recon { format!("; {} recon finding(s)", stats.findings) } else { String::new() },
-        if stats.completed { "" } else { " INCOMPLETE - prior generation still serves" }
+        if stats.completed {
+            ""
+        } else if stats.absent {
+            " NOT PRESENT - directory missing; prior generation still serves"
+        } else {
+            " INCOMPLETE - prior generation still serves"
+        }
     )
 }
 
@@ -108,7 +134,14 @@ pub fn index(path: Option<PathBuf>, flags: WalkFlags, forget: bool) -> crate::Re
     let mut conn = open_default_db()?;
     let code = match (path, forget) {
         (Some(path), true) => {
-            let canonical = std::fs::canonicalize(&path).unwrap_or(path);
+            // A forgotten tree may be gone from disk: fall back to the
+            // path as typed, minus a trailing slash, against the stored
+            // canonical text.
+            let canonical = std::fs::canonicalize(&path).unwrap_or_else(|_| {
+                let text = path.display().to_string();
+                let trimmed = text.trim_end_matches('/');
+                PathBuf::from(if trimmed.is_empty() { "/" } else { trimmed })
+            });
             match roots::forget(&conn, &canonical, unix_now())? {
                 Some(rows) => {
                     println!("forgot {}: {rows} paths tombstoned", canonical.display());

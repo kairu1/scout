@@ -52,32 +52,44 @@ pub struct Ranked {
 /// errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IndexState {
-    /// Generation 0, no rows: nothing has been indexed.
+    /// No root has completed a walk and there is nothing to show: nothing
+    /// has been indexed (or every root was forgotten).
     Empty,
-    /// Generation 0 with rows: a first scan is (or was) in flight; serve
-    /// nothing from it.
+    /// A root exists with rows but no completed walk: a first scan is (or
+    /// was) in flight; serve nothing from it.
     FirstScanInProgress { rows_so_far: i64 },
-    /// Generation 1 or later: serve normally.
+    /// At least one root has completed a walk: serve normally.
     Ready { generation: i64, candidates: i64 },
 }
 
+/// The scope every reader shares: a live candidate row whose root has
+/// completed a walk, at that root's current generation or one written
+/// since (an interrupted walk stamps rows ahead of the root; they are
+/// still there on disk and stay served until a walk completes).
+const LIVE_CANDIDATES: &str = "FROM paths p JOIN roots r ON p.root_id = r.id
+     WHERE r.current_generation >= 1
+       AND p.scan_generation >= r.current_generation
+       AND p.tombstoned_at IS NULL AND p.candidate = 1";
+
 pub fn index_state(conn: &Connection) -> Result<IndexState> {
-    let generation: i64 =
-        conn.query_row("SELECT current_generation FROM run_state WHERE id = 1", [], |row| {
+    // Roots decide: rows without one, or under one that never completed
+    // a walk, are not served, whatever the global counter says.
+    let completed_roots: i64 =
+        conn.query_row("SELECT count(*) FROM roots WHERE current_generation >= 1", [], |row| {
             row.get(0)
         })?;
-    if generation >= 1 {
-        let candidates: i64 = conn.query_row(
-            "SELECT count(*) FROM paths p JOIN roots r ON p.root_id = r.id
-              WHERE p.scan_generation = r.current_generation
-                AND p.tombstoned_at IS NULL AND p.candidate = 1",
-            [],
-            |row| row.get(0),
-        )?;
+    if completed_roots >= 1 {
+        let generation: i64 =
+            conn.query_row("SELECT current_generation FROM run_state WHERE id = 1", [], |row| {
+                row.get(0)
+            })?;
+        let candidates: i64 =
+            conn.query_row(&format!("SELECT count(*) {LIVE_CANDIDATES}"), [], |row| row.get(0))?;
         return Ok(IndexState::Ready { generation, candidates });
     }
+    let roots: i64 = conn.query_row("SELECT count(*) FROM roots", [], |row| row.get(0))?;
     let rows: i64 = conn.query_row("SELECT count(*) FROM paths", [], |row| row.get(0))?;
-    if rows > 0 {
+    if roots > 0 && rows > 0 {
         return Ok(IndexState::FirstScanInProgress { rows_so_far: rows });
     }
     Ok(IndexState::Empty)
@@ -87,19 +99,9 @@ pub fn index_state(conn: &Connection) -> Result<IndexState> {
 /// No project filter: the candidate set is the whole index. A row whose
 /// root has been forgotten, or that predates every root, is not served.
 pub fn load_candidates(conn: &Connection) -> Result<Vec<CandidateRow>> {
-    let generation: i64 =
-        conn.query_row("SELECT current_generation FROM run_state WHERE id = 1", [], |row| {
-            row.get(0)
-        })?;
-    if generation < 1 {
-        return Ok(Vec::new());
-    }
-    let mut stmt = conn.prepare_cached(
-        "SELECT p.rowid, p.path, p.S, p.last_update, p.visits_total, p.worst_finding
-           FROM paths p JOIN roots r ON p.root_id = r.id
-          WHERE p.scan_generation = r.current_generation
-            AND p.tombstoned_at IS NULL AND p.candidate = 1",
-    )?;
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT p.rowid, p.path, p.S, p.last_update, p.visits_total, p.worst_finding {LIVE_CANDIDATES}"
+    ))?;
     let rows = stmt
         .query_map([], |row| {
             Ok(CandidateRow {

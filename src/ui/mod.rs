@@ -537,6 +537,8 @@ fn raw_key_name(key: &crossterm::event::KeyEvent) -> String {
     }
 }
 
+/// The chord grammar's name for a key event, or `None` for a key the
+/// grammar does not cover.
 fn chord_name(key: &crossterm::event::KeyEvent) -> Option<String> {
     let name = match key.code {
         KeyCode::Char(c) if c.is_ascii_alphabetic() => c.to_ascii_lowercase().to_string(),
@@ -1251,17 +1253,18 @@ fn draw_help(frame: &mut ratatui::Frame, app: &App<'_>) {
                 rows.push(("panes".into(), reason.to_string()));
             }
         }
-        // What the terminal actually delivered for the last key, so a
-        // binding that does not fire can be diagnosed without guessing.
-        rows.push((
-            "last key".into(),
-            match (&app.last_key, &app.last_unnamed) {
-                (Some(name), _) => name.clone(),
-                (None, Some(raw)) => format!("not bindable: {raw}"),
-                (None, None) => "(none yet)".into(),
-            },
-        ));
     }
+    // What the terminal actually delivered for the last key, so a
+    // binding that does not fire can be diagnosed without guessing. In
+    // every mode: action chords need it as much as pane keys do.
+    rows.push((
+        "last key".into(),
+        match (&app.last_key, &app.last_unnamed) {
+            (Some(name), _) => name.clone(),
+            (None, Some(raw)) => format!("not bindable: {raw}"),
+            (None, None) => "(none yet)".into(),
+        },
+    ));
     let lines: Vec<Line> = rows
         .iter()
         .map(|(k, v)| {

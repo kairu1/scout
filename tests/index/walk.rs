@@ -405,3 +405,104 @@ fn a_forgotten_root_stops_serving_and_a_later_walk_revives_its_history() {
     assert_eq!(scout::search::load_candidates(&conn).unwrap().len(), 3);
     fs::remove_dir_all(&dir).unwrap();
 }
+
+/// An interrupted re-walk of a root leaves the previous index serving:
+/// rows the partial walk rewrote are still there on disk and stay
+/// served; a row only the partial walk saw is retired by the next
+/// completed walk rather than lingering as a ghost.
+#[test]
+fn an_interrupted_rewalk_keeps_the_previous_rows_serving() {
+    let _serial = serial();
+    signals::reset_interrupt();
+    let dir = temp_dir("interrupted-rewalk");
+    let tree = dir.join("tree");
+    fs::create_dir(&tree).unwrap();
+    make_files(&tree, 50);
+    let mut conn = open_db(&dir);
+    batched_insert(&mut conn, &tree, walk(&WalkConfig::new(tree.clone())), 1000).unwrap();
+    assert_eq!(scout::search::load_candidates(&conn).unwrap().len(), 51);
+
+    // A new file appears, then a re-walk is cut off after the first batch.
+    fs::write(tree.join("ghost.txt"), b"x").unwrap();
+    let interrupt_after_first_batch =
+        walk(&WalkConfig::new(tree.clone())).enumerate().map(|(i, item)| {
+            if i == 9 {
+                signals::request_interrupt();
+            }
+            item
+        });
+    let partial = batched_insert(&mut conn, &tree, interrupt_after_first_batch, 10).unwrap();
+    signals::reset_interrupt();
+    assert!(!partial.completed);
+    let served = scout::search::load_candidates(&conn).unwrap().len();
+    assert!(
+        (51..=52).contains(&served),
+        "every previous row is still served (plus the ghost if the partial walk saw it): {served}"
+    );
+
+    // The ghost vanishes; the next completed walk retires it, and its
+    // generation number is past the partial walk's, never reused.
+    fs::remove_file(tree.join("ghost.txt")).unwrap();
+    let third =
+        batched_insert(&mut conn, &tree, walk(&WalkConfig::new(tree.clone())), 1000).unwrap();
+    assert!(third.completed);
+    assert!(third.generation > partial.generation, "a partial walk's number is not reused");
+    let live: Vec<String> =
+        scout::search::load_candidates(&conn).unwrap().into_iter().map(|c| c.path).collect();
+    assert_eq!(live.len(), 51);
+    assert!(!live.iter().any(|p| p.ends_with("ghost.txt")), "the ghost is retired");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// `/a/b` is not inside `/a/bc`: the nesting rule works on path
+/// components, not on string prefixes.
+#[test]
+fn a_sibling_whose_name_extends_the_root_is_not_inside_it() {
+    use scout::index::roots::{ensure, resolve, Resolved, WalkFlags};
+    let _serial = serial();
+    let dir = temp_dir("boundary");
+    fs::create_dir_all(dir.join("work")).unwrap();
+    fs::create_dir_all(dir.join("workspace")).unwrap();
+    fs::create_dir_all(dir.join("wo")).unwrap();
+    let conn = open_db(&dir);
+    ensure(&conn, &dir.join("work"), WalkFlags::default()).unwrap();
+    assert!(matches!(resolve(&conn, &dir.join("workspace")).unwrap(), Resolved::New(_)));
+    assert!(matches!(resolve(&conn, &dir.join("wo")).unwrap(), Resolved::New(_)));
+    assert!(matches!(resolve(&conn, &dir.join("work/sub")).unwrap(), Resolved::Existing(_)));
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A forgotten root's rows are gone from every reader, and an index with
+/// no completed root reads as empty rather than as ready with nothing.
+#[test]
+fn an_index_without_a_completed_root_is_empty_not_ready() {
+    use scout::search::{index_state, IndexState};
+    let _serial = serial();
+    signals::reset_interrupt();
+    let dir = temp_dir("rootless");
+    let tree = dir.join("tree");
+    fs::create_dir(&tree).unwrap();
+    make_files(&tree, 2);
+    let mut conn = open_db(&dir);
+    assert_eq!(index_state(&conn).unwrap(), IndexState::Empty);
+    batched_insert(&mut conn, &tree, walk(&WalkConfig::new(tree.clone())), 1000).unwrap();
+    assert!(matches!(index_state(&conn).unwrap(), IndexState::Ready { candidates: 3, .. }));
+    let now = scout::platform::time::unix_now();
+    scout::index::roots::forget(&conn, &tree, now).unwrap();
+    assert_eq!(index_state(&conn).unwrap(), IndexState::Empty, "rows without a root are not ready");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// With no roots, walking everything again is refused by variant, so a
+/// caller can act on it without reading prose.
+#[test]
+fn walking_every_root_with_none_is_refused_by_variant() {
+    let _serial = serial();
+    let dir = temp_dir("no-roots");
+    let mut conn = open_db(&dir);
+    assert!(matches!(
+        scout::commands::index::walk_all(&mut conn, None, None),
+        Err(scout::Error::NoRoots)
+    ));
+    fs::remove_dir_all(&dir).unwrap();
+}

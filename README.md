@@ -30,11 +30,13 @@ scout index ~/projects
 scout
 ```
 
-`scout index <path>` adds a tree; index as many as you like (a tree
-inside another is refused: index the parent). `scout index` alone walks
-every tree again the way it was walked before, which is how you refresh;
-paths that have gone away are tombstoned when the walk completes and
-purged after six months. `scout index --forget <path>` drops a tree.
+`scout index <path>` adds a tree; index as many as you like. A path
+inside a tree you already indexed walks that tree again; a path that
+would contain one is refused (forget the inner tree first, or keep it).
+`scout index` alone walks every tree again the way it was walked before,
+which is how you refresh; paths that have gone away are tombstoned when
+the walk completes and purged after 182 days. `scout index --forget
+<path>` drops a tree.
 
 ## The picker
 
@@ -84,8 +86,10 @@ keys work from every pane, `focus-picker` brings you back, and
 `kill-pane` closes the pane you are in (never the picker). When you `cd` into a
 project, or press Esc, scout detaches and your shell gets its prompt
 back; everything you started in a pane keeps running, and the next
-`scout -s` re-attaches to it with a fresh picker. Nothing is ever killed
-by scout: `tmux -L scout kill-server` ends it all. Already inside tmux,
+`scout -s` re-attaches to it with a fresh picker. Scout never kills a
+session or a server, and never a pane on its own: `close-pane` closes the
+last pane scout opened and `kill-pane` the pane you press it in, both at
+your keystroke. `tmux -L scout kill-server` ends it all. Already inside tmux,
 scout uses the session you are in. Without tmux the session still works,
 minus panes, and `?` says so. `[scout] tmux = "never"` (or `--no-tmux`
 for one run) keeps tmux out of it; `"require"` refuses to run without it.
@@ -223,7 +227,8 @@ whole.
 ## When something goes wrong
 
 Start with `scout doctor`. It prints which config won, whether it is
-trusted, what the index holds and how your environment reads, never
+trusted, what the index holds (each tree with its flags and the walk it
+last completed) and how your environment reads, never
 changes anything, and prints only a short fixed list of environment
 variables so the output is safe to paste. For more, `SCOUT_LOG=debug
 scout index ~/projects` (levels: `off error warn info debug trace`; the

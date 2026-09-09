@@ -49,19 +49,26 @@ never rewrites it and no `;` or control character reaches the parser),
 the working directory (from the OS, escaped, dropped if it holds a
 control byte) and the wrapper's own `--print-to` path; every session
 target is written `=NAME`, because tmux matches a bare name by prefix.
-The private server's socket lives in a directory tmux creates 0700 and
-owner-checks. Options are set on a server scout started, in memory,
-never by writing a file; nothing is set on a server it did not start.
+The private server's socket (`tmux -L scout`) lives in a directory tmux
+creates 0700 and owner-checks. Options are set on scout's own server when scout creates its session
+there, in memory, never by writing a file; nothing is set on the user's
+default server. While the picker runs on scout's own server its focus,
+zoom, focus-picker and kill-pane keys are tmux root bindings, and they
+are unbound when it leaves, which also unbinds a same-key binding the
+user's `~/.tmux.conf` gave that server.
 On re-attach the launcher hands its `--print-to` file to the running
 picker through the session environment, which is same-user state, so
 the picker accepts the path only as a regular file it owns, mode 0600,
 opened without following symlinks; otherwise it keeps the file it was
-started with. Every print sink is opened that way. Under tmux the client
+started with, which is opened the same way (and created if the wrapper
+already removed it). Under tmux the client
 always exits 0, so the wrapper's exit-code check is not a control (it
 never was: the allowlist is), and the file's content is the whole
 contract: an exit action writes one line, anything else writes nothing.
-Scout never kills a pane it did not open, a session or a server;
-leaving is always a detach.
+Scout never kills a session or a server, and never a pane on its own:
+`close-pane` kills the last pane scout opened and `kill-pane` the pane
+the key was pressed in (never the picker's), both at the user's
+keystroke; leaving is always a detach.
 
 ## Boundaries
 

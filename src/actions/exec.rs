@@ -17,7 +17,11 @@ use crate::platform::time::unix_now;
 /// Runs a step's argv in a tmux pane at a directory. Supplied by the
 /// session when scout is inside tmux; absent, a `pane` step runs
 /// in-process instead.
-pub type PaneRunner<'a> = dyn Fn(PaneOp, &Path, &[String]) -> Result<(), String> + 'a;
+/// Runs a spawn step in a pane: the operation, the directory, the argv,
+/// and the `env` bindings earlier steps set, which the pane's command
+/// must see as an in-process child would.
+pub type PaneRunner<'a> =
+    dyn Fn(PaneOp, &Path, &[String], &[(String, String)]) -> Result<(), String> + 'a;
 
 pub struct ActionCtx<'a> {
     /// Canonical absolute path of the selected candidate.
@@ -135,7 +139,10 @@ fn run_step(
             if let (Some(op), Some(runner)) = (pane, ctx.pane_runner) {
                 // Scout stays in its pane; the command runs in a new one.
                 // Failure to open the pane is a spawn failure.
-                return runner(*op, &cwd, &expanded).map_err(|message| {
+                let mut env: Vec<(String, String)> =
+                    bindings.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                env.sort();
+                return runner(*op, &cwd, &expanded, &env).map_err(|message| {
                     tracing::warn!(%message, "pane spawn failed");
                     FailureKind::Spawn(std::io::ErrorKind::Other)
                 });

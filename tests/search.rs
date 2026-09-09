@@ -124,6 +124,7 @@ fn index_state_distinguishes_empty_partial_and_ready() {
     let conn = db_with_rows(&[("/partial", 0.0, NOW, 0, 1, None)]);
     conn.execute("UPDATE run_state SET current_generation = 0, last_complete_generation = 0", [])
         .unwrap();
+    conn.execute("UPDATE roots SET current_generation = 0", []).unwrap();
     assert_eq!(index_state(&conn).unwrap(), IndexState::FirstScanInProgress { rows_so_far: 1 });
     assert!(load_candidates(&conn).unwrap().is_empty(), "partial first scan must serve nothing");
 

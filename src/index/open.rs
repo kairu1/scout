@@ -12,8 +12,22 @@ use crate::platform::fs as pfs;
 use crate::{Error, Result};
 
 /// Open (creating if absent) the index database at `path` and return a
-/// configured connection.
+/// configured connection. Runs the crash-recovery check first: this is
+/// the path a process takes when it is the first to open the index.
 pub fn open(path: &Path) -> Result<Connection> {
+    open_with(path, true)
+}
+
+/// A second connection to an index this process already holds open: the
+/// re-index writer. It must not run recovery (the sentinel was consumed
+/// by the first open, so a check would run, and a slow one would rename
+/// the file aside from under the live reader) and must not write the
+/// sentinel when it closes (the reader is still open).
+pub fn open_writer(path: &Path) -> Result<Connection> {
+    open_with(path, false)
+}
+
+fn open_with(path: &Path, recover: bool) -> Result<Connection> {
     let parent = path.parent().ok_or_else(|| {
         Error::IndexRefused(format!("db path has no parent directory: {}", path.display()))
     })?;
@@ -32,7 +46,9 @@ pub fn open(path: &Path) -> Result<Connection> {
 
     // Crash recovery: consume the clean-shutdown sentinel, integrity-check
     // a suspicious open, rename aside and rebuild on corruption.
-    super::recovery::startup_check(path)?;
+    if recover {
+        super::recovery::startup_check(path)?;
+    }
 
     match pfs::open_or_create_private(path) {
         Ok(_) => {}

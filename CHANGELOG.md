@@ -27,7 +27,7 @@
   `scout -s` re-attaches with a fresh picker and hands over its own
   return file. `[scout] tmux = "auto" | "never" | "require"`,
   `tmux_session`, `tmux_server = "private" | "shared"`; `--no-tmux` for
-  one run. Nothing is ever killed by scout.
+  one run. Scout never kills a session or a server.
 - The index holds many trees: `scout index <path>` adds one, `scout
   index` alone walks every tree again the way it was walked (flags are
   remembered per tree; `--no-hidden`, `--no-follow`, `--recon` undo
@@ -44,8 +44,8 @@
 - CI runs the ACL positive case with `setfacl`, and the tmux story test.
 
 ### Changed
-- The cheap recon checks run on every walk; `scout index --recon` is gone
-  and `--no-recon` opts a tree out.
+- The cheap recon checks run on every walk; `--no-recon` opts a tree
+  out and `--recon` opts it back in (both remembered per tree).
 - Index schema 3 (`roots`, `paths.root_id`, `paths.candidate`;
   `run_state.last_root` dropped). A 0.3 index migrates on open: its one
   tree becomes the first root.

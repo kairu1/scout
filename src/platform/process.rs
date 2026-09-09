@@ -48,11 +48,16 @@ pub fn spawn_detached(
     cwd: &Path,
     env: &HashMap<String, String>,
 ) -> io::Result<()> {
-    command(argv, cwd, env)
+    let mut child = command(argv, cwd, env)
         .process_group(0)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
-        .map(|_child| ())
+        .spawn()?;
+    // A session lives long enough for unreaped children to pile up as
+    // zombies; one waiting thread per child reaps it whenever it ends.
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
 }

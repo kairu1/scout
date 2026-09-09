@@ -113,7 +113,8 @@ not what runs.
 Named operations bound to keys, in the grammar `<mods>-<key>`: modifiers
 from `ctrl`, `alt`, `shift`; key a letter, `f1`-`f12`, `left`, `right`,
 `up`, `down`, `home`, `end`, `pageup`, `pagedown`. A bare letter cannot be
-a binding (it types into the search).
+a binding (it types into the search), and `shift` with a letter is
+refused too: terminals send it as the capital letter.
 
 | operation | default | does (in a session with tmux) |
 |---|---|---|

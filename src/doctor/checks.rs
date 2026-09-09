@@ -190,10 +190,17 @@ pub(super) fn index_section(home: Option<&Path>) -> Section {
     }
 
     // A failed count is a structural fault, not a `-1`.
-    let counts: std::result::Result<(i64, i64), _> =
-        conn.query_row("SELECT count(*), sum(tombstoned_at IS NULL) FROM paths", [], |r| {
-            Ok((r.get(0)?, r.get::<_, Option<i64>>(1)?.unwrap_or(0)))
-        });
+    // "Live" means served: under a root that completed a walk, at or past
+    // its generation, not tombstoned. Rows outside that are kept, not shown.
+    let counts: std::result::Result<(i64, i64), _> = conn.query_row(
+        "SELECT (SELECT count(*) FROM paths),
+                (SELECT count(*) FROM paths p JOIN roots r ON p.root_id = r.id
+                  WHERE r.current_generation >= 1
+                    AND p.scan_generation >= r.current_generation
+                    AND p.tombstoned_at IS NULL)",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    );
     match counts {
         Ok((rows, live)) => checks.push(Check::new(
             "paths",
@@ -230,22 +237,28 @@ pub(super) fn index_section(home: Option<&Path>) -> Section {
     // Which trees the index holds and how each was walked. A database
     // from before roots existed has no table; that is a warning to
     // re-index, never a repair.
-    let roots: std::result::Result<Vec<String>, _> = conn
-        .prepare("SELECT path, hidden, follow, recon FROM roots ORDER BY id")
+    let roots: std::result::Result<Vec<(i64, String)>, _> = conn
+        .prepare("SELECT path, hidden, follow, recon, current_generation FROM roots ORDER BY id")
         .and_then(|mut stmt| {
             stmt.query_map([], |r| {
                 let mut flags = Vec::new();
                 if r.get::<_, i64>(1)? != 0 {
-                    flags.push("hidden");
+                    flags.push("hidden".to_string());
                 }
                 if r.get::<_, i64>(2)? != 0 {
-                    flags.push("follow");
+                    flags.push("follow".to_string());
                 }
                 if r.get::<_, i64>(3)? == 0 {
-                    flags.push("no-recon");
+                    flags.push("no-recon".to_string());
                 }
+                let generation: i64 = r.get(4)?;
+                flags.push(if generation >= 1 {
+                    format!("generation {generation}")
+                } else {
+                    "never completed a walk".to_string()
+                });
                 let path: String = r.get(0)?;
-                Ok(if flags.is_empty() { path } else { format!("{path} ({})", flags.join(", ")) })
+                Ok((generation, format!("{path} ({})", flags.join(", "))))
             })?
             .collect()
         });
@@ -253,11 +266,16 @@ pub(super) fn index_section(home: Option<&Path>) -> Section {
         Ok(roots) if roots.is_empty() => {
             checks.push(Check::new("roots", Level::Warn, "none - run 'scout index <path>'"))
         }
-        Ok(roots) => checks.push(Check::new(
-            "roots",
-            Level::Ok,
-            format!("{}: {}", roots.len(), roots.join("; ")),
-        )),
+        Ok(roots) => {
+            // A root that never completed a walk serves nothing: a warning.
+            let level = if roots.iter().all(|(g, _)| *g >= 1) { Level::Ok } else { Level::Warn };
+            let lines: Vec<String> = roots.into_iter().map(|(_, l)| l).collect();
+            checks.push(Check::new(
+                "roots",
+                level,
+                format!("{}: {}", lines.len(), lines.join("; ")),
+            ))
+        }
         Err(err) => checks.push(Check::new(
             "roots",
             Level::Warn,

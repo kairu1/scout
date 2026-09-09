@@ -223,3 +223,203 @@ fn the_wrapper_marker_in_the_installer_and_readme_is_the_one_recon_scans_for() {
     assert!(installer.contains(marker), "install.sh must write the marker recon scans for");
     assert!(README.contains(marker), "README must show the marker recon scans for");
 }
+
+// ---- 0.4 dual encodings: each fact below lives in code and in prose ----
+
+fn config_doc() -> &'static str {
+    include_str!("../docs/configuration.md")
+}
+
+/// Every `[keys]` operation, with its default key, is documented in the
+/// configuration reference, the reference config's commented table and
+/// the README's default list. The code is the source; the prose must
+/// quote it.
+#[test]
+fn key_operations_and_defaults_match_the_docs() {
+    use scout::config::keys::{Operation, ALL_OPERATIONS};
+    let doc = config_doc();
+    let readme = README;
+    for op in ALL_OPERATIONS {
+        let (name, default) = (op.name(), op.default_key());
+        let focus = matches!(
+            op,
+            Operation::FocusLeft
+                | Operation::FocusRight
+                | Operation::FocusUp
+                | Operation::FocusDown
+        );
+        if focus {
+            assert!(default.starts_with("alt-shift-"), "{name} default {default}");
+            assert!(doc.contains("| `focus-left/right/up/down` | `alt-shift-<arrow>` |"), "{name}");
+            assert!(readme.contains("`alt-shift-<arrow>`"), "README default list lacks the arrows");
+            continue;
+        }
+        assert!(
+            doc.contains(&format!("| `{name}` | `{default}` |")),
+            "configuration.md row for {name}"
+        );
+        let pattern = regex_lite(&format!(r#"#\s*{name}\s*=\s*"{default}""#));
+        assert!(pattern(REFERENCE_CONFIG), "examples/config.toml comment for {name} = {default}");
+        assert!(readme.contains(&format!("`{name}`")), "README names {name}");
+        assert!(readme.contains(&format!("`{default}`")), "README lists {default}");
+    }
+}
+
+/// A tiny matcher for `#\s*name\s*=\s*"value"` without a regex crate:
+/// returns a closure that scans lines.
+fn regex_lite(pattern: &str) -> impl Fn(&str) -> bool {
+    // pattern is `#\s*NAME\s*=\s*"VALUE"`; extract NAME and VALUE.
+    let inner = pattern.trim_start_matches(r"#\s*").trim_end_matches('"');
+    let (name, rest) = inner.split_once(r"\s*=\s*").expect("pattern shape");
+    let value = rest.trim_start_matches('"').to_string();
+    let name = name.to_string();
+    move |text: &str| {
+        text.lines().any(|line| {
+            let line = line.trim_start();
+            let Some(after_hash) = line.strip_prefix('#') else { return false };
+            let after_hash = after_hash.trim_start();
+            let Some(after_name) = after_hash.strip_prefix(name.as_str()) else { return false };
+            let after_name = after_name.trim_start();
+            let Some(after_eq) = after_name.strip_prefix('=') else { return false };
+            after_eq.trim_start().starts_with(&format!("\"{value}\""))
+        })
+    }
+}
+
+/// The tombstone purge window is one constant; two documents state it.
+#[test]
+fn purge_window_matches_the_docs() {
+    let days = scout::index::write::PURGE_AFTER_SECS / 86_400;
+    assert_eq!(days, 182);
+    let phrase = format!("{days} days");
+    assert!(include_str!("../docs/architecture.md").contains(&phrase), "architecture.md");
+    assert!(README.contains(&phrase), "README");
+}
+
+/// The rc files recon scans for the wrapper are listed in the security doc.
+#[test]
+fn rc_files_recon_scans_are_listed_in_the_security_doc() {
+    let doc = include_str!("../docs/security.md");
+    for rc in scout::recon::run::rc_files(std::path::Path::new("~")) {
+        let shown = format!("`{}`", rc.display());
+        assert!(doc.contains(&shown), "security.md lacks {shown}");
+    }
+}
+
+/// What scout sets on its own tmux server is stated in the configuration
+/// reference, option by option.
+#[test]
+fn owned_server_options_match_the_docs() {
+    let launch = scout::tmux::Launch {
+        server: scout::tmux::Server::Private,
+        session: "scout".into(),
+        scout_exe: "/opt/scout".into(),
+        cwd: None,
+        print_to: None,
+    };
+    let options = launch.owned_server_options();
+    assert!(!options.is_empty());
+    for argv in options {
+        let (key, value) = (&argv[argv.len() - 2], &argv[argv.len() - 1]);
+        let shown = format!("`{key} {value}`");
+        assert!(config_doc().contains(&shown), "configuration.md lacks {shown}");
+    }
+}
+
+/// The private server name is a constant; four texts tell the user to
+/// type it.
+#[test]
+fn the_private_server_name_is_the_one_the_docs_name() {
+    let typed = format!("tmux -L {}", scout::tmux::PRIVATE_SERVER);
+    for (name, text) in [
+        ("README", README),
+        ("configuration.md", config_doc()),
+        ("examples/config.toml", REFERENCE_CONFIG),
+        ("security.md", include_str!("../docs/security.md")),
+    ] {
+        assert!(text.contains(&typed), "{name} lacks `{typed}`");
+    }
+}
+
+/// The version in Cargo.toml is the newest changelog heading.
+#[test]
+fn the_changelog_leads_with_the_cargo_version() {
+    let changelog = include_str!("../CHANGELOG.md");
+    let heading = changelog
+        .lines()
+        .find(|l| l.starts_with("## "))
+        .expect("a version heading")
+        .trim_start_matches("## ")
+        .split_whitespace()
+        .next()
+        .unwrap();
+    assert_eq!(heading, env!("CARGO_PKG_VERSION"));
+}
+
+/// Every ignored gate the guide lists runs in CI: for each `--test X --
+/// --ignored` line in CLAUDE.md's gates block, ci.yml carries a run step
+/// with the same test and filter.
+#[test]
+fn ci_runs_every_ignored_gate_in_the_guide() {
+    let guide = include_str!("../CLAUDE.md");
+    let ci = include_str!("../.github/workflows/ci.yml");
+    let mut seen = 0;
+    for line in guide.lines().filter(|l| l.contains("--ignored")) {
+        let at = line.find("--test ").expect("gate line names its test");
+        let gate = line[at..].split('#').next().unwrap().trim();
+        assert!(ci.contains(gate), "ci.yml runs no `{gate}`");
+        seen += 1;
+    }
+    assert!(seen >= 3, "the guide lists the perf, tmux and acl gates");
+}
+
+/// The schema version the migrations reach is the one the docs describe.
+#[test]
+fn schema_version_matches_the_architecture_doc() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    scout::index::schema::apply_migrations(&conn).unwrap();
+    let version = scout::index::schema::schema_version(&conn).unwrap();
+    assert_eq!(version, 3);
+    let doc = include_str!("../docs/architecture.md");
+    assert!(doc.contains(&format!("version {version} adds `roots`")), "architecture.md");
+}
+
+/// The keys the picker owns are listed in the configuration reference.
+#[test]
+fn picker_owned_keys_are_listed_in_the_docs() {
+    let doc = config_doc();
+    for key in scout::config::keys::PICKER_OWNED_KEYS {
+        let shown = match key {
+            "up" | "down" | "left" | "right" => "plain arrows".to_string(),
+            "esc" => "`Esc`".into(),
+            "enter" => "`Enter`".into(),
+            "tab" => "`Tab`".into(),
+            "ctrl-c" => "`Ctrl-C`".into(),
+            "home" => "`Home`".into(),
+            "end" => "`End`".into(),
+            "backspace" => "`Backspace`".into(),
+            "delete" => "`Delete`".into(),
+            other => format!("`{other}`"),
+        };
+        assert!(doc.contains(&shown), "configuration.md lacks {shown} for {key}");
+    }
+}
+
+/// Every flag the README's `scout index` row names is a real flag.
+#[test]
+fn the_readme_index_flags_exist() {
+    let row = README.lines().find(|l| l.starts_with("| `scout index")).expect("README index row");
+    let help = std::process::Command::new(env!("CARGO_BIN_EXE_scout"))
+        .args(["index", "--help"])
+        .output()
+        .expect("run scout");
+    let help = String::from_utf8_lossy(&help.stdout);
+    let mut flags = 0;
+    for token in row.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-')) {
+        if let Some(flag) = token.strip_prefix("--") {
+            assert!(help.contains(&format!("--{flag}")), "README names --{flag}, help does not");
+            flags += 1;
+        }
+    }
+    assert!(flags >= 6, "the row names the flags");
+}

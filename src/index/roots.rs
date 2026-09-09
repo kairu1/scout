@@ -143,6 +143,20 @@ pub fn forget(conn: &Connection, canonical: &Path, now: i64) -> Result<Option<u6
         "UPDATE paths SET tombstoned_at = :now WHERE root_id = :id AND tombstoned_at IS NULL",
         rusqlite::named_params! { ":now": now, ":id": root.id },
     )?;
+    // What recon knew about the tree goes with it: a forgotten tree's
+    // findings must not keep every later report failing.
+    tx.execute(
+        "DELETE FROM findings WHERE path_id IN (SELECT rowid FROM paths WHERE root_id = :id)",
+        rusqlite::named_params! { ":id": root.id },
+    )?;
+    tx.execute(
+        "DELETE FROM baseline WHERE path_id IN (SELECT rowid FROM paths WHERE root_id = :id)",
+        rusqlite::named_params! { ":id": root.id },
+    )?;
+    tx.execute(
+        "UPDATE paths SET worst_finding = 0 WHERE root_id = :id",
+        rusqlite::named_params! { ":id": root.id },
+    )?;
     tx.execute("DELETE FROM roots WHERE id = :id", rusqlite::named_params! { ":id": root.id })?;
     tx.commit()?;
     Ok(Some(tombstoned as u64))

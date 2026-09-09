@@ -126,7 +126,8 @@ pub fn load(conn: &Connection, under: Option<&str>) -> Result<Vec<StoredFinding>
                 (SELECT e.reason FROM exceptions e
                   WHERE e.path = p.path AND e.check_name = f.check_name AND e.fact = f.fact)
            FROM findings f JOIN paths p ON p.rowid = f.path_id
-          WHERE (:under IS NULL OR p.path = :under OR p.path LIKE :prefix ESCAPE '\\')
+          WHERE p.tombstoned_at IS NULL
+            AND (:under IS NULL OR p.path = :under OR p.path LIKE :prefix ESCAPE '\\')
           ORDER BY f.severity DESC, p.path ASC, f.check_name ASC",
     )?;
     let prefix = under.map(|u| format!("{}/%", like_escape(u)));

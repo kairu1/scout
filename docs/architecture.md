@@ -37,9 +37,9 @@ generation is a single counter across all walks that advances only when
 a walk completes; readers filter each row to its own root's current
 generation, so an interrupted walk leaves the previous index serving and
 walking one tree never retires another. When a walk completes, rows of
-that root it did not visit are tombstoned and tombstones older than 182
-days are purged; a path that returns is revived with its history. Roots
-never nest.
+that root it did not visit are tombstoned and tombstones older than
+182 days are purged; a path that returns is revived with its history.
+Roots never nest.
 
 The writer commits about a thousand rows per transaction and checkpoints
 only when no query has run for half a second, so a live picker is never

@@ -47,7 +47,8 @@ reopen them.
 - `src/` is a system, not an org chart. Each module's top comment says
   what it owns, what it refuses to know about, and what it exposes.
   `platform/` is the only place for `std::os::unix`, `signal_hook` or
-  `extern "C"`; a test enforces it.
+  `extern "C"` in production code; a test enforces it and stops at each
+  file's `#[cfg(test)]` module.
 - One error type, `scout::Error`, with context-carrying variants;
   `main.rs` is the one place an error becomes a stderr line and an exit
   code. Tests assert variants, never error prose.

@@ -10,6 +10,11 @@
 //! whose first pane runs the picker again with `--tmux-owned`. That inner
 //! picker detaches every client when it leaves, which is what returns
 //! the launcher's shell wrapper to its prompt.
+//!
+//! Owns: the session loop, the launch decision, the owned-pane exit
+//! (error shown and held, keys unbound, handoff withdrawn, clients
+//! detached), and the re-index thread. Refuses to know about: drawing,
+//! the schema, how an action's steps run. Exposes: `picker`, `PickerArgs`.
 
 use std::cell::RefCell;
 use std::io::IsTerminal;
@@ -42,7 +47,34 @@ pub fn picker(args: PickerArgs) -> crate::Result<u8> {
     if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         return Err(Error::PickerNeedsTty);
     }
+    let owned_pane = args.tmux_owned;
+    let result = picker_inner(args);
+    if owned_pane {
+        // Whatever happened, the pane is about to vanish with this
+        // process: an error the user has not seen is shown and held, the
+        // tmux-wide keys and the handed-over file are withdrawn, and
+        // every client is detached so the launcher's shell gets its
+        // prompt back.
+        if let Err(err) = &result {
+            eprintln!("scout: {err}");
+            if let Some(hint) = err.hint() {
+                eprintln!("scout: {hint}");
+            }
+            eprintln!("scout: press any key to return to your shell");
+            let _ = ui::terminal::wait_for_key();
+        }
+        if let Some(t) = Tmux::detect() {
+            t.unbind_root_keys(&config::keys::Keys::default());
+            t.forget_print_to();
+            if let Err(message) = t.detach_clients() {
+                warn(format!("could not detach: {message}"));
+            }
+        }
+    }
+    result
+}
 
+fn picker_inner(args: PickerArgs) -> crate::Result<u8> {
     // Config load, including the trust prompt, happens before the
     // alternate screen: a broken config is a fix-and-rerun moment, not a
     // degraded-UI moment. In a launch it happens in the user's own
@@ -106,21 +138,11 @@ pub fn picker(args: PickerArgs) -> crate::Result<u8> {
     let owned = args.tmux_owned && session;
     let result = run(&config, session, args.print_to, decision, no_tmux_reason, owned);
     if owned {
-        // The pane is about to vanish with this process. An error the
-        // user has not seen yet is shown and held; then every client is
-        // detached so the launcher's shell gets its prompt back.
-        if let Err(err) = &result {
-            eprintln!("scout: {err}");
-            if let Some(hint) = err.hint() {
-                eprintln!("scout: {hint}");
-            }
-            eprintln!("scout: press any key to return to your shell");
-            let _ = ui::terminal::wait_for_key();
-        }
+        // The user's own bindings are withdrawn here, where the keys are
+        // known; the defaults are withdrawn again in `picker` for the
+        // paths that never reach this line.
         if let Some(t) = Tmux::detect() {
-            if let Err(message) = t.detach_clients() {
-                warn(format!("could not detach: {message}"));
-            }
+            t.unbind_root_keys(&config.keys);
         }
     }
     result
@@ -167,7 +189,11 @@ fn run(
             }
         }
     };
-    let pane_runner = |op: actions::PaneOp, cwd: &Path, argv: &[String]| -> Result<(), String> {
+    let pane_runner = |op: actions::PaneOp,
+                       cwd: &Path,
+                       argv: &[String],
+                       env: &[(String, String)]|
+     -> Result<(), String> {
         let mut guard = tmux.borrow_mut();
         let Some(t) = guard.as_mut() else { return Err("not inside tmux".into()) };
         let operation = match op {
@@ -175,7 +201,7 @@ fn run(
             actions::PaneOp::SplitDown => crate::config::keys::Operation::SplitDown,
             actions::PaneOp::NewWindow => crate::config::keys::Operation::NewWindow,
         };
-        t.run(operation, Some(cwd), Some(argv))
+        t.run_with_env(operation, Some(cwd), Some(argv), env)
     };
 
     let lookup = |id: i64| recon::store::unaccepted_for_row(&conn, id).unwrap_or_default();
@@ -398,11 +424,11 @@ fn start_reindex(conn: &Connection) -> crate::Result<Option<ReindexJob>> {
     let (tx, rx) = std::sync::mpsc::channel();
     let (thread_progress, thread_label) = (progress.clone(), label.clone());
     std::thread::spawn(move || {
-        let result = index::open(&db_path)
+        let result = index::open_writer(&db_path)
             .and_then(|mut writer| {
                 let report =
                     super::index::walk_all(&mut writer, Some(thread_progress), Some(thread_label));
-                let _ = index::recovery::shutdown(writer);
+                let _ = index::recovery::close_writer(writer);
                 report
             })
             .map_err(|err| err.to_string());

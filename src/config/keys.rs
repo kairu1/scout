@@ -2,6 +2,13 @@
 //! chooses, plus the re-index key. The names are scout's vocabulary; the
 //! translation to tmux lives in the `tmux` module.
 //!
+//! Owns: the closed operation set, its defaults and descriptions, the
+//! chord grammar and its normalisation, the resolution of the user's
+//! entries over the defaults, and the chord-to-tmux key-name mapping.
+//! Refuses to know about: running tmux, the picker, the trust hash.
+//! Exposes: `Operation`, `ALL_OPERATIONS`, `Keys`, `normalise_chord`,
+//! `tmux_key_name`, `PICKER_OWNED_KEYS`.
+//!
 //! One key grammar serves the table: `<mods>-<key>`, where `<mods>` is a
 //! `-`-joined subset of `ctrl`, `alt`, `shift` in that order and `<key>` is
 //! a letter, `f1`-`f12`, an arrow, `home`, `end`, `pageup` or `pagedown`.
@@ -272,8 +279,16 @@ impl Keys {
                 ));
                 continue;
             }
-            if explicit.values().any(|k| *k == default) {
-                // The user moved another operation onto this default.
+            if let Some((taker, _)) = explicit.iter().find(|(_, k)| **k == default) {
+                // The user moved another operation onto this default; say
+                // so, because this one is now unbound until they bind it.
+                warnings.push(format!(
+                    "[keys] {} defaults to {default}, which {} now uses; {} is unbound until you \
+                     set it",
+                    op.name(),
+                    taker.name(),
+                    op.name()
+                ));
                 continue;
             }
             bindings.insert(op, default);
@@ -355,6 +370,10 @@ mod tests {
         assert_eq!(keys.key_for(Operation::Zoom), Some("alt-q"));
         assert_eq!(keys.key_for(Operation::NewWindow), Some("alt-right"));
         assert_eq!(keys.key_for(Operation::SplitRight), None, "its default moved to new-window");
+        assert!(
+            warnings.iter().any(|w| w.contains("split-right") && w.contains("new-window")),
+            "the displaced operation is named: {warnings:?}"
+        );
         assert_eq!(keys.key_for(Operation::ClosePane), None, "alt-x belongs to an action");
         assert!(warnings.iter().any(|w| w.contains("close-pane")), "{warnings:?}");
         assert_eq!(keys.operation_for("alt-q"), Some(Operation::Zoom));

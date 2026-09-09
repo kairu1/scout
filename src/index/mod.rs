@@ -22,4 +22,4 @@ pub mod schema;
 pub mod walk;
 pub mod write;
 
-pub use open::{open, pragma_state};
+pub use open::{open, open_writer, pragma_state};

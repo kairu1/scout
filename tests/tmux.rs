@@ -105,6 +105,13 @@ struct World {
     dir: PathBuf,
 }
 
+impl Drop for World {
+    /// A failed assertion must not leave a private tmux server behind.
+    fn drop(&mut self) {
+        let _ = self.tmux(&["kill-server"]);
+    }
+}
+
 impl World {
     fn new(tag: &str) -> World {
         let dir = std::env::temp_dir().join(format!("scout-launch-{tag}-{}", std::process::id()));
@@ -118,6 +125,9 @@ impl World {
             "sockets",
             "tree/alpha",
             "tree/beta",
+            // A directory whose name is tmux format syntax and a command
+            // separator: opening a pane at it must open a pane at it.
+            "tree/hostile #(touch PWNED);",
         ] {
             std::fs::create_dir_all(dir.join(sub)).unwrap();
         }
@@ -347,9 +357,22 @@ fn a_session_outside_tmux_lands_in_a_picker_with_panes_and_returns_the_cd() {
     );
     assert_eq!(world.pane_count(), 1);
 
-    // 2. The split-right default opens a pane at the selection.
+    // 2. The split-right default opens a pane at the selection, and a
+    //    hostile directory name opens as a directory, nothing more.
+    world.send_text(&picker, "hostile");
+    wait_for(
+        "the hostile row to rank first",
+        || world.diagnose(&run),
+        || world.screen(&picker).contains("hostile").then_some(()),
+    );
     world.send(&picker, &["M-Right"]);
     wait_for("the split", || world.diagnose(&run), || (world.pane_count() == 2).then_some(()));
+    let paths = world.tmux_ok(&["list-panes", "-s", "-t", "=scout", "-F", "#{pane_current_path}"]);
+    assert!(paths.contains("hostile #(touch PWNED);"), "the pane opened in the directory: {paths}");
+    assert!(!world.dir.join("PWNED").exists(), "tmux ran the directory name as a command");
+    for _ in 0..7 {
+        world.send(&picker, &["BSpace"]);
+    }
 
     // 3. Enter on alpha: the cd reaches the wrapper after the detach.
     world.send_text(&picker, "alpha");

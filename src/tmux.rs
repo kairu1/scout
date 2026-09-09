@@ -140,7 +140,7 @@ pub fn decide(policy: Policy, no_tmux: bool, installed: bool, inside: bool) -> D
 
 /// True when a `tmux` binary answers on PATH.
 pub fn installed() -> bool {
-    Command::new("tmux").arg("-V").output().map(|o| o.status.success()).unwrap_or(false)
+    Command::new(tmux_binary()).arg("-V").output().map(|o| o.status.success()).unwrap_or(false)
 }
 
 /// True when this process was started inside a tmux pane. A hint, as in
@@ -184,7 +184,7 @@ impl Launch {
         // tmux's parser; the session opens where tmux would open it.
         match &self.cwd {
             Some(cwd) if !cwd.as_os_str().as_encoded_bytes().iter().any(|b| *b < 0x20) => {
-                vec!["-c".into(), cwd.display().to_string()]
+                vec!["-c".into(), escape_format(&cwd.display().to_string())]
             }
             _ => Vec::new(),
         }
@@ -206,7 +206,9 @@ impl Launch {
     /// a session that has none.
     pub fn new_window_argv(&self) -> Vec<String> {
         let mut argv = self.server.args();
-        argv.extend(["new-window".into(), "-t".into(), self.target()]);
+        // `=NAME` alone would match a *window* named NAME first (a dead
+        // picker's window keeps that name); `=NAME:` names the session.
+        argv.extend(["new-window".into(), "-t".into(), format!("{}:", self.target())]);
         argv.extend(self.cwd_args());
         argv.push("--".into());
         argv.extend(self.inner_argv());
@@ -224,7 +226,7 @@ impl Launch {
     /// takes UTF-8: the picker draws with UTF-8 glyphs anyway, and without
     /// the flag a shell with no UTF-8 locale gets `_` for every corner.
     pub fn client_argv(&self) -> Vec<String> {
-        let mut client = vec!["tmux".to_string(), "-u".to_string()];
+        let mut client = vec![tmux_binary().display().to_string(), "-u".to_string()];
         client.extend(self.attach_argv());
         client
     }
@@ -246,7 +248,8 @@ impl Launch {
     }
 
     fn tmux(&self, argv: &[String]) -> Result<String, String> {
-        let output = Command::new("tmux").args(argv).output().map_err(|e| format!("tmux: {e}"))?;
+        let output =
+            Command::new(tmux_binary()).args(argv).output().map_err(|e| format!("tmux: {e}"))?;
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).into_owned())
         } else {
@@ -301,8 +304,25 @@ impl Launch {
                     self.tmux(&self.new_window_argv())?;
                 }
             }
+        } else if let Err(err) = self.tmux(&self.new_session_argv()) {
+            // Another launcher may have won the race between the check
+            // and the create; then this one attaches like a re-launch.
+            if !self.has_session() {
+                return Err(err);
+            }
+            match self.live_picker_pane() {
+                Some(pane) => {
+                    for verb in ["select-window", "select-pane"] {
+                        let mut argv = self.server.args();
+                        argv.extend([verb.into(), "-t".into(), pane.clone()]);
+                        self.tmux(&argv)?;
+                    }
+                }
+                None => {
+                    self.tmux(&self.new_window_argv())?;
+                }
+            }
         } else {
-            self.tmux(&self.new_session_argv())?;
             for option in self.owned_server_options() {
                 // An older tmux without an option is not an error.
                 if let Err(err) = self.tmux(&option) {
@@ -330,10 +350,13 @@ impl Launch {
 /// given directly: owned by the effective uid, private, not a symlink.
 pub fn handoff_sink(path: &Path) -> Option<PathBuf> {
     let facts = pfs::facts(path).ok()?;
-    if facts.is_symlink || !facts.is_file || facts.uid != pfs::euid() || facts.mode & 0o077 != 0 {
-        return None;
-    }
-    Some(path.to_path_buf())
+    sink_accepts(&facts, pfs::euid()).then(|| path.to_path_buf())
+}
+
+/// The rule behind `handoff_sink`, over facts already read: a regular
+/// file, not a link, owned by `euid`, private.
+pub fn sink_accepts(facts: &pfs::Facts, euid: u32) -> bool {
+    !facts.is_symlink && facts.is_file && facts.uid == euid && facts.mode & 0o077 == 0
 }
 
 /// A tmux session scout is running inside.
@@ -359,7 +382,7 @@ impl Tmux {
         if !inside() {
             return None;
         }
-        let output = Command::new("tmux")
+        let output = Command::new(tmux_binary())
             .args(["display-message", "-p", "#{pane_id} #{session_name}"])
             .output()
             .ok()?;
@@ -436,7 +459,7 @@ impl Tmux {
                     "if-shell".into(),
                     "-F".into(),
                     format!("#{{{}}}", ROLE_OPTION),
-                    "display-message the picker leaves with esc".into(),
+                    "display-message 'the picker leaves with esc'".into(),
                     "kill-pane".into(),
                 ],
                 _ => match self.argv(op, None, None) {
@@ -470,6 +493,24 @@ impl Tmux {
         }
     }
 
+    /// Drop from `opened` every pane that no longer exists.
+    pub fn prune_opened(&mut self) {
+        let argv = ["list-panes", "-s", "-t", &format!("={}", self.session), "-F", "#{pane_id}"]
+            .map(String::from);
+        if let Ok(listing) = run_tmux(&argv) {
+            let live: Vec<&str> = listing.lines().collect();
+            self.opened.retain(|p| live.contains(&p.as_str()));
+        }
+    }
+
+    /// Forget the launcher's file in the session environment, so a stale
+    /// path never outlives the picker that could vet it.
+    pub fn forget_print_to(&self) {
+        let argv = ["set-environment", "-u", "-t", &format!("={}", self.session), PRINT_TO_VAR]
+            .map(String::from);
+        let _ = run_tmux(&argv);
+    }
+
     /// Detach every client of this session, returning the terminal to
     /// whoever ran the launcher. Nothing is killed.
     pub fn detach_clients(&self) -> Result<(), String> {
@@ -486,6 +527,18 @@ impl Tmux {
         op: Operation,
         path: Option<&Path>,
         command: Option<&[String]>,
+    ) -> Option<Vec<String>> {
+        self.argv_with_env(op, path, command, &[])
+    }
+
+    /// `argv`, with `env` bindings the new pane's command must see,
+    /// passed as tmux `-e NAME=VALUE` arguments (argv, no shell).
+    pub fn argv_with_env(
+        &self,
+        op: Operation,
+        path: Option<&Path>,
+        command: Option<&[String]>,
+        env: &[(String, String)],
     ) -> Option<Vec<String>> {
         let mut argv: Vec<String> = match op {
             Operation::SplitRight => vec!["split-window".into(), "-h".into()],
@@ -512,8 +565,14 @@ impl Tmux {
             // Print the new pane's id so it can be closed later.
             argv.extend(["-P".into(), "-F".into(), "#{pane_id}".into()]);
             if let Some(path) = path {
+                // tmux expands formats in `-c`: a directory named
+                // `x #(cmd)` would run `cmd`. Doubling `#` makes it text.
                 argv.push("-c".into());
-                argv.push(path.display().to_string());
+                argv.push(escape_format(&path.display().to_string()));
+            }
+            for (name, value) in env {
+                argv.push("-e".into());
+                argv.push(format!("{name}={value}"));
             }
             if let Some(command) = command {
                 // The pane runs `scout pane-run`, which runs the command and
@@ -541,7 +600,22 @@ impl Tmux {
         path: Option<&Path>,
         command: Option<&[String]>,
     ) -> Result<(), String> {
-        let Some(argv) = self.argv(op, path, command) else {
+        self.run_with_env(op, path, command, &[])
+    }
+
+    /// `run`, with `env` bindings for the new pane's command.
+    pub fn run_with_env(
+        &mut self,
+        op: Operation,
+        path: Option<&Path>,
+        command: Option<&[String]>,
+        env: &[(String, String)],
+    ) -> Result<(), String> {
+        if op == Operation::ClosePane {
+            // A pane the user closed by hand is not ours to close again.
+            self.prune_opened();
+        }
+        let Some(argv) = self.argv_with_env(op, path, command, env) else {
             return Err(match op {
                 Operation::ClosePane => "no pane opened by scout to close".to_string(),
                 Operation::KillPane => {
@@ -568,10 +642,27 @@ impl Tmux {
     }
 }
 
+/// The tmux binary, found once on a PATH with `.` and empty entries
+/// removed, so a `tmux` planted in the selected project never runs.
+/// Falls back to the bare name when nothing is found, which then fails
+/// the way a missing tmux always did.
+fn tmux_binary() -> &'static Path {
+    static BINARY: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    BINARY.get_or_init(|| {
+        let path = std::env::var("PATH").unwrap_or_default();
+        path.split(':')
+            .filter(|d| !d.is_empty() && *d != ".")
+            .map(|d| Path::new(d).join("tmux"))
+            .find(|p| p.is_file())
+            .unwrap_or_else(|| PathBuf::from("tmux"))
+    })
+}
+
 /// One tmux invocation against the server `TMUX` names; stdout on
 /// success, stderr in the error.
 fn run_tmux(argv: &[String]) -> Result<String, String> {
-    let output = Command::new("tmux").args(argv).output().map_err(|e| format!("tmux: {e}"))?;
+    let output =
+        Command::new(tmux_binary()).args(argv).output().map_err(|e| format!("tmux: {e}"))?;
     if !output.status.success() {
         return Err(format!("tmux: {}", String::from_utf8_lossy(&output.stderr).trim()));
     }
@@ -580,9 +671,11 @@ fn run_tmux(argv: &[String]) -> Result<String, String> {
 
 /// tmux treats an argument ending in `;` as a command separator; `\;` is
 /// its escape. Every element scout hands over is escaped so a directory
-/// named `x;` opens as a directory rather than truncating the command.
+/// named `x;` opens as a directory rather than truncating the command. A
+/// name that already ends in `\;` is escaped too: tmux would otherwise
+/// read the backslash as the escape and drop the semicolon.
 pub fn escape_trailing_semicolon(arg: String) -> String {
-    if arg.ends_with(';') && !arg.ends_with("\\;") {
+    if arg.ends_with(';') {
         let mut out = arg;
         out.pop();
         out.push_str("\\;");
@@ -590,6 +683,15 @@ pub fn escape_trailing_semicolon(arg: String) -> String {
     } else {
         arg
     }
+}
+
+/// tmux expands `#{...}` and `#(...)` in the arguments that take a
+/// format, `-c` among them, and `#(...)` runs a shell command. A `#`
+/// written `##` is a literal `#`. Applied to every value scout passes
+/// where tmux expands formats; never to the argv after `--`, which tmux
+/// runs as given.
+pub fn escape_format(value: &str) -> String {
+    value.replace('#', "##")
 }
 
 #[cfg(test)]
@@ -648,6 +750,7 @@ mod tests {
         let kill = bindings.iter().find(|b| b[2] == "M-q").expect("kill-pane bound");
         assert_eq!(kill[3], "if-shell");
         assert_eq!(kill[5], "#{@scout_role}", "guarded on the pane's role");
+        assert_eq!(kill[6], "display-message 'the picker leaves with esc'", "one tmux command");
         assert_eq!(kill[7], "kill-pane");
         assert_eq!(t.argv(Operation::KillPane, None, None), None, "never from the picker itself");
         assert!(bindings.contains(
@@ -671,6 +774,52 @@ mod tests {
             t.argv(Operation::FocusPicker, None, None).unwrap(),
             ["select-pane", "-t", "%0"]
         );
+    }
+
+    /// tmux expands formats in `-c`; a `#` in a directory name is doubled
+    /// so `x #(rm -rf ~)` opens a directory rather than running a command.
+    #[test]
+    fn a_hash_in_a_directory_name_is_doubled_wherever_tmux_expands_formats() {
+        let t = tmux();
+        let dir = Path::new("/w/proj #(touch pwned)");
+        let argv = t.argv(Operation::SplitRight, Some(dir), None).unwrap();
+        let at = argv.iter().position(|a| a == "-c").unwrap();
+        assert_eq!(argv[at + 1], "/w/proj ##(touch pwned)");
+        let with_command =
+            t.argv(Operation::SplitRight, Some(dir), Some(&["ls".to_string()])).unwrap();
+        let cwd = with_command.iter().position(|a| a == "--cwd").unwrap();
+        assert_eq!(
+            with_command[cwd + 1],
+            "/w/proj #(touch pwned)",
+            "pane-run's argv is run as given"
+        );
+        let l = Launch { cwd: Some("/w/a#{b}".into()), ..launch() };
+        assert!(l.new_session_argv().contains(&"/w/a##{b}".to_string()));
+        assert_eq!(escape_format("plain"), "plain");
+    }
+
+    /// An `env` step's bindings reach the pane's command as tmux `-e`
+    /// arguments, never through a shell.
+    #[test]
+    fn env_bindings_reach_a_pane_as_separate_arguments() {
+        let t = tmux();
+        let argv = t
+            .argv_with_env(
+                Operation::SplitDown,
+                Some(Path::new("/w")),
+                Some(&["make".to_string()]),
+                &[("PORT".to_string(), "80 80".to_string())],
+            )
+            .unwrap();
+        let at = argv.iter().position(|a| a == "-e").unwrap();
+        assert_eq!(argv[at + 1], "PORT=80 80");
+        assert!(at < argv.iter().position(|a| a == "--").unwrap());
+    }
+
+    #[test]
+    fn a_fresh_picker_window_targets_the_session_not_a_window_of_the_same_name() {
+        let win = launch().new_window_argv();
+        assert_eq!(&win[2..5], ["new-window", "-t", "=scout:"]);
     }
 
     #[test]
@@ -708,7 +857,11 @@ mod tests {
         let argv = t.argv(Operation::NewWindow, Some(Path::new("/w/x;")), None).unwrap();
         assert!(argv.contains(&"/w/x\\;".to_string()), "{argv:?}");
         assert_eq!(escape_trailing_semicolon("a;b".into()), "a;b", "only a trailing one matters");
-        assert_eq!(escape_trailing_semicolon("x\\;".into()), "x\\;", "not doubled");
+        assert_eq!(
+            escape_trailing_semicolon("x\\;".into()),
+            "x\\\\;",
+            "a name ending in backslash-semicolon is escaped like any other"
+        );
         assert_eq!(escape_trailing_semicolon("plain".into()), "plain");
     }
 
@@ -773,13 +926,15 @@ mod tests {
             ]
         );
         assert_eq!(l.attach_argv(), ["-L", "scout", "attach-session", "-t", "=scout"]);
+        let client = l.client_argv();
+        assert!(client[0].ends_with("tmux"), "{client:?}");
         assert_eq!(
-            l.client_argv(),
-            ["tmux", "-u", "-L", "scout", "attach-session", "-t", "=scout"],
+            &client[1..],
+            ["-u", "-L", "scout", "attach-session", "-t", "=scout"],
             "the client is told the terminal takes UTF-8"
         );
         let win = l.new_window_argv();
-        assert_eq!(&win[..5], ["-L", "scout", "new-window", "-t", "=scout"]);
+        assert_eq!(&win[..5], ["-L", "scout", "new-window", "-t", "=scout:"]);
         assert!(win.ends_with(&["--print-to".to_string(), "/tmp/scout.abc".to_string()]));
         // Exact-match targets: a session named scoutier is not scout.
         assert!(l.attach_argv().contains(&"=scout".to_string()));
@@ -805,6 +960,25 @@ mod tests {
         assert!(!argv.contains(&"--print-to".to_string()));
         let l = Launch { cwd: Some("/w/bad\nname".into()), ..launch() };
         assert!(!l.new_session_argv().contains(&"-c".to_string()));
+    }
+
+    #[test]
+    fn a_sink_owned_by_someone_else_is_refused_whatever_its_mode() {
+        let facts = |uid: u32, mode: u32| pfs::Facts {
+            uid,
+            gid: 0,
+            mode,
+            is_dir: false,
+            is_file: true,
+            is_symlink: false,
+            mtime: 0,
+            size: 0,
+        };
+        assert!(sink_accepts(&facts(1000, 0o600), 1000));
+        assert!(!sink_accepts(&facts(1001, 0o600), 1000), "another uid");
+        assert!(!sink_accepts(&facts(1000, 0o640), 1000), "group readable");
+        assert!(!sink_accepts(&pfs::Facts { is_symlink: true, ..facts(1000, 0o600) }, 1000));
+        assert!(!sink_accepts(&pfs::Facts { is_file: false, ..facts(1000, 0o600) }, 1000));
     }
 
     #[test]

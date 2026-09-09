@@ -39,24 +39,24 @@ enum Cmd {
     Index {
         path: Option<PathBuf>,
         /// Include hidden entries (remembered for this tree).
-        #[arg(long, overrides_with = "no_hidden")]
+        #[arg(long, overrides_with = "no_hidden", requires = "path")]
         hidden: bool,
         /// Stop including hidden entries for this tree.
-        #[arg(long, overrides_with = "hidden")]
+        #[arg(long, overrides_with = "hidden", requires = "path")]
         no_hidden: bool,
         /// Follow symlinks while walking (remembered for this tree).
-        #[arg(long, overrides_with = "no_follow")]
+        #[arg(long, overrides_with = "no_follow", requires = "path")]
         follow: bool,
         /// Stop following symlinks for this tree.
-        #[arg(long, overrides_with = "follow")]
+        #[arg(long, overrides_with = "follow", requires = "path")]
         no_follow: bool,
         /// Skip the cheap recon checks (ownership, mode, special bits,
         /// exposed secrets) that otherwise run on every path as it is
         /// indexed. Remembered for this tree.
-        #[arg(long, overrides_with = "recon")]
+        #[arg(long, overrides_with = "recon", requires = "path")]
         no_recon: bool,
         /// Run the cheap recon checks again for a tree that opted out.
-        #[arg(long, overrides_with = "no_recon")]
+        #[arg(long, overrides_with = "no_recon", requires = "path")]
         recon: bool,
         /// Drop the tree at PATH from the index. Its rows keep their
         /// history for a while and come back if the tree is indexed again.

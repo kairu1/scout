@@ -3,6 +3,12 @@
 //! are explicit and yield to live queries. Every walk is of one root:
 //! its rows carry the root's id, and only that root's rows are
 //! tombstoned when it completes.
+//!
+//! Owns: the upsert, the generation allocation, completion (root pointer,
+//! tombstones, purge, orphan sweep), the recon checks run per row, the
+//! walk statistics. Refuses to know about: walking the filesystem (the
+//! walker hands it items), ranking, terminals. Exposes: `batched_insert`,
+//! `batched_insert_with`, `WriteOptions`, `InsertStats`, `MultiWalk`.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -38,6 +44,9 @@ pub struct InsertStats {
     /// Rows present in an earlier generation of this root that this walk
     /// did not see.
     pub tombstoned: u64,
+    /// The root's directory was not there: nothing was walked and the
+    /// previous generation still serves.
+    pub absent: bool,
     /// Tombstoned rows old enough to be removed outright.
     pub purged: u64,
     /// Recon findings written during the walk (only with `recon: true`).
@@ -115,10 +124,16 @@ pub fn batched_insert_with(
         recon::checks::Context { euid: crate::platform::fs::euid(), now: unix_now(), home: &home };
     let stat_checks = recon::run::stat_checks();
 
-    let current: i64 =
-        conn.query_row("SELECT current_generation FROM run_state WHERE id = 1", [], |row| {
-            row.get(0)
-        })?;
+    // Past the newest number any row carries, not just the newest
+    // completed walk: an interrupted walk stamped rows with a number that
+    // never became current, and reusing it would make those rows look
+    // like part of this walk.
+    let current: i64 = conn.query_row(
+        "SELECT max(current_generation, COALESCE((SELECT max(scan_generation) FROM paths), 0))
+           FROM run_state WHERE id = 1",
+        [],
+        |row| row.get(0),
+    )?;
     let generation = current + 1;
     stats.generation = generation;
 
@@ -257,15 +272,39 @@ pub fn batched_insert_with(
          WHERE id = 1",
         rusqlite::named_params! { ":gen": generation, ":now": now },
     )?;
-    tx.execute(
+    let root_rows = tx.execute(
         "UPDATE roots SET current_generation = :gen, last_walk_completed_at = :now WHERE id = :id",
         rusqlite::named_params! { ":gen": generation, ":now": now, ":id": root_id },
     )?;
+    if root_rows == 0 {
+        // The root was forgotten while this walk ran; its rows belong to
+        // nobody now and would otherwise sit unserved and unpurged.
+        tx.execute(
+            "UPDATE paths SET tombstoned_at = :now WHERE root_id = :root AND tombstoned_at IS NULL",
+            rusqlite::named_params! { ":now": now, ":root": root_id },
+        )?;
+        tx.commit()?;
+        tracing::info!(generation, "root forgotten during the walk; rows tombstoned");
+        return Ok(stats);
+    }
     let tombstoned = tx.execute(
         "UPDATE paths SET tombstoned_at = :now
           WHERE root_id = :root AND scan_generation < :gen AND tombstoned_at IS NULL",
         rusqlite::named_params! { ":gen": generation, ":now": now, ":root": root_id },
     )?;
+    if tombstoned > 0 {
+        // A path that is gone has no mode to report; its findings go
+        // now rather than lingering in every report until the purge.
+        tx.execute(
+            "DELETE FROM findings WHERE path_id IN
+                 (SELECT rowid FROM paths WHERE root_id = :root AND tombstoned_at = :now)",
+            rusqlite::named_params! { ":root": root_id, ":now": now },
+        )?;
+        tx.execute(
+            "UPDATE paths SET worst_finding = 0 WHERE root_id = :root AND tombstoned_at = :now",
+            rusqlite::named_params! { ":root": root_id, ":now": now },
+        )?;
+    }
     let purged = tx.execute(
         "DELETE FROM paths WHERE tombstoned_at IS NOT NULL AND tombstoned_at < :cutoff",
         rusqlite::named_params! { ":cutoff": now - PURGE_AFTER_SECS },

@@ -113,6 +113,15 @@ fn integrity_check_with_watchdog(db_path: &Path) -> bool {
     }
 }
 
+/// Close a secondary connection: checkpoint and close, no sentinel. For
+/// a writer opened beside a connection that is still open, whose own
+/// shutdown will write the sentinel.
+pub fn close_writer(conn: Connection) -> Result<()> {
+    conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(()))?;
+    conn.close().map_err(|(_, err)| Error::Sqlite(err))?;
+    Ok(())
+}
+
 /// Clean shutdown: TRUNCATE-checkpoint the WAL, close, then write the
 /// sentinel. Callers own invoking this before process exit.
 pub fn shutdown(conn: Connection) -> Result<()> {

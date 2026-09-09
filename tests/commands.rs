@@ -220,11 +220,11 @@ fn index_without_a_path_rewalks_every_root_and_nesting_is_refused() {
     assert_eq!(run(&dir, &["query", "hidden-dir"]).status.code(), Some(0));
 
     // Nesting refused, exit 1, the existing root named.
+    // Refused with exit 1; the variant and its hint are asserted at the
+    // library level (tests/index/walk.rs), not by their prose here.
     let out = run(&dir, &["index", dir.join("tree").to_str().unwrap()]);
     assert_eq!(out.status.code(), Some(1));
-    let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("roots never nest"), "{err}");
-    assert!(err.contains("--forget"), "the hint says how to proceed: {err}");
+    assert!(!out.stderr.is_empty(), "a refusal says something");
 
     // Forget b: its rows vanish from the candidate set.
     let out = run(&dir, &["index", "--forget", b.to_str().unwrap()]);
@@ -241,8 +241,57 @@ fn index_without_a_path_and_without_roots_says_to_index_something() {
     let dir = sandbox("no-roots");
     let out = run(&dir, &["index"]);
     assert_eq!(out.status.code(), Some(1));
-    let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("nothing indexed yet"), "{err}");
-    assert!(err.contains("scout index <path>"), "{err}");
+    assert!(
+        !out.stderr.is_empty(),
+        "the refusal says what to do (variant asserted in the library)"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A path that does not exist, is not a directory, or is given relative
+/// never becomes a root; a root whose directory has gone is reported
+/// and leaves the previous index serving; walk flags need a path.
+#[test]
+fn index_refuses_bad_roots_and_an_absent_root_keeps_serving() {
+    let dir = sandbox("bad-roots");
+    let tree = dir.join("tree");
+    std::fs::create_dir_all(tree.join("keep")).unwrap();
+    std::fs::write(tree.join("file.txt"), b"x").unwrap();
+    assert_eq!(run(&dir, &["index", dir.join("nope").to_str().unwrap()]).status.code(), Some(1));
+    assert_eq!(
+        run(&dir, &["index", tree.join("file.txt").to_str().unwrap()]).status.code(),
+        Some(1)
+    );
+    let out = run(&dir, &["index", "--hidden"]);
+    assert_eq!(out.status.code(), Some(2), "a flag without a path is a usage error");
+    assert!(stdout(&run(&dir, &["doctor", "--format", "tsv"])).contains("roots\tnone"));
+
+    assert!(run(&dir, &["index", tree.to_str().unwrap()]).status.success());
+    assert_eq!(run(&dir, &["query", "keep"]).status.code(), Some(0));
+    std::fs::rename(&tree, dir.join("tree-moved")).unwrap();
+    let out = run(&dir, &["index"]);
+    assert_eq!(out.status.code(), Some(1), "an absent root is not a completed walk");
+    assert!(stdout(&out).contains("NOT PRESENT"), "{}", stdout(&out));
+    std::fs::rename(dir.join("tree-moved"), &tree).unwrap();
+    assert_eq!(
+        run(&dir, &["query", "keep"]).status.code(),
+        Some(0),
+        "the previous index still serves"
+    );
+
+    // --no-hidden turns a remembered flag off; --forget accepts a
+    // trailing slash on a tree that is gone.
+    std::fs::create_dir_all(tree.join(".dot")).unwrap();
+    assert!(run(&dir, &["index", tree.to_str().unwrap(), "--hidden"]).status.success());
+    assert_eq!(run(&dir, &["query", ".dot"]).status.code(), Some(0));
+    assert!(run(&dir, &["index", tree.to_str().unwrap(), "--no-hidden"]).status.success());
+    assert_eq!(run(&dir, &["query", ".dot"]).status.code(), Some(1), "--no-hidden undoes --hidden");
+    let doctor = stdout(&run(&dir, &["doctor", "--format", "tsv"]));
+    assert!(doctor.contains("roots\t1:"), "{doctor}");
+    assert!(doctor.contains("generation "), "the doctor line says how far each root got: {doctor}");
+    std::fs::remove_dir_all(&tree).unwrap();
+    let with_slash = format!("{}/", tree.display());
+    assert!(run(&dir, &["index", "--forget", &with_slash]).status.success());
+    assert_eq!(run(&dir, &["query", "keep"]).status.code(), Some(1));
     let _ = std::fs::remove_dir_all(&dir);
 }
