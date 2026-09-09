@@ -25,10 +25,13 @@ pub enum Operation {
     /// Focus the picker's pane from wherever focus is. Installed as a
     /// tmux binding on scout's own server, so it works from any pane.
     FocusPicker,
+    /// Close the pane the key was pressed in. Installed as a tmux binding
+    /// on scout's own server; refuses the picker's pane.
+    KillPane,
     Reindex,
 }
 
-pub const ALL_OPERATIONS: [Operation; 11] = [
+pub const ALL_OPERATIONS: [Operation; 12] = [
     Operation::SplitRight,
     Operation::SplitDown,
     Operation::NewWindow,
@@ -39,6 +42,7 @@ pub const ALL_OPERATIONS: [Operation; 11] = [
     Operation::ClosePane,
     Operation::Zoom,
     Operation::FocusPicker,
+    Operation::KillPane,
     Operation::Reindex,
 ];
 
@@ -55,6 +59,7 @@ impl Operation {
             Operation::ClosePane => "close-pane",
             Operation::Zoom => "zoom",
             Operation::FocusPicker => "focus-picker",
+            Operation::KillPane => "kill-pane",
             Operation::Reindex => "reindex",
         }
     }
@@ -76,6 +81,7 @@ impl Operation {
             Operation::ClosePane => "close the last pane scout opened",
             Operation::Zoom => "zoom the current pane in or out",
             Operation::FocusPicker => "focus the picker, from any pane",
+            Operation::KillPane => "close the pane you are in (never the picker), from any pane",
             Operation::Reindex => "re-index every indexed tree without leaving",
         }
     }
@@ -101,6 +107,7 @@ impl Operation {
             Operation::ClosePane => "alt-x",
             Operation::Zoom => "alt-z",
             Operation::FocusPicker => "alt-h",
+            Operation::KillPane => "alt-q",
             Operation::Reindex => "ctrl-r",
         }
     }
@@ -117,6 +124,7 @@ impl Operation {
                 | Operation::FocusDown
                 | Operation::Zoom
                 | Operation::FocusPicker
+                | Operation::KillPane
         )
     }
 }

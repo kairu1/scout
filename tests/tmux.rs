@@ -33,8 +33,19 @@ fn split_at_a_semicolon_directory_runs_a_command_and_closes() {
     let sock = format!("scout-test-{}", std::process::id());
     let dir = std::env::temp_dir().join(format!("scout-tmux-{};", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let t = |args: &[&str]| Command::new("tmux").arg("-L").arg(&sock).args(args).output().unwrap();
+    std::fs::create_dir_all(dir.join("sockets")).unwrap();
+    // The socket lives in the sandbox, not the shared tmux directory, so
+    // a run leaves nothing behind there.
+    let sockets = dir.join("sockets");
+    let t = |args: &[&str]| {
+        Command::new("tmux")
+            .env("TMUX_TMPDIR", &sockets)
+            .arg("-L")
+            .arg(&sock)
+            .args(args)
+            .output()
+            .unwrap()
+    };
     assert!(t(&["new-session", "-d", "-s", "probe", "-x", "120", "-y", "30"]).status.success());
 
     // Scout's own pane id, as detect() would read it.
@@ -55,7 +66,13 @@ fn split_at_a_semicolon_directory_runs_a_command_and_closes() {
             Some(&["sh".to_string(), "-c".to_string(), "pwd > out.txt".to_string()]),
         )
         .unwrap();
-    let out = Command::new("tmux").arg("-L").arg(&sock).args(&argv).output().unwrap();
+    let out = Command::new("tmux")
+        .env("TMUX_TMPDIR", &sockets)
+        .arg("-L")
+        .arg(&sock)
+        .args(&argv)
+        .output()
+        .unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let pane = String::from_utf8_lossy(&out.stdout).trim().to_string();
     assert!(pane.starts_with('%'), "{pane}");
@@ -69,6 +86,7 @@ fn split_at_a_semicolon_directory_runs_a_command_and_closes() {
     let close = tmux.argv(Operation::ClosePane, None, None).unwrap();
     assert_eq!(close, ["kill-pane", "-t", pane.as_str()]);
     assert!(Command::new("tmux")
+        .env("TMUX_TMPDIR", &sockets)
         .arg("-L")
         .arg(&sock)
         .args(&close)
@@ -365,6 +383,7 @@ fn a_session_outside_tmux_lands_in_a_picker_with_panes_and_returns_the_cd() {
         root_keys.contains("M-h") && root_keys.contains(&format!("select-pane -t \"{picker}\"")),
         "{root_keys}"
     );
+    assert!(root_keys.contains("M-q") && root_keys.contains("kill-pane"), "{root_keys}");
     world.send(&picker, &["?"]);
     wait_for(
         "the help overlay",

@@ -428,7 +428,22 @@ impl Tmux {
                 continue;
             }
             let Some(key) = tmux_key_name(chord) else { continue };
-            let Some(command) = self.argv(op, None, None) else { continue };
+            let command: Vec<String> = match op {
+                // Kill the pane the key came from, unless it is the
+                // picker's: the role option marks that one, and the
+                // format check runs on the pane that received the key.
+                Operation::KillPane => vec![
+                    "if-shell".into(),
+                    "-F".into(),
+                    format!("#{{{}}}", ROLE_OPTION),
+                    "display-message the picker leaves with esc".into(),
+                    "kill-pane".into(),
+                ],
+                _ => match self.argv(op, None, None) {
+                    Some(command) => command,
+                    None => continue,
+                },
+            };
             let mut argv = vec!["bind-key".to_string(), "-n".to_string(), key];
             argv.extend(command);
             out.push(argv);
@@ -488,7 +503,10 @@ impl Tmux {
             Operation::FocusPicker => {
                 vec!["select-pane".into(), "-t".into(), self.own_pane.clone()]
             }
-            Operation::Reindex => return None,
+            // From the picker there is no pane to kill but its own, and
+            // that one leaves with Esc. The tmux-wide binding is the
+            // operation's real home; see `root_bindings`.
+            Operation::KillPane | Operation::Reindex => return None,
         };
         if matches!(op, Operation::SplitRight | Operation::SplitDown | Operation::NewWindow) {
             // Print the new pane's id so it can be closed later.
@@ -526,6 +544,10 @@ impl Tmux {
         let Some(argv) = self.argv(op, path, command) else {
             return Err(match op {
                 Operation::ClosePane => "no pane opened by scout to close".to_string(),
+                Operation::KillPane => {
+                    "kill-pane acts on the pane you press it in; the picker leaves with esc"
+                        .to_string()
+                }
                 _ => format!("{} is not a tmux operation", op.name()),
             });
         };
@@ -622,7 +644,12 @@ mod tests {
     fn root_bindings_cover_focus_zoom_and_the_picker_and_nothing_else() {
         let t = tmux();
         let bindings = t.root_bindings(&Keys::default());
-        assert_eq!(bindings.len(), 6, "{bindings:?}");
+        assert_eq!(bindings.len(), 7, "{bindings:?}");
+        let kill = bindings.iter().find(|b| b[2] == "M-q").expect("kill-pane bound");
+        assert_eq!(kill[3], "if-shell");
+        assert_eq!(kill[5], "#{@scout_role}", "guarded on the pane's role");
+        assert_eq!(kill[7], "kill-pane");
+        assert_eq!(t.argv(Operation::KillPane, None, None), None, "never from the picker itself");
         assert!(bindings.contains(
             &["bind-key", "-n", "M-S-Left", "select-pane", "-L"].map(String::from).to_vec()
         ));
@@ -632,11 +659,13 @@ mod tests {
             &["bind-key", "-n", "M-h", "select-pane", "-t", "%0"].map(String::from).to_vec()
         ));
         assert!(
-            !bindings
-                .iter()
-                .any(|b| b.contains(&"split-window".to_string())
-                    || b.contains(&"kill-pane".to_string())),
-            "splits and close stay the picker's: {bindings:?}"
+            !bindings.iter().any(|b| b.contains(&"split-window".to_string())),
+            "splits stay the picker's: {bindings:?}"
+        );
+        assert_eq!(
+            bindings.iter().filter(|b| b.contains(&"kill-pane".to_string())).count(),
+            1,
+            "only the guarded kill-pane binding kills anything: {bindings:?}"
         );
         assert_eq!(
             t.argv(Operation::FocusPicker, None, None).unwrap(),
