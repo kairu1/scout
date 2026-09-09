@@ -30,9 +30,11 @@ scout index ~/projects
 scout
 ```
 
-`scout index` walks one tree; index the common parent of your projects.
-Re-running it is how you refresh; paths that have gone away are
-tombstoned when the walk completes and purged after six months.
+`scout index <path>` adds a tree; index as many as you like (a tree
+inside another is refused: index the parent). `scout index` alone walks
+every tree again the way it was walked before, which is how you refresh;
+paths that have gone away are tombstoned when the walk completes and
+purged after six months. `scout index --forget <path>` drops a tree.
 
 ## The picker
 
@@ -64,15 +66,28 @@ By default an action ends scout. `scout --session` (or `-s`, or
 `[scout] session = true` in the config) keeps you in the picker: a
 spawned program gets the terminal for its lifetime, scout holds the screen
 with one status line until you press a key, and the picker returns with
-your query and selection intact. Inside tmux, a spawn step with
-`pane = "split-right"` runs in a new pane and scout stays in its own; the
-`[keys]` table binds `split-right`, `split-down`, `new-window`,
-`focus-left/right/up/down`, `close-pane`, `zoom` and `reindex` to keys
-you choose (defaults: `alt-right`, `alt-down`, `alt-w`,
-`alt-shift-<arrow>`, `alt-x`, `alt-z`, `ctrl-r`). The title reads
-`scout: session` so you always know which mode you are in. Actions that
-print a command for your shell (`cd`) still end the session, because they
-only work after scout is gone; they are marked `⏎`.
+your query and selection intact. The title reads `scout: session` so you
+always know which mode you are in. Actions that print a command for your
+shell (`cd`) still end the session, because they only work after scout is
+gone; they are marked `⏎`.
+
+A session brings its own panes. With tmux installed, `scout -s` from a
+plain shell starts a tmux session on scout's own server (`tmux -L scout`;
+your `~/.tmux.conf` still applies) and lands you in the picker inside it.
+A spawn step with `pane = "split-right"` runs in a new pane and scout
+stays in its own; the `[keys]` table binds `split-right`, `split-down`,
+`new-window`, `focus-left/right/up/down`, `close-pane`, `zoom` and
+`reindex` to keys you choose (defaults: `alt-right`, `alt-down`, `alt-w`,
+`alt-shift-<arrow>`, `alt-x`, `alt-z`, `ctrl-r`). When you `cd` into a
+project, or press Esc, scout detaches and your shell gets its prompt
+back; everything you started in a pane keeps running, and the next
+`scout -s` re-attaches to it with a fresh picker. Nothing is ever killed
+by scout: `tmux -L scout kill-server` ends it all. Already inside tmux,
+scout uses the session you are in. Without tmux the session still works,
+minus panes, and `?` says so. `[scout] tmux = "never"` (or `--no-tmux`
+for one run) keeps tmux out of it; `"require"` refuses to run without it.
+The `?` overlay names every key your terminal delivers while it is open,
+so a binding that does not fire can be diagnosed.
 
 ## Shell integration
 
@@ -171,7 +186,8 @@ scout recon ~/projects/api        # one tree
 scout recon --format tsv --fail-on critical
 scout recon accept ~/shared world-writable-dir --reason "team scratch dir"
 scout recon baseline ~/projects/api   # record its Makefile, package.json, hooks...
-scout index ~/projects --recon    # run the cheap checks while indexing
+scout recon --since-last          # only what appeared since the previous run; exit 1 if any
+scout index ~/projects --no-recon # skip the cheap checks for this tree
 ```
 
 Recon reports ownership and mode problems (world- or group-writable,
@@ -179,11 +195,14 @@ owned by someone else, setuid, setgid), credential-shaped files
 (`.env`, `*.pem`, `id_*`, ...) that others can read, links leading into
 system trees or out of your home, files another user changed in the last
 day, ACLs that widen a mode, and entry points that changed since you
-recorded a baseline. It judges permission bits, never file contents. It
-stores what it finds beside the index, marks the row in the picker, lets
-you accept an exception that lapses when the underlying fact changes, and
-offers fixes as actions you run deliberately. It never repairs anything
-itself. Details in [`docs/security.md`](docs/security.md).
+recorded a baseline. The cheap checks run on every walk, and credential
+files are examined even when hidden files are not indexed or git ignores
+them. It judges permission bits, never file contents. It stores what it
+finds beside the index, marks the row in the picker, lets you accept an
+exception that lapses when the underlying fact changes, and offers fixes
+as actions you run deliberately. It never repairs anything itself. It
+also looks at scout's own files, including the rc file that sources the
+shell wrapper. Details in [`docs/security.md`](docs/security.md).
 
 ## Other commands
 
@@ -192,7 +211,7 @@ itself. Details in [`docs/security.md`](docs/security.md).
 | `scout query <q> [--limit n] [--format tsv] [--print0]` | rank and print, best first; exits 1 on no match; piped output is byte-exact |
 | `scout doctor [--format tsv]` | the state scout resolved: config, trust, index, environment; read-only |
 | `scout open-db <path>` | open an index, print its vitals, recover it if needed |
-| `scout index <root> [--hidden] [--follow] [--recon]` | walk a tree into the index |
+| `scout index [<path>] [--hidden\|--no-hidden] [--follow\|--no-follow] [--no-recon\|--recon] [--forget]` | walk a tree into the index, or every indexed tree again; flags are remembered per tree |
 
 Machine-readable output puts the unconstrained field last, so a tab in a
 path cannot shift a column: split on the first N tabs and take the rest

@@ -1,6 +1,44 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.4.0 (unreleased)
+
+### Added
+- A session brings its own panes: `scout -s` outside tmux, with tmux
+  installed, starts a tmux session on scout's own server (`tmux -L
+  scout`, your `~/.tmux.conf` still read) and runs the picker inside it;
+  an exit action or Esc detaches and returns your shell; the next
+  `scout -s` re-attaches with a fresh picker and hands over its own
+  return file. `[scout] tmux = "auto" | "never" | "require"`,
+  `tmux_session`, `tmux_server = "private" | "shared"`; `--no-tmux` for
+  one run. Nothing is ever killed by scout.
+- The index holds many trees: `scout index <path>` adds one, `scout
+  index` alone walks every tree again the way it was walked (flags are
+  remembered per tree; `--no-hidden`, `--no-follow`, `--recon` undo
+  them), a tree inside another is refused, `--forget` drops one. `ctrl-r`
+  in a session re-walks every tree.
+- Credential files are examined on every walk even when hidden entries
+  are not indexed or git ignores them; such rows never reach the picker.
+- `scout recon --since-last`: only findings first seen after the previous
+  run; exit 1 when one reaches `--fail-on`.
+- Recon finds the shell wrapper in your rc files by the installer's
+  marker line and flags an rc file others can edit.
+- The `?` overlay names every key pressed while it is open.
+- The search caret moves by grapheme cluster.
+- CI runs the ACL positive case with `setfacl`, and the tmux story test.
+
+### Changed
+- The cheap recon checks run on every walk; `scout index --recon` is gone
+  and `--no-recon` opts a tree out.
+- Index schema 3 (`roots`, `paths.root_id`, `paths.candidate`;
+  `run_state.last_root` dropped). A 0.3 index migrates on open: its one
+  tree becomes the first root.
+- The shell wrapper is unchanged; under tmux `command scout` returns
+  when the client detaches, always with code 0, and the returned file is
+  the whole contract. The installer's suggested rc line is now a marked
+  block.
+- Print sinks are opened without following symlinks.
+
+## 0.3.0
 
 A rebuild in place: same tool, new history (the prior history through
 0.2.1 is on the branch `legacy/v0.2` and under its tags), reorganised

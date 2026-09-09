@@ -42,6 +42,27 @@ the user's shell; an argument ending in `;` is escaped because tmux reads
 a trailing `;` as a command separator; `send-keys` is never used. tmux is
 detected by asking it, not by trusting the `TMUX` variable.
 
+A session outside tmux starts one. The launcher `exec`s the tmux client
+with a fixed argv whose only user-influenced elements are the session
+name (validated at config load to letters, digits, `_` and `-`, so tmux
+never rewrites it and no `;` or control character reaches the parser),
+the working directory (from the OS, escaped, dropped if it holds a
+control byte) and the wrapper's own `--print-to` path; every session
+target is written `=NAME`, because tmux matches a bare name by prefix.
+The private server's socket lives in a directory tmux creates 0700 and
+owner-checks. Options are set on a server scout started, in memory,
+never by writing a file; nothing is set on a server it did not start.
+On re-attach the launcher hands its `--print-to` file to the running
+picker through the session environment, which is same-user state, so
+the picker accepts the path only as a regular file it owns, mode 0600,
+opened without following symlinks; otherwise it keeps the file it was
+started with. Every print sink is opened that way. Under tmux the client
+always exits 0, so the wrapper's exit-code check is not a control (it
+never was: the allowlist is), and the file's content is the whole
+contract: an exit action writes one line, anything else writes nothing.
+Scout never kills a pane it did not open, a session or a server;
+leaving is always a detach.
+
 ## Boundaries
 
 The config is opened without following symlinks, capped at 256 KiB, and a
@@ -64,9 +85,11 @@ declared in one module and checked against East Asian Ambiguous width.
 ## Recon
 
 `scout recon` answers: how safe are the paths scout indexes, who else can
-edit them, and what can be done. It runs over the rows in the index (so a
-dotfile such as `.env` is seen only if you indexed with `--hidden`) and
-reports at three severities, `low`, `high`, `critical`.
+edit them, and what can be done. It runs over the rows in the index and
+reports at three severities, `low`, `high`, `critical`. Credential-shaped
+names are recorded on every walk whether or not hidden files are
+candidates and whether or not git ignores them, so a loose `.env` is a
+finding without `--hidden`; such rows never appear in the picker.
 
 | check | finds | severity |
 |---|---|---|
@@ -83,7 +106,11 @@ reports at three severities, `low`, `high`, `critical`.
 | `entrypoint-changed` | a recorded entry point (`Makefile`, `justfile`, `package.json`, `Cargo.toml`, `pyproject.toml`, `setup.py`, `go.mod`, `.envrc`, root `*.sh`, git hooks) changed since `scout recon baseline` | high |
 
 Recon also reports on scout's own files: a config others can edit, a trust
-store or index wider than 0600, a shell wrapper others can edit.
+store or index wider than 0600, a shell wrapper others can edit, and the
+shell rc files (`~/.bashrc`, `~/.bash_profile`, `~/.zshrc`, `~/.profile`,
+`~/.config/fish/config.fish`): one that others can edit is a finding on
+its own, and the one holding the installer's marker line is named with
+its line number; nothing else in it is read or reported.
 
 Recon judges permission bits and names, never file contents. Content
 scanning for `password=` is a different tool with a different
@@ -101,6 +128,9 @@ to accept and run). Fix actions (`chmod 600`, `chmod o-w`, `chmod u-s`,
 ...) ship in the reference config, gated on the matching finding, and run
 only when you choose them; recon itself never changes a file.
 
-`scout index --recon` runs the stat-only checks during the walk at about
-1.2 times the plain walk's cost; ACL presence, symlink escapes and the
-baseline comparison run only under `scout recon`.
+The stat-only checks run during every walk (under twice the plain
+walk's cost on 100k paths; `scout index --no-recon` opts a tree out);
+ACL presence, symlink escapes and the baseline comparison run only under
+`scout recon`. `scout recon --since-last` shows only findings first seen
+after the previous run, at one-second granularity, and exits 1 when one
+of them reaches `--fail-on`.

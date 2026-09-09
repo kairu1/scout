@@ -19,7 +19,8 @@
 # mode (`scout --session`, or `[scout] session = true` below) a spawned
 # program gets the terminal for its lifetime and scout returns to the
 # picker afterwards, so you can run one project's tests and then start
-# another's server without leaving. Inside tmux a spawn step with
+# another's server without leaving. A session runs inside tmux (scout
+# starts one for you when tmux is installed), where a spawn step with
 # `pane = "split-right"` runs in a new pane and scout stays in its own.
 #
 # Placeholders: {path} {parent} {name} {ext} {repo_root} {home} {query}
@@ -50,8 +51,14 @@ schema_version = 2
 
 # [scout]
 # session = true          # stay in the picker after every action by default
+# tmux = "auto"           # "auto": a session starts tmux when it is installed
+#                         # (or uses the one you are in); "never": no tmux;
+#                         # "require": refuse a session without it
+# tmux_session = "scout"  # the session scout starts or re-attaches to
+# tmux_server = "private" # "private": scout's own server (tmux -L scout), your
+#                         # tmux.conf still applies; "shared": your default server
 
-# [keys]                  # pane operations (inside tmux) and re-index; all optional
+# [keys]                  # pane operations (in a tmux session) and re-index; all optional
 # split-right = "alt-right"
 # split-down  = "alt-down"
 # new-window  = "alt-w"

@@ -17,6 +17,9 @@ schema_version = 2          # required; 1 is refused with a note on what to chan
 
 [scout]
 session = true              # optional: stay in the picker after each action
+tmux = "auto"               # optional: "auto" | "never" | "require"
+tmux_session = "scout"      # optional: the tmux session a session lives in
+tmux_server = "private"     # optional: "private" (tmux -L scout) | "shared"
 
 [keys]                      # optional: pane operations (tmux) and re-index
 split-right = "alt-right"
@@ -35,7 +38,7 @@ steps = [ { kind = "spawn", argv = ["cargo", "test"], cwd = "{repo_root}" } ]
 
 | kind | fields | does |
 |---|---|---|
-| `spawn` | `argv` (list of strings, required), `wait` (default true), `cwd` (default `{home}`), `pause` (default true), `pane` (`split-right`, `split-down`, `new-window`) | runs the argv directly, no shell. `wait = false` detaches it with null stdio. In a session, `pause = false` skips the "press any key" hold after the child exits (set it on editors). `pane` runs the command in a tmux pane when scout is inside tmux and in-process otherwise; it cannot be combined with `wait = true` or `pause`. |
+| `spawn` | `argv` (list of strings, required), `wait` (default true), `cwd` (default `{home}`), `pause` (default true), `pane` (`split-right`, `split-down`, `new-window`) | runs the argv directly, no shell. `wait = false` detaches it with null stdio. In a session, `pause = false` skips the "press any key" hold after the child exits (set it on editors). `pane` runs the command in a tmux pane when the session has tmux (scout starts one when it can) and in-process otherwise; it cannot be combined with `wait = true` or `pause`. |
 | `print` | `format` (required) | writes a line for the shell wrapper to eval after scout exits. Always ends a session. |
 | `env` | `set` (table, at least one entry) | binds values that later steps in the same action can use as `{env.NAME}` and that later children inherit. All-or-nothing: if one value fails to expand, none land. |
 
@@ -85,7 +88,25 @@ other; give each ecosystem its own letter.
 ## `[scout]`
 
 `session = true` makes every run a session (as `scout --session` does).
-It is the only key the table accepts.
+
+`tmux` says how a session gets its panes. `"auto"` (default): outside
+tmux, with tmux installed, scout starts a tmux session and runs the
+picker inside it; already inside tmux, it uses that session; without
+tmux, the session runs in your terminal with no panes. `"never"` keeps
+tmux out of it entirely (also `--no-tmux` for one run). `"require"`
+refuses to run a session without tmux.
+
+`tmux_session` names the session scout starts or re-attaches to: letters,
+digits, `_` and `-`, up to 64 characters; anything else refuses the file
+because tmux would rewrite it. Default `scout`.
+
+`tmux_server` is `"private"` (default) for scout's own server, `tmux -L
+scout`, which still reads your `~/.tmux.conf` and on which scout sets
+`extended-keys on` and `escape-time 10` in memory, or `"shared"` for your
+default server, where scout sets no server options.
+
+None of these enter the trust hash: they change where the picker runs,
+not what runs.
 
 ## `[keys]`
 
@@ -94,7 +115,7 @@ from `ctrl`, `alt`, `shift`; key a letter, `f1`-`f12`, `left`, `right`,
 `up`, `down`, `home`, `end`, `pageup`, `pagedown`. A bare letter cannot be
 a binding (it types into the search).
 
-| operation | default | does (inside tmux, in a session) |
+| operation | default | does (in a session with tmux) |
 |---|---|---|
 | `split-right` | `alt-right` | open a pane to the right at the selection |
 | `split-down` | `alt-down` | open a pane below at the selection |
@@ -102,22 +123,25 @@ a binding (it types into the search).
 | `focus-left/right/up/down` | `alt-shift-<arrow>` | move focus |
 | `close-pane` | `alt-x` | close the last pane scout opened |
 | `zoom` | `alt-z` | zoom the current pane |
-| `reindex` | `ctrl-r` | walk the last indexed tree again without leaving (works outside tmux too) |
+| `reindex` | `ctrl-r` | walk every indexed tree again, each the way it was walked, without leaving (works without tmux too) |
 
 A `[keys]` entry may not use a key the picker owns (`Esc`, `Enter`,
 `Tab`, `Ctrl-C`, plain arrows, `Home`, `End`, `Backspace`, `Delete`, `?`,
 `a`) or a key an action binds; two operations may not share a key. A
 default that collides with an action chord yields to the action with a
-warning at load. Outside tmux the pane operations are absent from the help
-overlay. The `?` overlay shows your bindings and the name of the last key
-your terminal delivered, for terminals that eat some combinations.
+warning at load. Without tmux the pane operations are absent from the help
+overlay, which says why. While the `?` overlay is open every key you press
+is named in its last row (Esc or `?` closes it), so a binding that does
+not fire can be checked against what your terminal delivers; on a
+scout-started server the alt-shift arrows arrive as distinct keys,
+`ctrl-alt-<arrow>` is the fallback for a terminal that eats them.
 
 ## Trust
 
 Every field above that changes what runs, whether it runs, or which key
 runs it is part of the trust hash: name, keybinding, `on_failure`,
 `unsafe_shell_template`, every step and its fields, `when`, `[keys]`.
-`description` and `[scout] session` are not. On first sight and on every
+`description` and the `[scout]` table are not. On first sight and on every
 change scout shows the actions and asks; without a terminal it refuses.
 The trust store is `$XDG_STATE_HOME/scout/trusted-config.sha256`, one
 `v2 <hash> <config path>` per line, 0600.
@@ -125,5 +149,5 @@ The trust store is `$XDG_STATE_HOME/scout/trusted-config.sha256`, one
 ## Migrating from schema 1
 
 Set `schema_version = 2`. Every v1 action is a valid v2 action unchanged.
-New and optional: `when`, `pause`, `pane`, `[keys]`, `[scout] session`.
+New and optional: `when`, `pause`, `pane`, `[keys]`, the `[scout]` table.
 The trust prompt appears once more because the hash format changed.
