@@ -132,7 +132,10 @@ default that collides with an action chord yields to the action with a
 warning at load. Without tmux the pane operations are absent from the help
 overlay, which says why. While the `?` overlay is open every key you press
 is named in its last row (Esc or `?` closes it), so a binding that does
-not fire can be checked against what your terminal delivers; on a
+not fire can be checked against what your terminal delivers: a key the
+grammar cannot name is shown as what arrived, and `the character '÷'` for
+alt-w means the terminal sends Alt as an 8-bit character; turn on its
+"Alt/Option sends Escape" (or "meta sends escape") setting. On a
 scout-started server the alt-shift arrows arrive as distinct keys,
 `ctrl-alt-<arrow>` is the fallback for a terminal that eats them.
 

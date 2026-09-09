@@ -220,6 +220,15 @@ impl Launch {
         argv
     }
 
+    /// The full client argv to `exec`. `-u` tells the client the terminal
+    /// takes UTF-8: the picker draws with UTF-8 glyphs anyway, and without
+    /// the flag a shell with no UTF-8 locale gets `_` for every corner.
+    pub fn client_argv(&self) -> Vec<String> {
+        let mut client = vec!["tmux".to_string(), "-u".to_string()];
+        client.extend(self.attach_argv());
+        client
+    }
+
     /// The server options scout sets on a server it started: modified
     /// keys reported distinctly, and no half-second hold on Esc.
     pub fn owned_server_options(&self) -> Vec<Vec<String>> {
@@ -312,9 +321,7 @@ impl Launch {
             ]);
             self.tmux(&argv.into_iter().map(escape_trailing_semicolon).collect::<Vec<_>>())?;
         }
-        let mut client = vec!["tmux".to_string()];
-        client.extend(self.attach_argv());
-        Ok(client)
+        Ok(self.client_argv())
     }
 }
 
@@ -669,6 +676,11 @@ mod tests {
             ]
         );
         assert_eq!(l.attach_argv(), ["-L", "scout", "attach-session", "-t", "=scout"]);
+        assert_eq!(
+            l.client_argv(),
+            ["tmux", "-u", "-L", "scout", "attach-session", "-t", "=scout"],
+            "the client is told the terminal takes UTF-8"
+        );
         let win = l.new_window_argv();
         assert_eq!(&win[..5], ["-L", "scout", "new-window", "-t", "=scout"]);
         assert!(win.ends_with(&["--print-to".to_string(), "/tmp/scout.abc".to_string()]));

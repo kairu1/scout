@@ -1,6 +1,16 @@
 # Changelog
 
-## 0.4.0 (unreleased)
+## 0.4.1 (unreleased)
+
+### Fixed
+- The tmux client scout execs is told the terminal takes UTF-8 (`tmux -u`),
+  so a shell with no UTF-8 locale no longer gets `_` for the picker's
+  corners.
+- The `?` overlay describes a key it cannot name by what arrived, so a
+  terminal that sends Alt+letter as an 8-bit character is diagnosed on
+  the spot.
+
+## 0.4.0
 
 ### Added
 - A session brings its own panes: `scout -s` outside tmux, with tmux

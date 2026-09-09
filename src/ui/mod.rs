@@ -111,6 +111,9 @@ struct App<'a> {
     in_tmux: bool,
     /// Why a session has no panes, for the help overlay.
     no_tmux_reason: Option<&'static str>,
+    /// What the terminal sent for the last key scout could not name, so
+    /// the help overlay can show it instead of a shrug.
+    last_unnamed: Option<String>,
     reindex: Option<ReindexJob>,
     /// The last key received, in the `[keys]` grammar, for the help
     /// overlay's key-test line.
@@ -398,6 +401,7 @@ impl<'a> Picker<'a> {
             session,
             in_tmux,
             no_tmux_reason: None,
+            last_unnamed: None,
             reindex: None,
             last_key: None,
             home: std::env::var("HOME").unwrap_or_default(),
@@ -508,6 +512,31 @@ impl<'a> Picker<'a> {
 
 /// The key press in the `[keys]` grammar (`ctrl-alt-shift-<key>`), or
 /// `None` for keys the grammar cannot name (Esc, Enter, Tab, ...).
+/// What arrived, for a key the grammar cannot name: a terminal that sends
+/// alt-w as the character `÷` shows up here as exactly that, which is the
+/// diagnosis (its "alt sends escape" setting is off).
+fn raw_key_name(key: &crossterm::event::KeyEvent) -> String {
+    let code = match key.code {
+        KeyCode::Char(c) => format!("the character {c:?}"),
+        other => format!("{other:?}").to_ascii_lowercase(),
+    };
+    let mut mods = Vec::new();
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        mods.push("ctrl");
+    }
+    if key.modifiers.contains(KeyModifiers::ALT) {
+        mods.push("alt");
+    }
+    if key.modifiers.contains(KeyModifiers::SHIFT) {
+        mods.push("shift");
+    }
+    if mods.is_empty() {
+        format!("{code} (no modifier)")
+    } else {
+        format!("{code} with {}", mods.join("+"))
+    }
+}
+
 fn chord_name(key: &crossterm::event::KeyEvent) -> Option<String> {
     let name = match key.code {
         KeyCode::Char(c) if c.is_ascii_alphabetic() => c.to_ascii_lowercase().to_string(),
@@ -632,6 +661,8 @@ fn event_loop(
                 app.help = false;
             } else {
                 app.last_key = chord_name(&key);
+                app.last_unnamed =
+                    if app.last_key.is_none() { Some(raw_key_name(&key)) } else { None };
             }
             continue;
         }
@@ -697,6 +728,7 @@ fn event_loop(
         }
 
         app.last_key = chord_name(&key);
+        app.last_unnamed = if app.last_key.is_none() { Some(raw_key_name(&key)) } else { None };
 
         // Session-only keys: the `[keys]` table. Re-index the last root, or
         // a pane operation when inside tmux. Esc during a re-index cancels
@@ -1223,7 +1255,11 @@ fn draw_help(frame: &mut ratatui::Frame, app: &App<'_>) {
         // binding that does not fire can be diagnosed without guessing.
         rows.push((
             "last key".into(),
-            app.last_key.clone().unwrap_or_else(|| "(not a bindable key)".into()),
+            match (&app.last_key, &app.last_unnamed) {
+                (Some(name), _) => name.clone(),
+                (None, Some(raw)) => format!("not bindable: {raw}"),
+                (None, None) => "(none yet)".into(),
+            },
         ));
     }
     let lines: Vec<Line> = rows
@@ -1543,6 +1579,20 @@ mod caret {
 mod tests {
     use super::*;
 
+    /// An unnamed key is described as what it was, so a terminal that
+    /// sends alt-w as `÷` is diagnosed from the overlay alone.
+    #[test]
+    fn an_unnamed_key_is_described_by_what_arrived() {
+        use crossterm::event::{KeyEvent, KeyModifiers};
+        let divide = KeyEvent::new(KeyCode::Char('\u{f7}'), KeyModifiers::NONE);
+        assert_eq!(chord_name(&divide), None);
+        assert_eq!(raw_key_name(&divide), "the character '÷' (no modifier)");
+        let named = KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT);
+        assert_eq!(chord_name(&named).as_deref(), Some("alt-w"));
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL);
+        assert_eq!(raw_key_name(&enter), "enter with ctrl");
+    }
+
     fn screen(width: u16, height: u16) -> Rect {
         Rect { x: 0, y: 0, width, height }
     }
@@ -1623,6 +1673,7 @@ mod tests {
                     session: false,
                     in_tmux: false,
                     no_tmux_reason: None,
+                    last_unnamed: None,
                     reindex: None,
                     last_key: None,
                     home: String::new(),
