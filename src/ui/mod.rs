@@ -261,16 +261,21 @@ impl App<'_> {
         self.results.get(self.selected)
     }
 
-    /// Byte offset of the caret, for slicing. Derived rather than
-    /// stored, so the two can never disagree.
+    /// Byte offset of the caret, for slicing. The caret counts grapheme
+    /// clusters (what the user sees as one character: a letter with its
+    /// accents, a flag), never code points. Derived rather than stored,
+    /// so the two can never disagree.
     fn caret_byte(&self) -> usize {
-        self.query.char_indices().nth(self.caret).map(|(i, _)| i).unwrap_or(self.query.len())
+        caret::byte_at(&self.query, self.caret)
+    }
+
+    /// How many clusters the query holds: the caret's upper bound.
+    fn query_len(&self) -> usize {
+        caret::count(&self.query)
     }
 
     fn insert(&mut self, c: char) {
-        let at = self.caret_byte();
-        self.query.insert(at, c);
-        self.caret += 1;
+        self.caret = caret::insert(&mut self.query, self.caret, c);
         self.retarget();
     }
 
@@ -284,22 +289,17 @@ impl App<'_> {
         self.refresh();
     }
 
-    /// Backspace: delete the character *before* the caret.
+    /// Backspace: delete the whole cluster *before* the caret.
     fn delete_back(&mut self) {
-        if self.caret == 0 {
-            return;
+        if let Some(caret) = caret::delete_back(&mut self.query, self.caret) {
+            self.caret = caret;
+            self.retarget();
         }
-        self.caret -= 1;
-        let at = self.caret_byte();
-        self.query.remove(at);
-        self.retarget();
     }
 
-    /// Delete: remove the character *under* the caret.
+    /// Delete: remove the whole cluster *under* the caret.
     fn delete_forward(&mut self) {
-        let at = self.caret_byte();
-        if at < self.query.len() {
-            self.query.remove(at);
+        if caret::delete_forward(&mut self.query, self.caret) {
             self.retarget();
         }
     }
@@ -752,9 +752,9 @@ fn event_loop(
             // Left/Right move the caret; the result list is navigated
             // with Up/Down, so the two never contend.
             KeyCode::Left => app.caret = app.caret.saturating_sub(1),
-            KeyCode::Right => app.caret = (app.caret + 1).min(app.query.chars().count()),
+            KeyCode::Right => app.caret = (app.caret + 1).min(app.query_len()),
             KeyCode::Home => app.caret = 0,
-            KeyCode::End => app.caret = app.query.chars().count(),
+            KeyCode::End => app.caret = app.query_len(),
             KeyCode::Delete => app.delete_forward(),
             KeyCode::Up => {
                 let up = app.selected.saturating_sub(1);
@@ -1445,6 +1445,100 @@ fn centered(area: Rect, width: u16, height: u16) -> Rect {
     }
 }
 
+/// The search caret, in grapheme clusters. What the user sees as one
+/// character (a letter with its accents, a flag made of two regional
+/// indicators) moves, deletes and inserts as one, so Left and Right never
+/// land inside a sequence and Backspace never leaves half of one behind.
+mod caret {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    /// Byte offset of cluster `caret`; the end of the text past the last.
+    pub fn byte_at(text: &str, caret: usize) -> usize {
+        text.grapheme_indices(true).nth(caret).map(|(i, _)| i).unwrap_or(text.len())
+    }
+
+    pub fn count(text: &str) -> usize {
+        text.graphemes(true).count()
+    }
+
+    /// Insert `c` at cluster `caret`; returns the new caret. A combining
+    /// mark typed after its base joins the base's cluster, so the caret
+    /// lands after whatever cluster now ends at the inserted byte rather
+    /// than always advancing by one.
+    pub fn insert(text: &mut String, caret: usize, c: char) -> usize {
+        let at = byte_at(text, caret);
+        text.insert(at, c);
+        count(&text[..at + c.len_utf8()])
+    }
+
+    /// Remove the cluster before `caret`; returns the new caret, or
+    /// `None` at the start.
+    pub fn delete_back(text: &mut String, caret: usize) -> Option<usize> {
+        if caret == 0 {
+            return None;
+        }
+        let end = byte_at(text, caret);
+        let start = byte_at(text, caret - 1);
+        text.replace_range(start..end, "");
+        Some(caret - 1)
+    }
+
+    /// Remove the cluster under `caret`; false at the end.
+    pub fn delete_forward(text: &mut String, caret: usize) -> bool {
+        let start = byte_at(text, caret);
+        if start >= text.len() {
+            return false;
+        }
+        let end = byte_at(text, caret + 1);
+        text.replace_range(start..end, "");
+        true
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// `e` + combining acute is one cluster; a flag is two regional
+        /// indicators and one cluster. Movement and deletion treat each
+        /// as a unit, and typing the accent after its base does not push
+        /// the caret past a cluster that does not exist.
+        #[test]
+        fn left_right_backspace_and_delete_never_split_a_cluster() {
+            let flag = "\u{1F1F0}\u{1F1EA}";
+            let text = format!("ae\u{301}{flag}z");
+            assert_eq!(count(&text), 4, "a, e-acute, flag, z");
+            assert_eq!(byte_at(&text, 1), 1);
+            assert_eq!(byte_at(&text, 2), 1 + "e\u{301}".len());
+            assert_eq!(byte_at(&text, 3), 1 + "e\u{301}".len() + flag.len());
+            assert_eq!(byte_at(&text, 9), text.len(), "past the end clamps");
+
+            // Backspace at the caret after the flag removes the whole flag.
+            let mut t = text.clone();
+            assert_eq!(delete_back(&mut t, 3), Some(2));
+            assert_eq!(t, "ae\u{301}z");
+            // Backspace after e-acute removes both code points.
+            assert_eq!(delete_back(&mut t, 2), Some(1));
+            assert_eq!(t, "az");
+            assert_eq!(delete_back(&mut t, 0), None);
+
+            // Delete under the caret removes the whole cluster there.
+            let mut t = text.clone();
+            assert!(delete_forward(&mut t, 1));
+            assert_eq!(t, format!("a{flag}z"));
+            assert!(delete_forward(&mut t, 1));
+            assert_eq!(t, "az");
+            assert!(!delete_forward(&mut t, 2), "nothing under the caret at the end");
+
+            // Typing the accent after its base: one cluster, caret after it.
+            let mut t = String::from("e");
+            assert_eq!(insert(&mut t, 1, '\u{301}'), 1);
+            assert_eq!(count(&t), 1);
+            assert_eq!(insert(&mut t, 1, 'x'), 2);
+            assert_eq!(t, "e\u{301}x");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1534,7 +1628,7 @@ mod tests {
                     home: String::new(),
                     matcher: crate::search::matcher::NucleoMatcher::new(),
                     query: query.to_string(),
-                    caret: query.chars().count(),
+                    caret: caret::count(query),
                     results: Vec::new(),
                     selected: 0,
                     menu: None,
@@ -1549,7 +1643,7 @@ mod tests {
                     findings_lookup: &|_| Vec::new(),
                     pending: None,
                 };
-                app.caret = query.chars().count();
+                app.caret = caret::count(query);
                 let spans = query_spans(&app, width);
                 let rendered: usize = spans.iter().map(|s| str_columns(&s.content)).sum();
                 assert!(

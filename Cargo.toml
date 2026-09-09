@@ -42,6 +42,10 @@ unicode-width = "0.2"
 # `when.glob` clauses. Already in the graph under `ignore`, same author,
 # same version, so it costs no ceiling slot; declared so the use is explicit.
 globset = "0.4"
+# The search caret moves by grapheme cluster, so Left, Right, Backspace
+# and Delete never split a combining sequence or a flag. Already in the
+# graph under ratatui's macros: no ceiling slot.
+unicode-segmentation = "1"
 
 [lib]
 name = "scout"
