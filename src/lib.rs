@@ -6,6 +6,7 @@
 //!
 //! - `platform`: every operating-system-specific line, and nothing else.
 //! - `locations`: where scout keeps its own files.
+//! - `palette`: the six colours the picker and the tmux options share.
 //! - `index`: the SQLite file: walking, writing, frecency, recovery.
 //! - `search`: ranking candidates for a query.
 //! - `recon`: what recon knows about the indexed ground, and the checks.
@@ -24,6 +25,7 @@ pub mod doctor;
 pub mod error;
 pub mod index;
 pub mod locations;
+pub mod palette;
 pub mod platform;
 pub mod recon;
 pub mod search;

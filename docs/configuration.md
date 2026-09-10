@@ -101,9 +101,26 @@ digits, `_` and `-`, up to 64 characters; anything else refuses the file
 because tmux would rewrite it. Default `scout`.
 
 `tmux_server` is `"private"` (default) for scout's own server, `tmux -L
-scout`, which still reads your `~/.tmux.conf` and on which scout sets
-`extended-keys on` and `escape-time 10` in memory, or `"shared"` for your
-default server, where scout sets no server options.
+scout`, which still reads your `~/.tmux.conf`, or `"shared"` for your
+default server, where scout sets no options at all. On its own server
+scout sets these in memory when it creates its session, never by writing
+a file:
+
+| option | value | why |
+|---|---|---|
+| `extended-keys on` | | modified keys reach the picker distinctly |
+| `escape-time 10` | | no half-second hold on Esc |
+| `status-style bg=#3E6E58,fg=#EDE9E3` | sea green, ivory | the status bar is scout's |
+| `window-status-current-style fg=#C9A44C,bold` | gold | the current window's name |
+| `pane-border-style fg=#A47864` | mocha | pane borders |
+| `pane-active-border-style fg=#67192E` | burgundy | the focused pane's border |
+| `message-style bg=#67192E,fg=#EDE9E3` | burgundy, ivory | tmux messages |
+
+The picker paints from the same six colours: gold frame and cursor for a
+one-shot `scout`, burgundy for a session, mocha lines, ivory for the
+selected row, sea green for matched characters, and the finding marker
+in whichever of gold or burgundy is not the accent. A terminal without
+24-bit colour shows its nearest colours.
 
 None of these enter the trust hash: they change where the picker runs,
 not what runs.

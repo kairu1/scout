@@ -40,6 +40,10 @@ the walk completes and purged after 182 days. `scout index --forget
 
 ## The picker
 
+The frame is gold for a one-shot `scout` and burgundy for a session, so
+the mode is visible before you read the title; matched characters are
+sea green and the selected row ivory.
+
 Results lead with the **name**. Searching `photo-store` returns the
 directories called `photo-store`, not the hundred files inside one; a name
 that *is* your query outranks a longer name that merely contains it.

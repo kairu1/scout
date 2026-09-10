@@ -33,7 +33,7 @@ use std::time::Duration;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Terminal;
@@ -51,8 +51,9 @@ use render::{truncate_left, CellKind};
 /// Ranking depth — how deep the matcher scores. Not what is shown.
 const RESULT_LIMIT: usize = 200;
 
-const ACCENT: Color = Color::Yellow;
-const CHROME: Color = Color::DarkGray;
+pub mod theme;
+
+use theme::Theme;
 
 /// What the user chose; the caller executes it after terminal teardown.
 #[derive(Debug)]
@@ -111,6 +112,8 @@ struct App<'a> {
     in_tmux: bool,
     /// Why a session has no panes, for the help overlay.
     no_tmux_reason: Option<&'static str>,
+    /// The colours for this run's mode.
+    theme: Theme,
     /// What the terminal sent for the last key scout could not name, so
     /// the help overlay can show it instead of a shrug.
     last_unnamed: Option<String>,
@@ -401,6 +404,7 @@ impl<'a> Picker<'a> {
             session,
             in_tmux,
             no_tmux_reason: None,
+            theme: Theme::for_session(session),
             last_unnamed: None,
             reindex: None,
             last_key: None,
@@ -905,10 +909,10 @@ fn draw(frame: &mut ratatui::Frame, app: &mut App<'_>) {
         Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(CHROME))
+            .border_style(Style::default().fg(app.theme.chrome))
             .title(Span::styled(
                 if app.session { " scout: session " } else { " scout " },
-                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD),
             )),
         outer,
     );
@@ -930,7 +934,7 @@ fn draw(frame: &mut ratatui::Frame, app: &mut App<'_>) {
         frame.render_widget(
             Paragraph::new(Span::styled(
                 "terminal too short - make the window taller",
-                Style::default().fg(ACCENT),
+                Style::default().fg(app.theme.accent),
             )),
             inner,
         );
@@ -976,8 +980,12 @@ fn draw_search(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
         Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(if app.menu.is_some() { CHROME } else { ACCENT }))
-            .title(Span::styled(" search ", Style::default().fg(CHROME))),
+            .border_style(Style::default().fg(if app.menu.is_some() {
+                app.theme.chrome
+            } else {
+                app.theme.accent
+            }))
+            .title(Span::styled(" search ", Style::default().fg(app.theme.chrome))),
         area,
     );
     let inner =
@@ -989,7 +997,7 @@ fn draw_search(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
     frame
         .render_widget(Paragraph::new(Line::from(query_spans(app, row[0].width as usize))), row[0]);
     frame.render_widget(
-        Paragraph::new(Span::styled(counter, Style::default().fg(CHROME)))
+        Paragraph::new(Span::styled(counter, Style::default().fg(app.theme.chrome)))
             .alignment(ratatui::layout::Alignment::Right),
         row[1],
     );
@@ -1057,14 +1065,14 @@ fn query_spans<'a>(app: &App<'_>, width: usize) -> Vec<Span<'a>> {
     let mut spans = vec![
         Span::styled(
             format!("{} ", glyph::PROMPT),
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD),
         ),
         Span::styled(strip::clean(before), text),
     ];
     // The caret belongs to the search field; while the action pane has
     // focus the field shows its text without one.
     if app.menu.is_none() {
-        spans.push(Span::styled(glyph::CURSOR, Style::default().fg(ACCENT)));
+        spans.push(Span::styled(glyph::CURSOR, Style::default().fg(app.theme.accent)));
     }
     spans.push(Span::styled(strip::clean(after), text));
     spans
@@ -1082,8 +1090,8 @@ fn draw_results(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(CHROME))
-        .title(Span::styled(" results ", Style::default().fg(CHROME)));
+        .border_style(Style::default().fg(app.theme.chrome))
+        .title(Span::styled(" results ", Style::default().fg(app.theme.chrome)));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -1094,7 +1102,7 @@ fn draw_results(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
         frame.render_widget(
             Paragraph::new(Span::styled(
                 "  no matches",
-                Style::default().fg(CHROME).add_modifier(Modifier::DIM),
+                Style::default().fg(app.theme.chrome).add_modifier(Modifier::DIM),
             )),
             inner,
         );
@@ -1121,7 +1129,14 @@ fn draw_results(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
         .iter()
         .enumerate()
         .map(|(i, row)| {
-            ListItem::new(result_line(row, &shown[i], i == selected, name_col, context_room))
+            ListItem::new(result_line(
+                &app.theme,
+                row,
+                &shown[i],
+                i == selected,
+                name_col,
+                context_room,
+            ))
         })
         .collect();
 
@@ -1137,8 +1152,11 @@ fn draw_action_pane(frame: &mut ratatui::Frame, app: &mut App<'_>, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(ACCENT))
-        .title(Span::styled(" actions ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)));
+        .border_style(Style::default().fg(app.theme.accent))
+        .title(Span::styled(
+            " actions ",
+            Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD),
+        ));
     let inner = block.inner(area);
     frame.render_widget(Clear, area);
     frame.render_widget(block, area);
@@ -1152,17 +1170,17 @@ fn draw_action_pane(frame: &mut ratatui::Frame, app: &mut App<'_>, area: Rect) {
         Paragraph::new(Line::from(vec![
             Span::styled(
                 format!("{} ", glyph::PROMPT),
-                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD),
             ),
             Span::styled(strip::clean(&app.action_query), Style::default()),
-            Span::styled(glyph::CURSOR, Style::default().fg(ACCENT)),
+            Span::styled(glyph::CURSOR, Style::default().fg(app.theme.accent)),
         ])),
         rows[0],
     );
     frame.render_widget(
         Paragraph::new(Span::styled(
             glyph::HAIRLINE.repeat(rows[1].width as usize),
-            Style::default().fg(CHROME),
+            Style::default().fg(app.theme.chrome),
         )),
         rows[1],
     );
@@ -1170,7 +1188,10 @@ fn draw_action_pane(frame: &mut ratatui::Frame, app: &mut App<'_>, area: Rect) {
     let matches = app.filtered_actions();
     if matches.is_empty() {
         frame.render_widget(
-            Paragraph::new(Span::styled("  no action matches", Style::default().fg(CHROME))),
+            Paragraph::new(Span::styled(
+                "  no action matches",
+                Style::default().fg(app.theme.chrome),
+            )),
             rows[2],
         );
         return;
@@ -1186,7 +1207,7 @@ fn draw_action_pane(frame: &mut ratatui::Frame, app: &mut App<'_>, area: Rect) {
             let mut spans = vec![if selected {
                 Span::styled(
                     format!("{} ", glyph::SELECTED),
-                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                    Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD),
                 )
             } else {
                 Span::raw(format!("{} ", glyph::UNSELECTED))
@@ -1201,13 +1222,16 @@ fn draw_action_pane(frame: &mut ratatui::Frame, app: &mut App<'_>, area: Rect) {
             ));
             // A binding nobody can see is a binding nobody uses.
             if let Some(binding) = a.keybinding.as_deref() {
-                spans.push(Span::styled(format!("  {binding}"), Style::default().fg(ACCENT)));
+                spans.push(Span::styled(
+                    format!("  {binding}"),
+                    Style::default().fg(app.theme.accent),
+                ));
             }
             // In a session, say which actions will end it.
             if app.session && a.ends_session() {
                 spans.push(Span::styled(
                     format!(" {}", glyph::EXIT_ACTION),
-                    Style::default().fg(ACCENT),
+                    Style::default().fg(app.theme.accent),
                 ));
             }
             ListItem::new(Line::from(spans))
@@ -1233,8 +1257,8 @@ fn draw_help(frame: &mut ratatui::Frame, app: &App<'_>) {
         ("?", "this help; while it is open, keys are named below"),
         ("esc", "close this, or quit"),
     ];
-    let key = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
-    let label = Style::default().fg(CHROME);
+    let key = Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD);
+    let label = Style::default().fg(app.theme.chrome);
     let mut rows: Vec<(String, String)> =
         ROWS.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
     rows.push(("a".into(), "at a finding prompt: accept the findings and run".into()));
@@ -1278,8 +1302,8 @@ fn draw_help(frame: &mut ratatui::Frame, app: &App<'_>) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(CHROME))
-        .title(Span::styled(" keys ", Style::default().fg(CHROME)));
+        .border_style(Style::default().fg(app.theme.chrome))
+        .title(Span::styled(" keys ", Style::default().fg(app.theme.chrome)));
     let area = centered(frame.area(), 76, rows.len() as u16 + 2);
     frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(lines).block(block), area);
@@ -1307,6 +1331,7 @@ fn kind_marker(path: &str, worst_finding: u8) -> char {
 }
 
 fn result_line<'a>(
+    theme: &Theme,
     row: &render::Row,
     ranked: &Ranked,
     selected: bool,
@@ -1314,28 +1339,31 @@ fn result_line<'a>(
     context_room: usize,
 ) -> Line<'a> {
     let dim = if selected {
-        Style::default().add_modifier(Modifier::BOLD)
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(CHROME)
+        Style::default().fg(theme.muted)
     };
-    let name_style =
-        if selected { Style::default().add_modifier(Modifier::BOLD) } else { Style::default() };
-    let match_style = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
+    let name_style = if selected {
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    let match_style = Style::default().fg(theme.matched).add_modifier(Modifier::BOLD);
 
     let mut spans: Vec<Span<'a>> = Vec::with_capacity(8);
     spans.push(if selected {
         Span::styled(
             format!("{} ", glyph::SELECTED),
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
         )
     } else {
         Span::raw(format!("{} ", glyph::UNSELECTED))
     });
     let marker = kind_marker(&ranked.path, ranked.worst_finding);
     let marker_style = if marker == glyph::FINDING {
-        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+        Style::default().fg(theme.finding).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(CHROME)
+        Style::default().fg(theme.chrome)
     };
     spans.push(Span::styled(format!("{marker} "), marker_style));
 
@@ -1390,8 +1418,8 @@ fn style_for(kind: CellKind, dir: Style, base: Style, matched: Style) -> Style {
 }
 
 fn draw_footer(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
-    let key = Style::default().fg(ACCENT);
-    let label = Style::default().fg(CHROME);
+    let key = Style::default().fg(app.theme.accent);
+    let label = Style::default().fg(app.theme.chrome);
     // A notice replaces the hints for one frame: the user just pressed a
     // key that did nothing, and the reason matters more than the legend.
     if let Some(notice) = &app.notice {
@@ -1434,8 +1462,8 @@ fn draw_footer(frame: &mut ratatui::Frame, app: &App<'_>, area: Rect) {
 }
 
 fn banner_text(app: &App<'_>) -> Option<(String, Style)> {
-    let warn = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
-    let info = Style::default().fg(CHROME);
+    let warn = Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD);
+    let info = Style::default().fg(app.theme.chrome);
     if let Some(job) = &app.reindex {
         return Some((
             format!(
@@ -1676,6 +1704,7 @@ mod tests {
                     session: false,
                     in_tmux: false,
                     no_tmux_reason: None,
+                    theme: Theme::for_session(false),
                     last_unnamed: None,
                     reindex: None,
                     last_key: None,

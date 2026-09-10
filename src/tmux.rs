@@ -231,17 +231,20 @@ impl Launch {
         client
     }
 
-    /// The server options scout sets on a server it started: modified
-    /// keys reported distinctly, and no half-second hold on Esc.
+    /// The options scout sets on a server it started: modified keys
+    /// reported distinctly, no half-second hold on Esc, and the status
+    /// bar, pane borders and messages painted from scout's own palette so
+    /// the session looks like scout from the outside in. Server options
+    /// take `-s`, the rest are global session options (`-g`).
     pub fn owned_server_options(&self) -> Vec<Vec<String>> {
         if self.server != Server::Private {
             return Vec::new();
         }
-        [["extended-keys", "on"], ["escape-time", "10"]]
-            .iter()
-            .map(|[k, v]| {
+        owned_option_values()
+            .into_iter()
+            .map(|(scope, key, value)| {
                 let mut argv = self.server.args();
-                argv.extend(["set-option".into(), "-s".into(), (*k).into(), (*v).into()]);
+                argv.extend(["set-option".into(), scope.into(), key.into(), value]);
                 argv
             })
             .collect()
@@ -343,6 +346,24 @@ impl Launch {
         }
         Ok(self.client_argv())
     }
+}
+
+/// (scope flag, option, value) for everything scout sets on its own
+/// server. The colours come from the palette the picker uses, so the
+/// tmux frame and the picker inside it are one design: sea green status
+/// bar with ivory text, mocha pane borders, burgundy for the active
+/// border and messages, gold for the current window's name.
+pub fn owned_option_values() -> Vec<(&'static str, &'static str, String)> {
+    use crate::palette::{BURGUNDY, GOLD, IVORY, MOCHA, SEA_GREEN};
+    vec![
+        ("-s", "extended-keys", "on".into()),
+        ("-s", "escape-time", "10".into()),
+        ("-g", "status-style", format!("bg={},fg={}", SEA_GREEN.hex(), IVORY.hex())),
+        ("-g", "window-status-current-style", format!("fg={},bold", GOLD.hex())),
+        ("-g", "pane-border-style", format!("fg={}", MOCHA.hex())),
+        ("-g", "pane-active-border-style", format!("fg={}", BURGUNDY.hex())),
+        ("-g", "message-style", format!("bg={},fg={}", BURGUNDY.hex(), IVORY.hex())),
+    ]
 }
 
 /// A path handed over through the session environment is accepted as a
@@ -947,9 +968,15 @@ mod tests {
         assert!(l.owned_server_options().is_empty());
         let private = launch();
         let options = private.owned_server_options();
-        assert_eq!(options.len(), 2);
+        assert_eq!(options.len(), 7);
         assert_eq!(options[0], ["-L", "scout", "set-option", "-s", "extended-keys", "on"]);
         assert_eq!(options[1], ["-L", "scout", "set-option", "-s", "escape-time", "10"]);
+        assert_eq!(
+            options[2],
+            ["-L", "scout", "set-option", "-g", "status-style", "bg=#3E6E58,fg=#EDE9E3"],
+            "the status bar is painted from the palette"
+        );
+        assert!(options.iter().all(|o| o[3] == "-s" || o[3] == "-g"));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "scout"
-version = "0.4.1"
+version = "0.4.2"
 rust-version = "1.96"
 edition = "2021"
 authors = ["Kairu Wangui <kairupeter58@gmail.com>"]

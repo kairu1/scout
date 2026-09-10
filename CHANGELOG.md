@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.4.2
+
+A hardening release from an independent review of everything since
+0.3.0, plus a palette.
+
+### Added
+- A palette: gold frame for a one-shot `scout`, burgundy for a session,
+  mocha lines, ivory selected row, sea green matches; on scout's own tmux
+  server the status bar is sea green, pane borders mocha, the active
+  border burgundy, the current window gold. One source for both.
+- `scout index` refuses a path that is missing, relative or not a
+  directory; a remembered tree whose directory is gone is reported as
+  not present and leaves the previous index serving; walk flags need a
+  path.
+- `?` names keys in every mode; `[keys]` warns when an explicit entry
+  takes another operation's default.
+- CI runs the tmux story; ten facts that live in code and docs have
+  parity guards.
+
+### Fixed
+- A directory named like tmux format syntax (`x #(cmd)`) could run
+  `cmd` when a pane opened at it: every `-c` value is escaped.
+- An interrupted re-walk hid the rows it had touched until the next
+  completed walk, and its generation number could be reused.
+- Forgetting a tree, or a walk tombstoning a path, left their findings in
+  every report.
+- Re-attach failed when a window in the session was named `scout`; two
+  launchers racing on a cold server left one in-process.
+- An index with rows but no completed root read as ready and served
+  nothing; a scoped `scout recon <path>` reset the `--since-last` clock.
+- `pane-run` now uses the sanitised PATH, receives `env` bindings, and
+  strips what it prints; symlinked rc files are followed; the re-index
+  writer opens without running recovery on the live index; detached
+  children are reaped; every way out of a launched picker unbinds its
+  keys, withdraws the handed-over file and detaches.
+
 ## 0.4.1
 
 ### Added
