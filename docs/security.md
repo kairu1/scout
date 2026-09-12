@@ -115,8 +115,20 @@ finding without `--hidden`; such rows never appear in the picker.
 | `acl-present` | a POSIX ACL is set, so effective permissions may be wider than the mode shows (presence only; the ACL is not parsed) | low |
 | `entrypoint-changed` | a recorded entry point (`Makefile`, `justfile`, `package.json`, `Cargo.toml`, `pyproject.toml`, `setup.py`, `go.mod`, `.envrc`, root `*.sh`, git hooks) changed since `scout recon baseline` | high |
 
+Installing from a release (`install-release.sh`) downloads the tarball
+and the checksum file published beside it and refuses on mismatch; that
+proves the download is the one the release job produced, not who
+produced it (releases are not signed). It then refuses a tarball missing
+a file or whose binary does not report the requested version, installs
+the binary, snippet and reference config to `$PREFIX`, and appends the
+marked block to one rc file once (rewriting it only if it sources an
+older location). It never writes a config into the discovery chain and
+never touches the data, state or config directories.
+
 Recon also reports on scout's own files: a config others can edit, a trust
-store or index wider than 0600, a shell wrapper others can edit, and the
+store or index wider than 0600, a shell wrapper others can edit (beside
+the binary, in its source checkout, in the release installer's
+`share/scout-dist`, or under the config directory), and the
 shell rc files (`~/.bashrc`, `~/.bash_profile`, `~/.zshrc`, `~/.profile`,
 `~/.config/fish/config.fish`): one that others can edit is a finding on
 its own, and the one holding the installer's marker line is named with

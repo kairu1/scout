@@ -6,9 +6,12 @@ One command installs and updates.
 
 ### Added
 - `install-release.sh`: one command fetches the latest (or a named)
-  musl release, verifies the checksum, installs the binary, snippet and
-  reference config, and adds the shell integration once; the same
-  command updates. Never writes a config. Tested against a fake release.
+  musl release, checks it against the published checksum, refuses a
+  tarball missing a file or reporting another version, installs the
+  binary to `$PREFIX/bin` and the snippet and reference config to
+  `$PREFIX/share/scout-dist`, and adds the shell integration once; the
+  same command updates. Never writes a config. Tested against a fake
+  release. `scout recon` checks the wrapper there too.
 
 ## 0.4.3
 
@@ -30,7 +33,6 @@ A session gets its own actions.
   editor runs here (`alt-e`) or in a pane (`edit-here`), and `leave`
   (`alt-c`) is the one action that ends the session with a `cd`. The
   trust prompt appears once after copying it.
-
 
 ### Changed
 - `sh -c` needs `unsafe_shell_template` only when a placeholder is inside

@@ -9,6 +9,8 @@ use scout::config::load_file;
 use scout::Error;
 
 const REFERENCE_CONFIG: &str = include_str!("../examples/config.toml");
+const RELEASE_INSTALLER: &str = include_str!("../install-release.sh");
+const MUSL_WORKFLOW: &str = include_str!("../.github/workflows/musl-build.yml");
 const WRAPPER: &str = include_str!("../shell/scout.bash");
 const README: &str = include_str!("../README.md");
 
@@ -219,14 +221,15 @@ fn print_to_is_a_top_level_flag() {
 #[test]
 fn the_wrapper_marker_in_the_installer_and_readme_is_the_one_recon_scans_for() {
     let marker = scout::recon::checks::WRAPPER_MARKER;
-    let installer = include_str!("../install.sh");
-    assert!(installer.contains(marker), "install.sh must write the marker recon scans for");
-    let release_installer = include_str!("../install-release.sh");
-    assert!(
-        release_installer.contains(&format!("marker='{marker}'")),
-        "install-release.sh must write the marker recon scans for"
-    );
-    assert!(README.contains(marker), "README must show the marker recon scans for");
+    let end = scout::recon::checks::WRAPPER_MARKER_END;
+    for (name, text) in [
+        ("install.sh", include_str!("../install.sh")),
+        ("install-release.sh", RELEASE_INSTALLER),
+        ("README.md", README),
+    ] {
+        assert!(text.contains(marker), "{name} must write the marker recon scans for");
+        assert!(text.contains(end), "{name} must close the block with the end marker");
+    }
 }
 
 // ---- 0.4 dual encodings: each fact below lives in code and in prose ----
@@ -412,6 +415,130 @@ fn placeholders_match_the_docs() {
         .map(|(name, _)| name)
         .collect();
     assert_eq!(parsed, PLACEHOLDER_NAMES, "Placeholder::parse arms vs PLACEHOLDER_NAMES");
+}
+
+/// The release installer's twins: the tarball members it installs are
+/// the ones the workflow packages, its target triples are the workflow's
+/// matrix (and the README names both), the README's bootstrap URL is
+/// the script's own repo, its install paths are the ones the README
+/// states, and every `SCOUT_*` knob it reads is in its header comment.
+#[test]
+fn the_release_installer_matches_the_workflow_and_the_readme() {
+    // Members: the workflow's `cp ... "$name/"` lines.
+    let packaged: Vec<&str> = MUSL_WORKFLOW
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("cp ") && l.ends_with("\"$name/\""))
+        .flat_map(|l| l.trim_start_matches("cp ").split_whitespace())
+        .filter(|w| *w != "\"$name/\"")
+        .map(|w| w.rsplit('/').next().unwrap())
+        .collect();
+    assert!(packaged.contains(&"scout") && packaged.contains(&"scout.bash"), "{packaged:?}");
+    let installed: Vec<&str> = RELEASE_INSTALLER
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("install -m"))
+        .map(|l| l.split_whitespace().nth(2).unwrap().trim_matches('"'))
+        .map(|src| src.rsplit('/').next().unwrap())
+        .collect();
+    assert!(!installed.is_empty());
+    for member in &installed {
+        assert!(
+            packaged.contains(member),
+            "installer installs `{member}`, which the workflow does not package"
+        );
+    }
+    let preflight = RELEASE_INSTALLER
+        .lines()
+        .find(|l| l.trim().starts_with("for member in "))
+        .expect("the installer preflights members");
+    for member in &installed {
+        assert!(preflight.contains(member), "`{member}` is installed but not preflighted");
+    }
+    // Targets: the workflow matrix vs the script's case arms and README.
+    let targets: Vec<&str> =
+        MUSL_WORKFLOW.lines().filter_map(|l| l.trim().strip_prefix("target: ")).collect();
+    assert_eq!(targets.len(), 2, "{targets:?}");
+    for t in &targets {
+        assert!(RELEASE_INSTALLER.contains(&format!("target={t}")), "installer case arm for {t}");
+        let arch = t.split('-').next().unwrap();
+        assert!(README.contains(arch), "README names {arch}");
+    }
+    // Repo: the README's bootstrap URL is the script's default repo.
+    let repo = RELEASE_INSTALLER
+        .lines()
+        .find_map(|l| l.strip_prefix("repo=\"${SCOUT_REPO:-"))
+        .map(|r| r.trim_end_matches("}\""))
+        .expect("a default repo");
+    assert!(README.contains(&format!("raw.githubusercontent.com/{repo}/main/install-release.sh")));
+    // Paths: the README states the dirs the script derives.
+    for dir in ["~/.local/bin", "~/.local/share/scout-dist"] {
+        assert!(README.contains(dir), "README names {dir}");
+    }
+    assert!(RELEASE_INSTALLER.contains("sharedir=\"$prefix/share/scout-dist\""));
+    assert!(RELEASE_INSTALLER.contains("bindir=\"$prefix/bin\""));
+    // Knobs: every SCOUT_* read by the script is in its header.
+    let header: String = RELEASE_INSTALLER.lines().take_while(|l| l.starts_with('#')).collect();
+    let mut knobs: Vec<String> = Vec::new();
+    for line in RELEASE_INSTALLER.lines().filter(|l| !l.starts_with('#')) {
+        let mut rest = line;
+        while let Some(at) = rest.find("${SCOUT_") {
+            let name: String = rest[at + 2..]
+                .chars()
+                .take_while(|c| c.is_ascii_uppercase() || *c == '_')
+                .collect();
+            if !knobs.contains(&name) {
+                knobs.push(name);
+            }
+            rest = &rest[at + 2..];
+        }
+    }
+    assert!(knobs.len() >= 4, "{knobs:?}");
+    for knob in &knobs {
+        assert!(header.contains(knob.as_str()), "header documents {knob}");
+    }
+}
+
+/// The "files scout owns" table and `locations.rs` mirror each other
+/// (the module's own comment says so): every file `locations.rs` names
+/// is a row, and every row is a file it names.
+#[test]
+fn the_files_scout_owns_table_mirrors_locations() {
+    // Every string literal in the code (not the comments) naming a file:
+    // the basename of each `"…/name.ext"` or `"name.ext"`.
+    let locations = include_str!("../src/locations.rs");
+    let mut named: Vec<String> = Vec::new();
+    for line in locations.lines().filter(|l| !l.trim_start().starts_with("//")) {
+        for literal in line.split('"').skip(1).step_by(2) {
+            let file = literal.rsplit('/').next().unwrap_or(literal);
+            if file.contains('.') && !named.iter().any(|n| n == file) {
+                named.push(file.to_string());
+            }
+        }
+    }
+    assert!(named.len() >= 3, "{named:?}");
+    let table: Vec<&str> = README
+        .split("## Files scout owns")
+        .nth(1)
+        .and_then(|s| s.split("\n## ").next())
+        .expect("the table")
+        .lines()
+        .filter(|l| l.starts_with("| `$"))
+        .map(|l| l.trim_start_matches("| `").split('`').next().unwrap())
+        .collect();
+    for file in &named {
+        assert!(
+            table.iter().any(|row| row.ends_with(&format!("scout/{file}"))),
+            "README row for {file}"
+        );
+    }
+    for row in &table {
+        let file = row.rsplit('/').next().unwrap();
+        assert!(
+            named.contains(&file.to_string()),
+            "table row `{row}` names a file locations.rs does not"
+        );
+    }
 }
 
 /// A tiny matcher for `#\s*name\s*=\s*"value"` without a regex crate:

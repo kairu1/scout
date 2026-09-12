@@ -34,7 +34,7 @@ cat <<MSG
 next steps:
   1. shell integration (makes Enter cd your shell); the marker lines let
      \`scout recon\` report which rc file sources it:
-       printf '\\n# >>> scout shell integration >>>\\nsource %s\\n# <<< scout shell integration <<<\\n' '$here/shell/scout.bash' >> ~/.bashrc
+       printf '\\n# >>> scout shell integration >>>\\nsource "%s"\\n# <<< scout shell integration <<<\\n' '$here/shell/scout.bash' >> ~/.bashrc
   2. config (optional; built-in defaults work without one):
        mkdir -p ~/.config/scout
        cp $here/examples/config.toml ~/.config/scout/config.toml

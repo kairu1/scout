@@ -82,7 +82,9 @@ pub fn recon(
     Ok(code)
 }
 
-/// Where the shell wrapper may live: beside the running binary, or under
+/// Where the shell wrapper may live: beside the running binary, in a
+/// source checkout the binary was built in, where the release installer
+/// puts it (`$PREFIX/share/scout-dist`, next to `$PREFIX/bin`), or under
 /// the config directory. Only files that exist are checked.
 fn wrapper_candidates() -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -90,6 +92,7 @@ fn wrapper_candidates() -> Vec<PathBuf> {
         if let Some(dir) = exe.parent() {
             out.push(dir.join("scout.bash"));
             out.push(dir.join("../shell/scout.bash"));
+            out.push(dir.join("../share/scout-dist/scout.bash"));
         }
     }
     if let Ok(cfg) = platform::xdg::config_home() {

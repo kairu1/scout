@@ -19,21 +19,26 @@ From a release (Linux x86_64 or aarch64, static musl binary, no build):
 curl -fsSL https://raw.githubusercontent.com/kairu1/scout/main/install-release.sh | sh
 ```
 
-That fetches the latest release tarball, verifies its checksum, installs
-the binary to `~/.local/bin`, the shell snippet and reference config to
-`~/.local/share/scout`, and adds the shell integration to `~/.bashrc`
-once. Updating is the same command; it never writes or replaces your
-config. `sh -s -- 0.4.3` pins a version, `PREFIX=/opt/tools` moves the
-install, `SCOUT_RC=~/.zshrc` picks the rc file, `SCOUT_NO_RC=1` leaves
-every rc file alone. Read the script first if piping to `sh` is not your
-habit: `curl -fsSLO …/install-release.sh && sh install-release.sh`.
+That fetches the latest release tarball, checks it against the checksum
+published beside it (integrity of the download, not a signature: both
+come from the release), refuses a tarball that is missing a file or
+whose binary does not report the requested version, installs the binary
+to `~/.local/bin`, the shell snippet and reference config to
+`~/.local/share/scout-dist`, and adds the shell integration to
+`~/.bashrc` once. Updating is the same command: it replaces the binary
+and snippet, rewrites the rc block only if it sources an older location,
+and never writes or replaces your config. `sh -s -- 0.4.3` pins a
+version, `PREFIX=/opt/tools` moves the install, `SCOUT_RC=~/.zshrc`
+picks the rc file, `SCOUT_NO_RC` set to anything leaves every rc file
+alone. Read the script first if piping to `sh` is not your habit:
+`curl -fsSLO …/install-release.sh && sh install-release.sh`.
 
 From source:
 
 ```sh
 git clone <this-repo> && cd scout
 ./install.sh                                       # builds, installs to ~/.local/bin
-printf '\n# >>> scout shell integration >>>\nsource %s\n# <<< scout shell integration <<<\n' \
+printf '\n# >>> scout shell integration >>>\nsource "%s"\n# <<< scout shell integration <<<\n' \
   "$PWD/shell/scout.bash" >> ~/.bashrc              # guarded eval wrapper, marked so recon can find it
 ```
 
@@ -267,6 +272,11 @@ picker logs to `$XDG_STATE_HOME/scout/scout.log`).
 | `$XDG_DATA_HOME/scout/index.db` | index, frecency, recon findings (SQLite, WAL, 0600) |
 | `$XDG_STATE_HOME/scout/trusted-config.sha256` | hashes of the configs you approved |
 | `$XDG_STATE_HOME/scout/scout.log` | picker log |
+
+The release installer's files are not scout's: `$PREFIX/bin/scout`,
+`$PREFIX/share/scout-dist/scout.bash` and `config.toml` (the reference
+copy), kept apart from the data directory above so an install never
+changes its mode.
 
 ## Licence
 
