@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.4
+
+One command installs and updates.
+
+### Added
+- `install-release.sh`: one command fetches the latest (or a named)
+  musl release, verifies the checksum, installs the binary, snippet and
+  reference config, and adds the shell integration once; the same
+  command updates. Never writes a config. Tested against a fake release.
+
 ## 0.4.3
 
 A session gets its own actions.
@@ -21,10 +31,6 @@ A session gets its own actions.
   (`alt-c`) is the one action that ends the session with a `cd`. The
   trust prompt appears once after copying it.
 
-- `install-release.sh`: one command fetches the latest (or a named)
-  musl release, verifies the checksum, installs the binary, snippet and
-  reference config, and adds the shell integration once; the same
-  command updates. Never writes a config. Tested against a fake release.
 
 ### Changed
 - `sh -c` needs `unsafe_shell_template` only when a placeholder is inside
