@@ -65,12 +65,13 @@ pub(super) fn config_section(home: Option<&Path>) -> Section {
         Ok(config) => {
             let from_user = config.source.is_some();
             // Mode-gated actions are counted per run, so the user can see
-            // that a session and a one-shot offer different sets.
+            // that a session and a one-shot offer different sets; an
+            // unmoded action is in both counts.
             let per_mode = if config.actions.iter().any(|a| a.mode().is_some()) {
                 format!(
-                    "; {} in a session, {} one-shot",
-                    config.actions.iter().filter(|a| a.offered_in(true)).count(),
-                    config.actions.iter().filter(|a| a.offered_in(false)).count()
+                    "; a session offers {}, a one-shot {}",
+                    config.for_mode(true).actions.len(),
+                    config.for_mode(false).actions.len()
                 )
             } else {
                 String::new()
@@ -79,7 +80,7 @@ pub(super) fn config_section(home: Option<&Path>) -> Section {
                 "load",
                 Level::Ok,
                 format!(
-                    "{} action(s) active ({}{per_mode})",
+                    "{} action(s) loaded ({}{per_mode})",
                     config.actions.len(),
                     if from_user { "user config merged over defaults" } else { "defaults only" }
                 ),
@@ -87,12 +88,16 @@ pub(super) fn config_section(home: Option<&Path>) -> Section {
             for warning in &config.warnings {
                 checks.push(Check::new("warning", Level::Warn, warning.clone()));
             }
-            if config.enter_action().is_none() {
-                checks.push(Check::new(
-                    "enter",
-                    Level::Warn,
-                    "no action bound to Enter - the picker will have nothing to run",
-                ));
+            // Enter is resolved per run: a mode with no Enter action has
+            // nothing to run, whatever the other mode binds.
+            for (session, run) in [(false, "a one-shot run"), (true, "a session")] {
+                if config.for_mode(session).enter_action().is_none() {
+                    checks.push(Check::new(
+                        "enter",
+                        Level::Warn,
+                        format!("no action bound to Enter in {run} - the picker will have nothing to run"),
+                    ));
+                }
             }
         }
         Err(err) => checks.push(Check::new("load", Level::Fail, err.to_string())),

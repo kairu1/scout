@@ -26,7 +26,9 @@ reopen them.
   prompt on first sight and every change; no TTY means refuse.
 - Execution is argv-only. A shell parses a scout-templated string at
   exactly two seams: the `print` step (every placeholder single-quoted,
-  NUL and newline refused) and an attested `sh -c`.
+  NUL and newline refused) and an attested `sh -c` (its `-c` text; a
+  placeholder passed after it as a positional parameter is data, held to
+  the single-slot rule).
 - Refuse at the boundary: `O_NOFOLLOW` config, 256 KiB cap, parse errors
   halt; the index refuses NUL, newline, `/proc`, `/sys`, `/dev`, paths
   over 4 KiB; the DB and trust store are 0600 under 0700, owner-checked.

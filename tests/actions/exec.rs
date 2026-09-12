@@ -233,6 +233,42 @@ fn an_empty_argv_pane_step_hands_the_runner_no_command_at_dir() {
     fs::remove_dir_all(&dir).unwrap();
 }
 
+/// Outside tmux an empty argv runs the child's `SHELL`, else `sh`, so
+/// the same step is "a shell there" everywhere. The shell is resolved
+/// from the child environment (an `env` step can set it), which is also
+/// what keeps this test from launching an interactive shell.
+#[test]
+fn an_empty_argv_pane_step_outside_tmux_runs_the_child_environments_shell() {
+    let dir = temp_dir("emptyargv-shell");
+    let project = dir.join("project");
+    fs::create_dir_all(&project).unwrap();
+    let step = |shell: Option<&str>| {
+        let mut steps = Vec::new();
+        if let Some(shell) = shell {
+            steps.push(Step::Env { set: vec![("SHELL".to_string(), t(shell))] });
+        }
+        steps.push(Step::Spawn {
+            argv: vec![],
+            wait: false,
+            cwd: Some(t("{dir}")),
+            pause: true,
+            pane: Some(scout::actions::PaneOp::SplitRight),
+        });
+        action("go", OnFailure::Abort, steps)
+    };
+    let ctx = ctx(project.clone());
+    // `false` as the shell: it ran (exit 1 is a status, not a spawn failure).
+    let outcome = execute(&step(Some("false")), &ctx, None);
+    assert_eq!(outcome.failure.map(|(_, k)| k), Some(FailureKind::ExitStatus(1)));
+    // `true` as the shell: success, and nothing else was launched.
+    let outcome = execute(&step(Some("true")), &ctx, None);
+    assert!(outcome.any_success, "{:?}", outcome.failure);
+    // The `sh` fallback for an unset or empty SHELL is a lookup, tested
+    // as one in platform::process: launching a real shell here would
+    // wait on this harness's stdin.
+    fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn the_outcome_carries_the_failure_kind() {
     let dir = temp_dir("failreason");

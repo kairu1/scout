@@ -24,7 +24,11 @@ A session gets its own actions.
 ### Changed
 - `sh -c` needs `unsafe_shell_template` only when a placeholder is inside
   the `-c` text. `sh -c '… "$1"' sh {path}` passes it as a positional
-  parameter and loads without attestation.
+  parameter and loads without attestation; the parameters themselves
+  are held to the single-slot rule like any other argv element.
+- A `[keys]` entry clashes only with a chord a session can offer;
+  `scout doctor` checks Enter for each mode and reports what each run
+  offers.
 
 ## 0.4.2
 

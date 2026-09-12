@@ -292,6 +292,39 @@ fn a_placeholder_as_a_positional_parameter_of_sh_c_needs_no_attestation() {
     .unwrap_err()
     .to_string();
     assert!(message.contains("unsafe_shell_template"), "{message}");
+    // A positional parameter is an ordinary element: it may not mix a
+    // placeholder with anything else.
+    let message = load_pretrusted(
+        &dir,
+        "schema_version = 2\n[[action]]\nname = \"files\"\nsteps = [ { kind = \"spawn\", argv = [\"sh\", \"-c\", \"grep \\\"$1\\\" .\", \"sh\", \"{query} --\"] } ]\n",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(message.contains("argv[4]") && message.contains("mixes a placeholder"), "{message}");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// `[keys]` operations exist only in a session, so an action's chord
+/// that a session never offers is no clash.
+#[test]
+fn a_one_shot_only_chord_does_not_block_a_keys_entry() {
+    let dir = temp_dir("keys-mode");
+    let config = load_pretrusted(
+        &dir,
+        "schema_version = 2\n[keys]\nclose-pane = \"alt-x\"\n\
+         [[action]]\nname = \"a\"\nkeybinding = \"alt-x\"\nwhen = { mode = \"one-shot\" }\n\
+         steps = [ { kind = \"print\", format = \"x\" } ]\n",
+    )
+    .unwrap();
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+    let err = load_pretrusted(
+        &dir,
+        "schema_version = 2\n[keys]\nclose-pane = \"alt-x\"\n\
+         [[action]]\nname = \"a\"\nkeybinding = \"alt-x\"\nwhen = { mode = \"session\" }\n\
+         steps = [ { kind = \"print\", format = \"x\" } ]\n",
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("already an action's keybinding"), "{err}");
     fs::remove_dir_all(&dir).unwrap();
 }
 

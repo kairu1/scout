@@ -104,7 +104,7 @@ fn reference_config_loads_and_every_printed_line_survives_the_wrapper() {
 fn reference_config_trust_hash_is_pinned() {
     let dir = temp_dir("refhash");
     let (_, hash) = load_reference_pretrusted(&dir);
-    assert_eq!(hash, "51eda9f19b5e9a2c59452f48b015740d666619d0d100820b03f4e1ea42398e4c");
+    assert_eq!(hash, "f56f038fa946d4fe3fa6100b916d4a96768ae965f4cea7b588ec5f7814a2c362");
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -292,6 +292,26 @@ fn when_keys_match_the_loader_and_the_docs() {
         fs::write(&path, toml).unwrap();
         load_file(&path, dir.join("store"), false)
     };
+    let in_when_section = config_doc()
+        .split("## `when`")
+        .nth(1)
+        .and_then(|s| s.split("\n## ").next())
+        .expect("a when section");
+    // The reference config documents the keys in one comment paragraph,
+    // the one that opens with the `when = { ... }` sentence.
+    let comment_paragraph: String = REFERENCE_CONFIG
+        .lines()
+        .skip_while(|l| !l.starts_with("# `when = { ... }`"))
+        .take_while(|l| l.starts_with('#') && l.trim_end() != "#")
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!comment_paragraph.is_empty(), "the reference config's `when` paragraph");
+    let readme_sentence = README
+        .lines()
+        .skip_while(|l| !l.contains("`when` takes"))
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(" ");
     for key in WHEN_KEYS {
         // Accepted: the only failure a trusted-less load can report is
         // the trust refusal, which comes after validation.
@@ -302,27 +322,43 @@ fn when_keys_match_the_loader_and_the_docs() {
             ),
             "loader accepts `when.{key}`"
         );
-        assert!(config_doc().contains(&format!("| `{key} = ")), "configuration.md row for {key}");
-        let comment = REFERENCE_CONFIG
-            .lines()
-            .filter(|l| l.starts_with('#'))
-            .any(|l| l.contains(&format!("`{key}`")) || l.contains(&format!("`{key} ")));
-        assert!(comment, "examples/config.toml comment names `{key}`");
+        assert!(
+            in_when_section.contains(&format!("| `{key} = ")),
+            "configuration.md row for {key}"
+        );
+        assert!(
+            comment_paragraph.contains(&format!("`{key}`")),
+            "examples/config.toml `when` paragraph names `{key}`"
+        );
+        assert!(
+            readme_sentence.contains(&format!("`{key}`")),
+            "README `when` sentence names `{key}`"
+        );
     }
     assert!(matches!(
         load("colour = \"red\""),
         Err(Error::ConfigInvalid { .. } | Error::ConfigToml { .. })
     ));
     // Every documented row is a real key.
-    let in_when_section = config_doc()
-        .split("## `when`")
-        .nth(1)
-        .and_then(|s| s.split("\n## ").next())
-        .expect("a when section");
     for row in in_when_section.lines().filter(|l| l.starts_with("| `")) {
         let key = row.trim_start_matches("| `").split([' ', '`']).next().unwrap();
         assert!(WHEN_KEYS.contains(&key), "docs row `{key}` is not a when key");
     }
+    // The loader's raw struct is the code-side twin of the list: a field
+    // added there without a WHEN_KEYS entry (or the reverse) fails here.
+    let loader = include_str!("../src/config/loader.rs");
+    let raw_when = loader
+        .split("struct RawWhen {")
+        .nth(1)
+        .and_then(|s| s.split("\n}").next())
+        .expect("RawWhen in loader.rs");
+    let fields: Vec<&str> = raw_when
+        .lines()
+        .filter_map(|l| l.trim().strip_suffix(','))
+        .filter_map(|l| l.split_once(": "))
+        .map(|(name, _)| name.trim())
+        .collect();
+    assert_eq!(fields, WHEN_KEYS, "RawWhen fields vs WHEN_KEYS");
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -351,9 +387,26 @@ fn placeholders_match_the_docs() {
         .lines()
         .find(|l| l.starts_with("# Placeholders:"))
         .expect("the reference config lists the placeholders");
+    let readme_sentence = README
+        .lines()
+        .skip_while(|l| !l.starts_with("Placeholders `{path}"))
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(" ");
     for name in PLACEHOLDER_NAMES {
         assert!(comment.contains(&format!("{{{name}}}")), "examples/config.toml names {{{name}}}");
+        assert!(readme_sentence.contains(&format!("{{{name}}}")), "README names {{{name}}}");
     }
+    // The grammar's parse arms are the code-side twin of the list: a
+    // fixed name parsed there without a PLACEHOLDER_NAMES entry fails.
+    let template = include_str!("../src/actions/template.rs");
+    let parsed: Vec<&str> = template
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix('"'))
+        .filter_map(|l| l.split_once("\" => Ok(Placeholder::"))
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(parsed, PLACEHOLDER_NAMES, "Placeholder::parse arms vs PLACEHOLDER_NAMES");
 }
 
 /// A tiny matcher for `#\s*name\s*=\s*"value"` without a regex crate:

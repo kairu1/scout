@@ -165,15 +165,15 @@ steps = [ { kind = "spawn", argv = ["sh", "-c", "exec \"${{EDITOR:-micro}}\" \"$
 
 [[action]]
 name = "edit-here"
-description = "cd to the selection, then open it; leaves you in the project"
+description = "cd to the selection's folder and open the project there; leaves you in it"
 when = { mode = "one-shot" }
 steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; ${{EDITOR:-micro}} ." } ]
 
 [[action]]
 name = "edit-here"
-description = "Open in $EDITOR in a new pane, with a shell in the project after"
+description = "Open the project in $EDITOR in a new pane, with a shell there after"
 when = { mode = "session" }
-steps = [ { kind = "spawn", argv = ["sh", "-c", "exec \"${{EDITOR:-micro}}\" \"$1\"", "sh", "{path}"], cwd = "{dir}", pane = "split-right" } ]
+steps = [ { kind = "spawn", argv = ["sh", "-c", "exec \"${{EDITOR:-micro}}\" ."], cwd = "{dir}", pane = "split-right" } ]
 
 # --- git --------------------------------------------------------------
 #
@@ -192,7 +192,7 @@ steps = [ { kind = "print", format = "cd {repo_root} && git status -sb" } ]
 
 [[action]]
 name = "status"
-description = "git status, short form, at the repository root"
+description = "git status here, then a key brings the picker back"
 keybinding = "alt-s"
 when = { marker = ".git", mode = "session" }
 steps = [ { kind = "spawn", argv = ["git", "status", "-sb"], cwd = "{repo_root}" } ]
@@ -206,7 +206,7 @@ steps = [ { kind = "print", format = "cd {repo_root} && git log --oneline --grap
 
 [[action]]
 name = "log"
-description = "Last 20 commits as a graph"
+description = "Last 20 commits as a graph here, then back to the picker"
 keybinding = "alt-l"
 when = { marker = ".git", mode = "session" }
 steps = [ { kind = "spawn", argv = ["git", "log", "--oneline", "--graph", "-20"], cwd = "{repo_root}" } ]
@@ -220,7 +220,7 @@ steps = [ { kind = "print", format = "cd {repo_root} && git diff" } ]
 
 [[action]]
 name = "diff"
-description = "Uncommitted changes"
+description = "Uncommitted changes here, then back to the picker"
 keybinding = "alt-d"
 when = { marker = ".git", mode = "session" }
 steps = [ { kind = "spawn", argv = ["git", "diff"], cwd = "{repo_root}" } ]
@@ -240,7 +240,7 @@ steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; grep
 
 [[action]]
 name = "grep"
-description = "Search the selection's contents for the text you typed"
+description = "Search the selection's contents here for the text you typed, then back"
 keybinding = "alt-g"
 when = { mode = "session" }
 steps = [ { kind = "spawn", argv = ["sh", "-c", "grep -rn --exclude-dir=.git \"$1\" . | head -60", "sh", "{query}"], cwd = "{dir}" } ]
@@ -254,7 +254,7 @@ steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; find
 
 [[action]]
 name = "files"
-description = "List files under the selection whose name matches what you typed"
+description = "List matching files here, then a key brings the picker back"
 keybinding = "alt-f"
 when = { mode = "session" }
 steps = [ { kind = "spawn", argv = ["sh", "-c", "find . -path ./.git -prune -o -type f -print | grep -i \"$1\" | head -60", "sh", "{query}"], cwd = "{dir}" } ]
@@ -287,7 +287,7 @@ steps = [ { kind = "print", format = "printf '%s' {path} | ( wl-copy || xclip -s
 
 [[action]]
 name = "copy-path"
-description = "Copy the path to the clipboard"
+description = "Copy the path to the clipboard and stay in the picker"
 keybinding = "alt-y"
 when = { mode = "session" }
 steps = [ { kind = "spawn", argv = ["sh", "-c", "printf '%s' \"$1\" | ( wl-copy || xclip -selection clipboard || pbcopy || printf '\\033]52;c;%s\\007' \"$(printf '%s' \"$1\" | base64 -w0)\" ) 2>/dev/null", "sh", "{path}"], pause = false } ]

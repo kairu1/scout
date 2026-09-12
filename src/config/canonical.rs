@@ -7,8 +7,10 @@
 //! What enters the hash follows one principle: a field is hashed if
 //! changing it changes what runs, whether it runs, or which gesture runs
 //! it. `when` decides whether an action is offered; `[keys]` decides which
-//! keystroke spawns a pane; both are in. `[scout] session` changes whether
-//! scout exits, not what runs, and is out.
+//! keystroke spawns a pane; both are in. `[scout] session` is out: like
+//! the selected path or a marker file, it is an input that selects among
+//! actions the user has already approved (a `mode` clause is hashed, so
+//! both twins of a key are shown at approval), not a field of any action.
 
 use std::collections::BTreeMap;
 

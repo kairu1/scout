@@ -187,10 +187,10 @@ steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}" } ]
 
 Steps are `spawn` (an argv, run directly), `print` (a line for your
 shell) or `env` (bindings for later steps in the same action).
-Placeholders `{path} {parent} {name} {ext} {repo_root} {home} {query}
-{env.VAR}` are single-quoted when printed, so a directory called
+Placeholders `{path} {parent} {dir} {name} {ext} {repo_root} {home}
+{query} {env.VAR}` are single-quoted when printed, so a directory called
 `proj $(rm -rf ~)` is a filename, not an instruction. `when` takes `kind`,
-`marker`, `ext`, `glob` and `finding`, ANDed. The first time you run scout
+`marker`, `ext`, `glob`, `finding` and `mode`, ANDed. The first time you run scout
 with a config, and every time the file changes, it shows you the actions
 and asks before trusting them; without a terminal it refuses instead.
 `schema_version = 1` files are refused with a note saying what to change.

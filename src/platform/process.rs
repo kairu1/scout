@@ -23,15 +23,16 @@ pub fn spawn_wait(
     command(argv, cwd, env).status()
 }
 
-/// The user's shell as a one-element argv: `$SHELL`, else `sh`.
-pub fn shell_argv() -> Vec<String> {
-    vec![std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "sh".into())]
+/// The user's shell as a one-element argv: `SHELL` from `env`, else `sh`.
+pub fn shell_argv(env: &HashMap<String, String>) -> Vec<String> {
+    vec![env.get("SHELL").filter(|s| !s.is_empty()).cloned().unwrap_or_else(|| "sh".into())]
 }
 
 /// Replace this process with the user's shell (`$SHELL`, else `sh`) in
 /// `cwd`. Only returns on failure.
 pub fn exec_shell(cwd: &Path) -> io::Error {
-    Command::new(&shell_argv()[0]).current_dir(cwd).exec()
+    let env: HashMap<String, String> = std::env::vars().collect();
+    Command::new(&shell_argv(&env)[0]).current_dir(cwd).exec()
 }
 
 /// Replace this process with `argv`, environment and directory inherited.
@@ -63,4 +64,19 @@ pub fn spawn_detached(
         let _ = child.wait();
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_fallback_shell_is_sh_when_shell_is_unset_or_empty() {
+        let mut env = HashMap::new();
+        assert_eq!(shell_argv(&env), ["sh"]);
+        env.insert("SHELL".to_string(), String::new());
+        assert_eq!(shell_argv(&env), ["sh"]);
+        env.insert("SHELL".to_string(), "/bin/zsh".to_string());
+        assert_eq!(shell_argv(&env), ["/bin/zsh"]);
+    }
 }

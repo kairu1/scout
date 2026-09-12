@@ -299,8 +299,14 @@ pub fn load_file(
     }
     // An explicit `[keys]` entry may not take an action's chord; a default
     // that would is dropped with a warning (the action was there first).
-    let action_chords: Vec<String> =
-        actions.iter().filter_map(|a| a.keybinding.clone()).filter(|k| k != "enter").collect();
+    // `[keys]` operations exist only in a session, so a chord an action
+    // holds only in a one-shot run never meets them.
+    let action_chords: Vec<String> = actions
+        .iter()
+        .filter(|a| a.offered_in(true))
+        .filter_map(|a| a.keybinding.clone())
+        .filter(|k| k != "enter")
+        .collect();
     for (op, chord) in &explicit {
         if action_chords.contains(chord) {
             return Err(validation(
@@ -460,7 +466,9 @@ fn validate_action(path: &Path, raw: &RawAction, warnings: &mut Vec<String>) -> 
                 ));
             }
             for (i, element) in argv.iter().enumerate() {
-                if is_shell_dash_c && i >= 2 {
+                // Only the `-c` text is exempt (attested above); the
+                // positional parameters after it are ordinary elements.
+                if is_shell_dash_c && i == 2 {
                     continue;
                 }
                 if element.violates_single_slot() {

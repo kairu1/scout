@@ -38,7 +38,7 @@ steps = [ { kind = "spawn", argv = ["cargo", "test"], cwd = "{repo_root}" } ]
 
 | kind | fields | does |
 |---|---|---|
-| `spawn` | `argv` (list of strings, required), `wait` (default true), `cwd` (default `{home}`), `pause` (default true), `pane` (`split-right`, `split-down`, `new-window`) | runs the argv directly, no shell. `wait = false` detaches it with null stdio. In a session, `pause = false` skips the "press any key" hold after the child exits (set it on editors). `pane` runs the command in a tmux pane when the session has tmux (scout starts one when it can) and in-process otherwise; it cannot be combined with `wait = true` or `pause`. With `pane`, `argv = []` opens a shell at `cwd` and nothing else (outside tmux: your shell on this terminal, back to the picker when it exits). |
+| `spawn` | `argv` (list of strings, required; may be empty only with `pane`), `wait` (default true), `cwd` (default `{home}`), `pause` (default true), `pane` (`split-right`, `split-down`, `new-window`) | runs the argv directly, no shell. `wait = false` detaches it with null stdio. In a session, `pause = false` skips the "press any key" hold after the child exits (set it on editors). `pane` runs the command in a tmux pane when the session has tmux (scout starts one when it can) and in-process otherwise; it cannot be combined with `wait = true` or `pause`. With `pane`, `argv = []` opens a shell at `cwd` and nothing else; outside tmux that shell runs on this terminal instead (`$SHELL`, else `sh`), and a session returns to the picker when it exits. |
 | `print` | `format` (required) | writes a line for the shell wrapper to eval after scout exits. Always ends a session. |
 | `env` | `set` (table, at least one entry) | binds values that later steps in the same action can use as `{env.NAME}` and that later children inherit. All-or-nothing: if one value fails to expand, none land. |
 
@@ -91,7 +91,7 @@ offered everywhere; an empty table is refused (omit it instead).
 The action pane lists only actions that apply to the selection. A chord
 bound to an action that does not apply does nothing and the footer says
 why. Two actions may not share a chord even if their clauses exclude each
-other; give each ecosystem its own letter.
+other (`mode` excepted, below); give each ecosystem its own letter.
 
 `mode` is the one key settled per run rather than per selection: scout
 drops the actions the run cannot offer before the picker draws. That is

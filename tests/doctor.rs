@@ -238,3 +238,36 @@ fn uri_metacharacters_in_the_path_do_not_break_the_open() {
 
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// Enter is resolved per run. A config whose only Enter action is
+/// session-only leaves a one-shot run with nothing to run (the user
+/// action shadows the compiled `edit` default by name), and `doctor`
+/// must say which run is affected rather than count the other mode's
+/// Enter as cover.
+#[test]
+fn enter_is_checked_for_each_mode_separately() {
+    let dir = sandbox("enter-mode");
+    std::fs::create_dir_all(dir.join("cfg/scout")).unwrap();
+    std::fs::create_dir_all(dir.join("state/scout")).unwrap();
+    let config_path = dir.join("cfg/scout/config.toml");
+    std::fs::write(
+        &config_path,
+        "schema_version = 2\n[[action]]\nname = \"edit\"\nkeybinding = \"enter\"\n\
+         when = { mode = \"session\" }\nsteps = [ { kind = \"spawn\", argv = [] , pane = \"split-right\" } ]\n",
+    )
+    .unwrap();
+    // Trust it the way a user would have, so the load succeeds without a tty.
+    let store = dir.join("state/scout/trusted-config.sha256");
+    match scout::config::load_file(&config_path, store.clone(), true) {
+        Err(scout::Error::TrustRequiresTty { hash, .. }) => {
+            std::fs::write(&store, format!("v2 {hash} {}\n", config_path.display())).unwrap();
+        }
+        other => panic!("expected the trust refusal, got {other:?}"),
+    }
+
+    let text = stdout(&doctor(&dir));
+    assert!(text.contains("a session offers 2, a one-shot 1"), "{text}"); // compiled print-path default merges in
+    assert!(text.contains("no action bound to Enter in a one-shot run"), "{text}");
+    assert!(!text.contains("no action bound to Enter in a session"), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
