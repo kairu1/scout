@@ -156,6 +156,10 @@ fn run(
     no_tmux_reason: Option<&'static str>,
     owned: bool,
 ) -> crate::Result<u8> {
+    // Mode is settled here, once: the picker only ever sees the actions
+    // this run offers, so a name or chord shared across modes is unique
+    // again by the time anything dispatches on it.
+    let config = &config.for_mode(session);
     let home = platform::xdg::home()?;
     let conn = open_default_db()?;
     let index_state = search::index_state(&conn)?;
@@ -201,7 +205,10 @@ fn run(
             actions::PaneOp::SplitDown => crate::config::keys::Operation::SplitDown,
             actions::PaneOp::NewWindow => crate::config::keys::Operation::NewWindow,
         };
-        t.run_with_env(operation, Some(cwd), Some(argv), env)
+        // No command: the pane is a shell at `cwd`, exactly what the
+        // split keys open at the selection.
+        let command = if argv.is_empty() { None } else { Some(argv) };
+        t.run_with_env(operation, Some(cwd), command, env)
     };
 
     let lookup = |id: i64| recon::store::unaccepted_for_row(&conn, id).unwrap_or_default();

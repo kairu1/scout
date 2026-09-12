@@ -126,6 +126,11 @@ fn emit_when(out: &mut String, action: &Action) {
         s.push(']');
         fields.push(s);
     }
+    if let Some(mode) = when.mode {
+        let mut s = String::from("\"mode\":");
+        json_string(&mut s, mode.as_str());
+        fields.push(s);
+    }
     out.push('{');
     out.push_str(&fields.join(","));
     out.push('}');

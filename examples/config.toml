@@ -7,7 +7,7 @@
 # re-prompts, because the file is hashed.
 #
 # ---------------------------------------------------------------------
-# TWO SHAPES OF ACTION
+# TWO SHAPES OF ACTION, TWO MODES
 # ---------------------------------------------------------------------
 # `print` steps PRINT a command and the shell wrapper (shell/scout.bash)
 # evals it in your shell after scout has exited. That is how `cd` works:
@@ -21,19 +21,35 @@
 # picker afterwards, so you can run one project's tests and then start
 # another's server without leaving. A session runs inside tmux (scout
 # starts one for you when tmux is installed), where a spawn step with
-# `pane = "split-right"` runs in a new pane and scout stays in its own.
+# `pane = "split-right"` runs in a new pane and scout stays in its own; an
+# empty `argv` with `pane` opens a shell there and nothing else.
 #
-# Placeholders: {path} {parent} {name} {ext} {repo_root} {home} {query}
-# and {env.VAR} (VAR set by an earlier `env` step in the SAME action; never
-# your shell's environment). Every placeholder is single-quoted at the print
-# seam, so a directory called `proj $(rm -rf ~)` is a filename, not an
-# instruction. In a `spawn` argv a placeholder must be a whole element.
+# A one-shot `scout` and a session want different actions on the same
+# keys: Enter should `cd` your shell somewhere in the first and open a
+# pane somewhere in the second. So the navigation, editing, git, search
+# and plumbing actions below come in pairs with the same name and key,
+# told apart by `when = { mode = "one-shot" }` and `{ mode = "session" }`.
+# Scout offers only the pair member for the run it is in; the trust prompt
+# and `scout doctor` show both.
+#
+# Placeholders: {path} {parent} {dir} {name} {ext} {repo_root} {home} {query}
+# and {env.VAR} (VAR set by an earlier `env` step in the SAME action;
+# never your shell's environment). `{dir}` is the selection when
+# it is a directory and its parent otherwise: where a command about the
+# selection runs. Every placeholder is single-quoted at the print seam, so
+# a directory called `proj $(rm -rf ~)` is a filename, not an instruction.
+# In a `spawn` argv a placeholder must be a whole element; where a session
+# action needs a shell (an editor fallback, a pipe, the clipboard chain)
+# the shape is `["sh", "-c", "<fixed text using \"$1\">", "sh", "{path}"]`:
+# the placeholder is the shell's first parameter, never part of the text
+# it parses.
 #
 # `when = { ... }` limits where an action is offered: `kind` (repo|dir|file),
-# `marker` (a file at the selection or its repo root), `ext`, `glob`, or a
-# recon `finding`. Keys are ANDed. An action without `when` is offered
-# everywhere. Chords are `alt-<letter>` or `ctrl-<letter>`; `tab` opens the
-# action pane and `ctrl-c` quits, so neither can be bound.
+# `marker` (a file at the selection or its repo root), `ext`, `glob`, a
+# recon `finding`, or `mode` (session|one-shot). Keys are ANDed. An action
+# without `when` is offered everywhere. Chords are `alt-<letter>` or
+# `ctrl-<letter>`; `tab` opens the action pane and `ctrl-c` quits, so
+# neither can be bound.
 #
 # ---------------------------------------------------------------------
 # WHAT THIS FILE IS, AND WHAT IT IS NOT
@@ -73,82 +89,175 @@ schema_version = 2
 # reindex     = "ctrl-r"
 
 # --- navigation -------------------------------------------------------
+#
+# One-shot: `cd` your shell there. Session: a shell pane there, and the
+# session goes on. `leave` is the one session action that still ends the
+# session (marked ⏎ in the pane): when you do want your shell moved.
 
 [[action]]
 name = "go"
 description = "cd into the selection (or its parent, for files)"
 keybinding = "enter"
+when = { mode = "one-shot" }
+steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}" } ]
+
+[[action]]
+name = "go"
+description = "Open a shell pane at the selection (its folder, for a file)"
+keybinding = "enter"
+when = { mode = "session" }
+steps = [ { kind = "spawn", argv = [], cwd = "{dir}", pane = "split-right" } ]
+
+[[action]]
+name = "leave"
+description = "End the session and cd there in the shell that started it"
+keybinding = "alt-c"
+when = { mode = "session" }
 steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}" } ]
 
 [[action]]
 name = "root"
 description = "cd to the repository root (git repos only)"
 keybinding = "alt-r"
-when = { kind = "repo" }
+when = { kind = "repo", mode = "one-shot" }
 steps = [ { kind = "print", format = "cd {repo_root}" } ]
+
+[[action]]
+name = "root"
+description = "Open a shell pane at the repository root (git repos only)"
+keybinding = "alt-r"
+when = { kind = "repo", mode = "session" }
+steps = [ { kind = "spawn", argv = [], cwd = "{repo_root}", pane = "split-right" } ]
 
 [[action]]
 name = "ls"
 description = "cd in and list, so you land oriented"
 keybinding = "alt-k"
+when = { mode = "one-shot" }
 steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; ls -lah" } ]
 
+[[action]]
+name = "ls"
+description = "A shell pane there, listed on arrival"
+keybinding = "alt-k"
+when = { mode = "session" }
+steps = [ { kind = "spawn", argv = ["ls", "-lah"], cwd = "{dir}", pane = "split-right" } ]
+
 # --- editing ----------------------------------------------------------
+#
+# Session: the editor runs on this terminal and the picker comes back
+# when it exits (`pause = false`: an editor's exit needs no "press any
+# key"). `edit-here` puts it in a pane instead, with a shell there after.
 
 [[action]]
 name = "edit"
 description = "Open in $EDITOR, in your shell so it owns the terminal"
 keybinding = "alt-e"
+when = { mode = "one-shot" }
 steps = [ { kind = "print", format = "${{EDITOR:-micro}} {path}" } ]
+
+[[action]]
+name = "edit"
+description = "Open in $EDITOR here; the picker returns when it exits"
+keybinding = "alt-e"
+when = { mode = "session" }
+steps = [ { kind = "spawn", argv = ["sh", "-c", "exec \"${{EDITOR:-micro}}\" \"$1\"", "sh", "{path}"], pause = false } ]
 
 [[action]]
 name = "edit-here"
 description = "cd to the selection, then open it; leaves you in the project"
+when = { mode = "one-shot" }
 steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; ${{EDITOR:-micro}} ." } ]
+
+[[action]]
+name = "edit-here"
+description = "Open in $EDITOR in a new pane, with a shell in the project after"
+when = { mode = "session" }
+steps = [ { kind = "spawn", argv = ["sh", "-c", "exec \"${{EDITOR:-micro}}\" \"$1\"", "sh", "{path}"], cwd = "{dir}", pane = "split-right" } ]
 
 # --- git --------------------------------------------------------------
 #
 # {repo_root} walks up from the selection looking for a `.git` entry, so
 # these work whether you selected the repository or a file inside it. The
-# `.git` marker keeps them off the pane outside a repository.
+# `.git` marker keeps them off the pane outside a repository. Session:
+# git runs on this terminal (its pager included), then a key brings the
+# picker back.
 
 [[action]]
 name = "status"
 description = "git status, short form, at the repository root"
 keybinding = "alt-s"
-when = { marker = ".git" }
+when = { marker = ".git", mode = "one-shot" }
 steps = [ { kind = "print", format = "cd {repo_root} && git status -sb" } ]
+
+[[action]]
+name = "status"
+description = "git status, short form, at the repository root"
+keybinding = "alt-s"
+when = { marker = ".git", mode = "session" }
+steps = [ { kind = "spawn", argv = ["git", "status", "-sb"], cwd = "{repo_root}" } ]
 
 [[action]]
 name = "log"
 description = "Last 20 commits as a graph"
 keybinding = "alt-l"
-when = { marker = ".git" }
+when = { marker = ".git", mode = "one-shot" }
 steps = [ { kind = "print", format = "cd {repo_root} && git log --oneline --graph -20" } ]
+
+[[action]]
+name = "log"
+description = "Last 20 commits as a graph"
+keybinding = "alt-l"
+when = { marker = ".git", mode = "session" }
+steps = [ { kind = "spawn", argv = ["git", "log", "--oneline", "--graph", "-20"], cwd = "{repo_root}" } ]
 
 [[action]]
 name = "diff"
 description = "Uncommitted changes"
 keybinding = "alt-d"
-when = { marker = ".git" }
+when = { marker = ".git", mode = "one-shot" }
 steps = [ { kind = "print", format = "cd {repo_root} && git diff" } ]
+
+[[action]]
+name = "diff"
+description = "Uncommitted changes"
+keybinding = "alt-d"
+when = { marker = ".git", mode = "session" }
+steps = [ { kind = "spawn", argv = ["git", "diff"], cwd = "{repo_root}" } ]
 
 # --- search -----------------------------------------------------------
 #
 # {query} is what you typed in the picker: quoted, so it is an argument to
-# the search tool and never a second command.
+# the search tool and never a second command. The session versions hand
+# it to `sh` as "$1" for the same reason.
 
 [[action]]
 name = "grep"
 description = "Search the selection's contents for the text you typed"
 keybinding = "alt-g"
+when = { mode = "one-shot" }
 steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; grep -rn --exclude-dir=.git {query} . | head -60" } ]
+
+[[action]]
+name = "grep"
+description = "Search the selection's contents for the text you typed"
+keybinding = "alt-g"
+when = { mode = "session" }
+steps = [ { kind = "spawn", argv = ["sh", "-c", "grep -rn --exclude-dir=.git \"$1\" . | head -60", "sh", "{query}"], cwd = "{dir}" } ]
 
 [[action]]
 name = "files"
 description = "List files under the selection whose name matches what you typed"
 keybinding = "alt-f"
+when = { mode = "one-shot" }
 steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; find . -path ./.git -prune -o -type f -print | grep -i {query} | head -60" } ]
+
+[[action]]
+name = "files"
+description = "List files under the selection whose name matches what you typed"
+keybinding = "alt-f"
+when = { mode = "session" }
+steps = [ { kind = "spawn", argv = ["sh", "-c", "find . -path ./.git -prune -o -type f -print | grep -i \"$1\" | head -60", "sh", "{query}"], cwd = "{dir}" } ]
 
 # --- plumbing ---------------------------------------------------------
 
@@ -156,16 +265,32 @@ steps = [ { kind = "print", format = "cd {path} 2>/dev/null || cd {parent}; find
 name = "print-path"
 description = "Print the selection's absolute path"
 keybinding = "alt-p"
+when = { mode = "one-shot" }
 steps = [ { kind = "print", format = "printf '%s\\n' {path}" } ]
+
+[[action]]
+name = "print-path"
+description = "Show the selection's absolute path; a key brings the picker back"
+keybinding = "alt-p"
+when = { mode = "session" }
+steps = [ { kind = "spawn", argv = ["printf", "%s\\n", "{path}"] } ]
 
 [[action]]
 name = "copy-path"
 description = "Copy the path to the clipboard"
 keybinding = "alt-y"
+when = { mode = "one-shot" }
 # scout has no clipboard of its own. This tries Wayland, then X11, then
 # macOS, and finally OSC 52, a terminal escape that asks the terminal
 # emulator itself to copy; inside tmux that needs `set -g set-clipboard on`.
 steps = [ { kind = "print", format = "printf '%s' {path} | ( wl-copy || xclip -selection clipboard || pbcopy || printf '\\033]52;c;%s\\007' \"$(printf '%s' {path} | base64 -w0)\" ) 2>/dev/null" } ]
+
+[[action]]
+name = "copy-path"
+description = "Copy the path to the clipboard"
+keybinding = "alt-y"
+when = { mode = "session" }
+steps = [ { kind = "spawn", argv = ["sh", "-c", "printf '%s' \"$1\" | ( wl-copy || xclip -selection clipboard || pbcopy || printf '\\033]52;c;%s\\007' \"$(printf '%s' \"$1\" | base64 -w0)\" ) 2>/dev/null", "sh", "{path}"], pause = false } ]
 
 # --- rust -------------------------------------------------------------
 #

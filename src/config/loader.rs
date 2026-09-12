@@ -3,7 +3,7 @@
 //! lower-precedence config, because the config the user is editing is
 //! the one they expect to load.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -13,7 +13,7 @@ use super::keys::{normalise_chord, Keys, Operation, PICKER_OWNED_KEYS};
 use super::trust::{TrustStatus, TrustStore};
 use super::{canonical, merge_with_defaults, trust, Config};
 use crate::actions::template::is_posix_env_name;
-use crate::actions::{Action, Kind, OnFailure, PaneOp, Step, Template, When};
+use crate::actions::{Action, Kind, Mode, OnFailure, PaneOp, Step, Template, When};
 use crate::platform::fs as pfs;
 use crate::{Error, Result};
 
@@ -64,6 +64,8 @@ struct RawWhen {
     glob: Option<String>,
     #[serde(default)]
     finding: Option<String>,
+    #[serde(default)]
+    mode: Option<String>,
 }
 
 /// Chords the picker itself uses; an action may not claim them. Only
@@ -258,36 +260,42 @@ pub fn load_file(
     for raw_action in &raw.actions {
         actions.push(validate_action(config_path, raw_action, &mut warnings)?);
     }
-    let mut names = HashSet::new();
-    for action in &actions {
-        if !names.insert(action.name.clone()) {
-            return Err(validation(
-                config_path,
-                format!("duplicate action name `{}`", action.name),
-            ));
-        }
-    }
-    // Two actions on one chord has no correct resolution: choosing either
-    // makes the other silently dead.
-    let mut seen: Vec<&str> = Vec::new();
-    for action in &actions {
-        if let Some(binding) = action.keybinding.as_deref() {
-            if binding != "enter" && seen.contains(&binding) {
+    // A name, a chord or `enter` may be shared only by actions that never
+    // meet: one `mode = "session"`, the other `mode = "one-shot"`. Within
+    // one run, two actions on one chord has no correct resolution
+    // (choosing either makes the other silently dead), and two on one
+    // name would confuse every message that names an action.
+    for (i, action) in actions.iter().enumerate() {
+        for other in &actions[..i] {
+            if !action.modes_overlap(other) {
+                continue;
+            }
+            if action.name == other.name {
                 return Err(validation(
                     config_path,
-                    format!("keybinding `{binding}` is claimed by more than one action"),
+                    format!(
+                        "duplicate action name `{}` (two actions may share a name only when \
+                         one is `mode = \"session\"` and the other `mode = \"one-shot\"`)",
+                        action.name
+                    ),
                 ));
             }
-            seen.push(binding);
+            match (action.keybinding.as_deref(), other.keybinding.as_deref()) {
+                (Some("enter"), Some("enter")) => {
+                    return Err(validation(
+                        config_path,
+                        "more than one action binds `enter` (dispatch ambiguity)".into(),
+                    ));
+                }
+                (Some(a), Some(b)) if a == b => {
+                    return Err(validation(
+                        config_path,
+                        format!("keybinding `{a}` is claimed by more than one action"),
+                    ));
+                }
+                _ => {}
+            }
         }
-    }
-
-    let enter_count = actions.iter().filter(|a| a.keybinding.as_deref() == Some("enter")).count();
-    if enter_count > 1 {
-        return Err(validation(
-            config_path,
-            "more than one action binds `enter` (dispatch ambiguity)".into(),
-        ));
     }
     // An explicit `[keys]` entry may not take an action's chord; a default
     // that would is dropped with a warning (the action was there first).
@@ -427,9 +435,12 @@ fn validate_action(path: &Path, raw: &RawAction, warnings: &mut Vec<String>) -> 
     };
 
     let unsafe_shell_template = raw.unsafe_shell_template.unwrap_or(false);
-    // The `sh -c` shape is checked first: its payload is the one seam
-    // where placeholder-plus-prose is legal, bought by the attestation;
-    // the single-slot rule governs every other argv element.
+    // The `sh -c` shape is checked first: its payload, the text after
+    // `-c`, is the one seam where placeholder-plus-prose is legal, bought
+    // by the attestation. Elements after the text are the shell's
+    // positional parameters (`sh -c 'grep "$1" .' sh {query}`): the shell
+    // never parses them as code, so they fall under the single-slot rule
+    // like any other argv element.
     for (index, step) in steps.iter().enumerate() {
         if let Step::Spawn { argv, .. } = step {
             let is_shell_dash_c = argv.len() >= 3
@@ -438,7 +449,7 @@ fn validate_action(path: &Path, raw: &RawAction, warnings: &mut Vec<String>) -> 
                     .map(|b| matches!(b.to_str(), Some("sh" | "bash" | "dash" | "zsh" | "ksh")))
                     .unwrap_or(false)
                 && argv[1].raw == "-c";
-            let templated_payload = argv.iter().skip(2).any(|t| t.has_placeholder());
+            let templated_payload = argv.get(2).is_some_and(|t| t.has_placeholder());
             if is_shell_dash_c && templated_payload && !unsafe_shell_template {
                 return Err(validation(
                     path,
@@ -548,16 +559,23 @@ fn validate_when(path: &Path, action: &str, raw: &RawWhen) -> Result<When> {
             )));
         }
     }
+    let mode = match raw.mode.as_deref() {
+        None => None,
+        Some(m) => {
+            Some(Mode::parse(m).ok_or_else(|| bad(format!("mode `{m}` (want session|one-shot)")))?)
+        }
+    };
     if kind.is_none()
         && marker.is_empty()
         && ext.is_empty()
         && raw.glob.is_none()
         && raw.finding.is_none()
+        && mode.is_none()
     {
         return Err(bad("an empty `when = {}` means always; omit it instead".into()));
     }
     let home = crate::platform::xdg::home().map(|h| h.display().to_string()).unwrap_or_default();
-    When::new(kind, marker, ext, raw.glob.clone(), raw.finding.clone(), &home).map_err(bad)
+    When::new(kind, marker, ext, raw.glob.clone(), raw.finding.clone(), mode, &home).map_err(bad)
 }
 
 fn validate_step(
@@ -594,8 +612,14 @@ fn validate_step(
             let argv_list = argv_value.as_array().ok_or_else(|| {
                 bad("`argv` must be an array of strings (single-string argv is refused)".into())
             })?;
-            if argv_list.is_empty() {
-                return Err(bad("`argv` must have at least one element".into()));
+            // An empty argv is only a thing with `pane`: the pane is then
+            // a shell at `cwd`. Everywhere else there is nothing to run.
+            if argv_list.is_empty() && table.get("pane").is_none() {
+                return Err(bad(
+                    "`argv` must have at least one element (an empty argv opens a shell only \
+                     with `pane`)"
+                        .into(),
+                ));
             }
             let mut argv = Vec::with_capacity(argv_list.len());
             for (i, element) in argv_list.iter().enumerate() {

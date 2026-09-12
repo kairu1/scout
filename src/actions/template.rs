@@ -7,11 +7,20 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Every fixed placeholder name `parse` accepts (`env.NAME` is the one
+/// open form). The docs and the reference config quote this list; a
+/// parity test holds them to it, and a unit test holds `parse` to it.
+pub const PLACEHOLDER_NAMES: &[&str] =
+    &["path", "name", "parent", "dir", "ext", "repo_root", "home", "query"];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Placeholder {
     Path,
     Name,
     Parent,
+    /// The selection when it is a directory, else its parent: where a
+    /// command about the selection runs.
+    Dir,
     Ext,
     RepoRoot,
     Home,
@@ -25,6 +34,7 @@ impl Placeholder {
             "path" => Ok(Placeholder::Path),
             "name" => Ok(Placeholder::Name),
             "parent" => Ok(Placeholder::Parent),
+            "dir" => Ok(Placeholder::Dir),
             "ext" => Ok(Placeholder::Ext),
             "repo_root" => Ok(Placeholder::RepoRoot),
             "home" => Ok(Placeholder::Home),
@@ -205,6 +215,13 @@ impl ExpandCtx<'_> {
                 .unwrap_or_else(|| self.path.display().to_string())),
             Placeholder::Parent => {
                 Ok(self.path.parent().unwrap_or(self.path).display().to_string())
+            }
+            Placeholder::Dir => {
+                // A vanished selection is not a directory either; its
+                // parent is the nearest place that may still exist.
+                let is_dir = std::fs::metadata(self.path).map(|m| m.is_dir()).unwrap_or(false);
+                let dir = if is_dir { self.path } else { self.path.parent().unwrap_or(self.path) };
+                Ok(dir.display().to_string())
             }
             Placeholder::Ext => {
                 let meta = std::fs::metadata(self.path)

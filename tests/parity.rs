@@ -104,7 +104,7 @@ fn reference_config_loads_and_every_printed_line_survives_the_wrapper() {
 fn reference_config_trust_hash_is_pinned() {
     let dir = temp_dir("refhash");
     let (_, hash) = load_reference_pretrusted(&dir);
-    assert_eq!(hash, "9223c39a0af66f8ff9417230cff1e760370be526ad8465424c00810db0e687db");
+    assert_eq!(hash, "51eda9f19b5e9a2c59452f48b015740d666619d0d100820b03f4e1ea42398e4c");
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -262,6 +262,97 @@ fn key_operations_and_defaults_match_the_docs() {
         assert!(pattern(REFERENCE_CONFIG), "examples/config.toml comment for {name} = {default}");
         assert!(readme.contains(&format!("`{name}`")), "README names {name}");
         assert!(readme.contains(&format!("`{default}`")), "README lists {default}");
+    }
+}
+
+/// The `when` keys: the loader accepts exactly `WHEN_KEYS`, the docs
+/// table has a row per key, and the reference config's comment names
+/// each one. The code list is the source; the prose must quote it.
+#[test]
+fn when_keys_match_the_loader_and_the_docs() {
+    use scout::actions::WHEN_KEYS;
+    let sample = |key: &str| -> &'static str {
+        match key {
+            "kind" => "\"repo\"",
+            "marker" => "\".git\"",
+            "ext" => "[\"rs\"]",
+            "glob" => "\"~/w/**\"",
+            "finding" => "\"suid\"",
+            "mode" => "\"session\"",
+            other => panic!("WHEN_KEYS gained `{other}`: give this test a sample value"),
+        }
+    };
+    let dir = temp_dir("whenkeys");
+    let load = |clause: &str| {
+        let toml = format!(
+            "schema_version = 2\n[[action]]\nname = \"a\"\nwhen = {{ {clause} }}\n\
+             steps = [ {{ kind = \"print\", format = \"x\" }} ]\n"
+        );
+        let path = dir.join("config.toml");
+        fs::write(&path, toml).unwrap();
+        load_file(&path, dir.join("store"), false)
+    };
+    for key in WHEN_KEYS {
+        // Accepted: the only failure a trusted-less load can report is
+        // the trust refusal, which comes after validation.
+        assert!(
+            matches!(
+                load(&format!("{key} = {}", sample(key))),
+                Err(Error::TrustRequiresTty { .. })
+            ),
+            "loader accepts `when.{key}`"
+        );
+        assert!(config_doc().contains(&format!("| `{key} = ")), "configuration.md row for {key}");
+        let comment = REFERENCE_CONFIG
+            .lines()
+            .filter(|l| l.starts_with('#'))
+            .any(|l| l.contains(&format!("`{key}`")) || l.contains(&format!("`{key} ")));
+        assert!(comment, "examples/config.toml comment names `{key}`");
+    }
+    assert!(matches!(
+        load("colour = \"red\""),
+        Err(Error::ConfigInvalid { .. } | Error::ConfigToml { .. })
+    ));
+    // Every documented row is a real key.
+    let in_when_section = config_doc()
+        .split("## `when`")
+        .nth(1)
+        .and_then(|s| s.split("\n## ").next())
+        .expect("a when section");
+    for row in in_when_section.lines().filter(|l| l.starts_with("| `")) {
+        let key = row.trim_start_matches("| `").split([' ', '`']).next().unwrap();
+        assert!(WHEN_KEYS.contains(&key), "docs row `{key}` is not a when key");
+    }
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The placeholders: the docs line and the reference config's comment
+/// name exactly the fixed names the template grammar parses.
+#[test]
+fn placeholders_match_the_docs() {
+    use scout::actions::template::PLACEHOLDER_NAMES;
+    let section = config_doc()
+        .split("## Placeholders")
+        .nth(1)
+        .and_then(|s| s.split("\n## ").next())
+        .expect("a placeholders section");
+    // The list leads the section; the prose after it names some again.
+    let mut documented: Vec<&str> = Vec::new();
+    for token in section.split('`') {
+        if token.starts_with('{') && token.ends_with('}') && !token.starts_with("{{") {
+            let name = &token[1..token.len() - 1];
+            if name != "env.NAME" && !documented.contains(&name) {
+                documented.push(name);
+            }
+        }
+    }
+    assert_eq!(documented, PLACEHOLDER_NAMES, "configuration.md placeholder list");
+    let comment = REFERENCE_CONFIG
+        .lines()
+        .find(|l| l.starts_with("# Placeholders:"))
+        .expect("the reference config lists the placeholders");
+    for name in PLACEHOLDER_NAMES {
+        assert!(comment.contains(&format!("{{{name}}}")), "examples/config.toml names {{{name}}}");
     }
 }
 

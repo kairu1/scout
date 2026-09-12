@@ -1,13 +1,15 @@
 //! Applicability: the optional `when` clause that says where an action is
-//! offered. Five keys, all ANDed: the selection's kind, a marker file at
+//! offered. Six keys, all ANDed: the selection's kind, a marker file at
 //! the selection or its repository root, the file extension, a glob over
-//! the canonical path, and a recon finding on the row. An action without
-//! a clause is offered everywhere.
+//! the canonical path, a recon finding on the row, and the mode scout is
+//! running in. An action without a clause is offered everywhere.
 //!
 //! Evaluation is split in two so the picker never stats per frame: an
 //! `Applicability` is computed once per selected path (a handful of
 //! stats), and every action's clause is then checked against it in
-//! memory.
+//! memory. `mode` is different in kind: it is a fact about the run, not
+//! the selection, so the picker settles it once (`allows_mode`) before it
+//! draws and `applies` never sees it.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -43,6 +45,45 @@ impl Kind {
     }
 }
 
+/// The two ways scout runs: one action then exit, or a session that
+/// returns to the picker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Session,
+    OneShot,
+}
+
+impl Mode {
+    pub fn parse(name: &str) -> Option<Mode> {
+        match name {
+            "session" => Some(Mode::Session),
+            "one-shot" => Some(Mode::OneShot),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Mode::Session => "session",
+            Mode::OneShot => "one-shot",
+        }
+    }
+
+    /// The mode of a run.
+    pub fn of_run(session: bool) -> Mode {
+        if session {
+            Mode::Session
+        } else {
+            Mode::OneShot
+        }
+    }
+}
+
+/// Every key a `when` clause accepts, in the order the reference
+/// documents them. The loader's raw struct and the docs table must
+/// agree with this list; a parity test holds them to it.
+pub const WHEN_KEYS: &[&str] = &["kind", "marker", "ext", "glob", "finding", "mode"];
+
 /// A parsed `when` clause. Every field is optional; at least one is set.
 #[derive(Debug, Clone)]
 pub struct When {
@@ -57,6 +98,8 @@ pub struct When {
     glob_matcher: Option<GlobMatcher>,
     /// A recon check name; satisfied by an unaccepted finding on the row.
     pub finding: Option<String>,
+    /// Offered only in this mode. Settled once per run, not per selection.
+    pub mode: Option<Mode>,
 }
 
 impl When {
@@ -69,6 +112,7 @@ impl When {
         ext: Vec<String>,
         glob: Option<String>,
         finding: Option<String>,
+        mode: Option<Mode>,
         home: &str,
     ) -> Result<When, String> {
         let glob_matcher = match &glob {
@@ -85,10 +129,18 @@ impl When {
             }
             None => None,
         };
-        Ok(When { kind, marker, ext, glob, glob_matcher, finding })
+        Ok(When { kind, marker, ext, glob, glob_matcher, finding, mode })
     }
 
-    /// True when the selection satisfies every key present.
+    /// Whether a run in this mode may offer the action at all. `mode`
+    /// absent means both.
+    pub fn allows_mode(&self, session: bool) -> bool {
+        self.mode.is_none_or(|m| m == Mode::of_run(session))
+    }
+
+    /// True when the selection satisfies every key present, `mode`
+    /// excepted: that one is a property of the run and is settled by
+    /// `allows_mode` before any selection exists.
     pub fn applies(&self, a: &Applicability) -> bool {
         if let Some(kind) = self.kind {
             if a.kind != Some(kind) {
@@ -138,6 +190,12 @@ impl When {
         }
         if let Some(finding) = &self.finding {
             parts.push(format!("needs a {finding} finding"));
+        }
+        if let Some(mode) = self.mode {
+            parts.push(match mode {
+                Mode::Session => "session mode only".to_string(),
+                Mode::OneShot => "one-shot only".to_string(),
+            });
         }
         parts.join("; ")
     }
@@ -219,9 +277,30 @@ mod tests {
             ext.iter().map(|s| s.to_string()).collect(),
             glob.map(str::to_string),
             None,
+            None,
             "/home/u",
         )
         .unwrap()
+    }
+
+    fn moded(mode: Option<Mode>) -> When {
+        When::new(None, Vec::new(), Vec::new(), None, None, mode, "/home/u").unwrap()
+    }
+
+    #[test]
+    fn mode_gates_the_run_not_the_selection_and_absent_means_both() {
+        assert!(moded(Some(Mode::Session)).allows_mode(true));
+        assert!(!moded(Some(Mode::Session)).allows_mode(false));
+        assert!(moded(Some(Mode::OneShot)).allows_mode(false));
+        assert!(!moded(Some(Mode::OneShot)).allows_mode(true));
+        assert!(moded(None).allows_mode(true) && moded(None).allows_mode(false));
+        // Any selection satisfies a mode-only clause: the run decided.
+        let file = appl(Some(Kind::File), &[], Some("rs"), "/home/u/w/main.rs");
+        assert!(moded(Some(Mode::Session)).applies(&file));
+        assert_eq!(moded(Some(Mode::Session)).describe(), "session mode only");
+        assert_eq!(moded(Some(Mode::OneShot)).describe(), "one-shot only");
+        assert_eq!(Mode::parse("session"), Some(Mode::Session));
+        assert_eq!(Mode::parse("oneshot"), None);
     }
 
     fn appl(kind: Option<Kind>, markers: &[&str], ext: Option<&str>, path: &str) -> Applicability {
@@ -266,7 +345,8 @@ mod tests {
 
     #[test]
     fn finding_requires_the_named_finding_on_the_row() {
-        let clause = When::new(None, vec![], vec![], None, Some("suid".into()), "/h").unwrap();
+        let clause =
+            When::new(None, vec![], vec![], None, Some("suid".into()), None, "/h").unwrap();
         let mut a = appl(Some(Kind::File), &[], Some(""), "/x");
         assert!(!clause.applies(&a));
         a.findings.insert("suid".into());

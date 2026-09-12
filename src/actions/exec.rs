@@ -148,8 +148,10 @@ fn run_step(
                 });
             }
             // Outside tmux a pane step runs here and waits, whatever `wait`
-            // says, so its output is seen.
+            // says, so its output is seen. An empty argv meant "a shell in
+            // the pane"; here that is the shell on this terminal.
             let wait = *wait || pane.is_some();
+            let expanded = if expanded.is_empty() { process::shell_argv() } else { expanded };
             spawn(&expanded, wait, &cwd, child_env)
         }
         Step::BuiltinEdit => {

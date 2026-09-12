@@ -38,7 +38,7 @@ steps = [ { kind = "spawn", argv = ["cargo", "test"], cwd = "{repo_root}" } ]
 
 | kind | fields | does |
 |---|---|---|
-| `spawn` | `argv` (list of strings, required), `wait` (default true), `cwd` (default `{home}`), `pause` (default true), `pane` (`split-right`, `split-down`, `new-window`) | runs the argv directly, no shell. `wait = false` detaches it with null stdio. In a session, `pause = false` skips the "press any key" hold after the child exits (set it on editors). `pane` runs the command in a tmux pane when the session has tmux (scout starts one when it can) and in-process otherwise; it cannot be combined with `wait = true` or `pause`. |
+| `spawn` | `argv` (list of strings, required), `wait` (default true), `cwd` (default `{home}`), `pause` (default true), `pane` (`split-right`, `split-down`, `new-window`) | runs the argv directly, no shell. `wait = false` detaches it with null stdio. In a session, `pause = false` skips the "press any key" hold after the child exits (set it on editors). `pane` runs the command in a tmux pane when the session has tmux (scout starts one when it can) and in-process otherwise; it cannot be combined with `wait = true` or `pause`. With `pane`, `argv = []` opens a shell at `cwd` and nothing else (outside tmux: your shell on this terminal, back to the picker when it exits). |
 | `print` | `format` (required) | writes a line for the shell wrapper to eval after scout exits. Always ends a session. |
 | `env` | `set` (table, at least one entry) | binds values that later steps in the same action can use as `{env.NAME}` and that later children inherit. All-or-nothing: if one value fails to expand, none land. |
 
@@ -49,9 +49,11 @@ successful step.
 
 ## Placeholders
 
-`{path}` `{name}` `{parent}` `{ext}` `{repo_root}` `{home}` `{query}`
-`{env.NAME}`. `{{` and `}}` write literal braces. An unknown placeholder
-refuses the file at load. `{ext}` is undefined on a directory and
+`{path}` `{name}` `{parent}` `{dir}` `{ext}` `{repo_root}` `{home}`
+`{query}` `{env.NAME}`. `{{` and `}}` write literal braces. An unknown
+placeholder refuses the file at load. `{dir}` is the selection when it is
+a directory and its parent otherwise (the `cwd` for a command about the
+selection). `{ext}` is undefined on a directory and
 `{repo_root}` is undefined outside a git repository; a step that needs
 one fails and says what to do instead. `{env.NAME}` resolves only
 against an `env` step earlier in the same action, never your shell's
@@ -65,7 +67,12 @@ action sets `unsafe_shell_template = true`, which means you have read it
 and accepted that a hostile filename becomes shell syntax. In a `spawn`
 argv, an element holding a placeholder may hold nothing else (no spaces,
 no shell characters): `["grep", "-rn", "{query}", "."]`, not
-`["grep -rn {query}"]`.
+`["grep -rn {query}"]`. When a spawn needs a shell (a pipe, an editor
+fallback), hand the placeholder to `sh` as a positional parameter:
+`["sh", "-c", "grep -rn \"$1\" . | head -60", "sh", "{query}"]`. The
+text after `-c` is fixed and is all the shell parses; `$1` is data, so no
+attestation is needed. A placeholder inside the `-c` text is the attested
+shape.
 
 ## `when`
 
@@ -79,11 +86,21 @@ offered everywhere; an empty table is refused (omit it instead).
 | `ext = ["rs", "toml"]` | the selection is a file with one of these extensions (no dot); false on a directory |
 | `glob = "~/work/**"` | the canonical path matches; `*` does not cross `/`, `**` does; a leading `~/` is your home |
 | `finding = "world-writable-dir"` | `scout recon` has an unaccepted finding with that check name on the row |
+| `mode = "session" \| "one-shot"` | the run is a session (`--session`, `-s`, `[scout] session = true`) or a one-shot `scout` |
 
 The action pane lists only actions that apply to the selection. A chord
 bound to an action that does not apply does nothing and the footer says
 why. Two actions may not share a chord even if their clauses exclude each
 other; give each ecosystem its own letter.
+
+`mode` is the one key settled per run rather than per selection: scout
+drops the actions the run cannot offer before the picker draws. That is
+also the one case where two actions may share a name, a chord or `enter`:
+one `mode = "session"`, the other `mode = "one-shot"`, so the same key
+does the session thing in a session (open a pane here) and the one-shot
+thing otherwise (`cd` your shell here). An action without `mode` is
+offered in both and clashes with either. The trust prompt and `scout
+doctor` show the whole set; `doctor` also counts each mode's.
 
 ## `[scout]`
 

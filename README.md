@@ -74,8 +74,11 @@ spawned program gets the terminal for its lifetime, scout holds the screen
 with one status line until you press a key, and the picker returns with
 your query and selection intact. The title reads `scout: session` so you
 always know which mode you are in. Actions that print a command for your
-shell (`cd`) still end the session, because they only work after scout is
-gone; they are marked `⏎`.
+shell (`cd`) can only work after scout is gone, so they end the session
+and are marked `⏎`; a session wants its own actions instead, and the
+reference config gives it a set on the same keys (`when = { mode =
+"session" }`): Enter opens a shell pane at the selection, `alt-c` is the
+one action that leaves and moves your shell.
 
 A session brings its own panes. With tmux installed, `scout -s` from a
 plain shell starts a tmux session on scout's own server (`tmux -L scout`;
@@ -158,10 +161,14 @@ scout() {
 ## Configuration in one page
 
 Config lives at `$XDG_CONFIG_HOME/scout/config.toml`. Start from
-[`examples/config.toml`](examples/config.toml); the reference config ships 28
+[`examples/config.toml`](examples/config.toml); the reference config ships 41
 actions across navigation, editing, git, search, plumbing, one section per
 ecosystem (Rust, Node, Python, Go, Make and just) that is offered only
-where that ecosystem's marker file exists, and the recon fixes.
+where that ecosystem's marker file exists, and the recon fixes. The
+navigation, editing, git, search and plumbing actions come in pairs with
+the same name and key: a `print` one for a one-shot `scout` and a session
+one that opens a pane or runs and returns, told apart by
+`when = { mode = "one-shot" }` and `{ mode = "session" }`.
 
 ```toml
 schema_version = 2

@@ -175,13 +175,20 @@ impl World {
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 
-    /// Write a config whose Enter action prints a `cd`, and trust it the
+    /// Write a config shaped like the reference one's navigation: Enter
+    /// prints a `cd` in a one-shot run and opens a shell pane in a
+    /// session, and `alt-c` is the session's exit action. Trust it the
     /// way a user would have, so the launch sees no prompt.
     fn trusted_config(&self) {
         let config_path = self.dir.join("cfg/scout/config.toml");
         std::fs::write(
             &config_path,
-            "schema_version = 2\n\n[[action]]\nname = \"go\"\nkeybinding = \"enter\"\n\
+            "schema_version = 2\n\n\
+             [[action]]\nname = \"go\"\nkeybinding = \"enter\"\nwhen = { mode = \"one-shot\" }\n\
+             steps = [ { kind = \"print\", format = \"cd {path}\" } ]\n\
+             [[action]]\nname = \"go\"\nkeybinding = \"enter\"\nwhen = { mode = \"session\" }\n\
+             steps = [ { kind = \"spawn\", argv = [], cwd = \"{dir}\", pane = \"split-right\" } ]\n\
+             [[action]]\nname = \"leave\"\nkeybinding = \"alt-c\"\nwhen = { mode = \"session\" }\n\
              steps = [ { kind = \"print\", format = \"cd {path}\" } ]\n",
         )
         .unwrap();
@@ -374,9 +381,34 @@ fn a_session_outside_tmux_lands_in_a_picker_with_panes_and_returns_the_cd() {
         world.send(&picker, &["BSpace"]);
     }
 
-    // 3. Enter on alpha: the cd reaches the wrapper after the detach.
+    // 3. Enter on alpha in a session is the session `go`: a shell pane at
+    //    alpha, no command, and the picker stays. The one-shot `go` on
+    //    the same key never reaches the picker.
     world.send_text(&picker, "alpha");
     world.send(&picker, &["Enter"]);
+    wait_for("the go pane", || world.diagnose(&run), || (world.pane_count() == 3).then_some(()));
+    let paths = world.tmux_ok(&["list-panes", "-s", "-t", "=scout", "-F", "#{pane_current_path}"]);
+    assert!(paths.contains("tree/alpha"), "the session go opened a pane at alpha: {paths}");
+    let commands =
+        world.tmux_ok(&["list-panes", "-s", "-t", "=scout", "-F", "#{pane_current_command}"]);
+    assert!(
+        !commands.contains("pane-run"),
+        "an empty argv is a shell, not pane-run running nothing: {commands}"
+    );
+    assert!(world.picker_pane().is_some(), "the picker survives a session action");
+    // Back from the new pane and kill it, so the split from step 2 is the
+    // one pane left over after the leave.
+    world.send(&picker, &["M-h"]);
+    world.send(&picker, &["M-x"]);
+    wait_for(
+        "the go pane closed",
+        || world.diagnose(&run),
+        || (world.pane_count() == 2).then_some(()),
+    );
+
+    // 3b. `leave` (alt-c) is the exit action: the cd reaches the wrapper
+    //     after the detach.
+    world.send(&picker, &["M-c"]);
     let transcript = run.finish();
     assert!(transcript.contains("RC=0"), "{transcript}");
     let alpha = world.dir.join("tree/alpha");

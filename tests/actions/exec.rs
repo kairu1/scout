@@ -192,6 +192,48 @@ fn an_env_step_reaches_spawned_children() {
 /// picker mode, so a user whose action silently did nothing had no way
 /// to reach it. The outcome carries it out as a typed kind.
 #[test]
+fn an_empty_argv_pane_step_hands_the_runner_no_command_at_dir() {
+    let dir = temp_dir("emptyargv");
+    let project = dir.join("project");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("main.rs"), "").unwrap();
+
+    let seen: std::cell::RefCell<Vec<(PathBuf, Vec<String>)>> = std::cell::RefCell::new(Vec::new());
+    let runner = |_op: scout::actions::PaneOp,
+                  cwd: &Path,
+                  argv: &[String],
+                  _env: &[(String, String)]|
+     -> Result<(), String> {
+        seen.borrow_mut().push((cwd.to_path_buf(), argv.to_vec()));
+        Ok(())
+    };
+    let a = action(
+        "go",
+        OnFailure::Abort,
+        vec![Step::Spawn {
+            argv: vec![],
+            wait: false,
+            cwd: Some(t("{dir}")),
+            pause: true,
+            pane: Some(scout::actions::PaneOp::SplitRight),
+        }],
+    );
+    // A file selection: the pane opens at its directory.
+    let ctx = ActionCtx {
+        path: project.join("main.rs"),
+        query: String::new(),
+        home: dir.display().to_string(),
+        print_to: None,
+        pane_runner: Some(&runner),
+    };
+    let outcome = execute(&a, &ctx, None);
+    assert!(outcome.any_success, "{:?}", outcome.failure);
+    assert_eq!(seen.borrow().as_slice(), [(project.clone(), Vec::<String>::new())]);
+
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn the_outcome_carries_the_failure_kind() {
     let dir = temp_dir("failreason");
     let target = dir.join("not-a-repo");

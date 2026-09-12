@@ -23,12 +23,15 @@ pub fn spawn_wait(
     command(argv, cwd, env).status()
 }
 
+/// The user's shell as a one-element argv: `$SHELL`, else `sh`.
+pub fn shell_argv() -> Vec<String> {
+    vec![std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "sh".into())]
+}
+
 /// Replace this process with the user's shell (`$SHELL`, else `sh`) in
 /// `cwd`. Only returns on failure.
 pub fn exec_shell(cwd: &Path) -> io::Error {
-    let shell =
-        std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "sh".into());
-    Command::new(shell).current_dir(cwd).exec()
+    Command::new(&shell_argv()[0]).current_dir(cwd).exec()
 }
 
 /// Replace this process with `argv`, environment and directory inherited.

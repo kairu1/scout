@@ -59,6 +59,40 @@ fn an_empty_query_is_valid_but_a_missing_env_binding_is_not() {
 }
 
 #[test]
+fn the_placeholder_list_is_exactly_what_the_grammar_parses() {
+    use scout::actions::template::{Template, PLACEHOLDER_NAMES};
+    for name in PLACEHOLDER_NAMES {
+        assert!(Template::parse(&format!("{{{name}}}")).is_ok(), "{{{name}}} parses");
+    }
+    for not in ["folder", "cwd", "root", "env"] {
+        assert!(!PLACEHOLDER_NAMES.contains(&not));
+        assert!(Template::parse(&format!("{{{not}}}")).is_err(), "{{{not}}} must not parse");
+    }
+}
+
+#[test]
+fn dir_is_the_selection_for_a_directory_and_its_parent_otherwise() {
+    let dir = temp_dir("dirph");
+    let project = dir.join("project");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("main.rs"), "").unwrap();
+    let env = HashMap::new();
+
+    let ctx = ExpandCtx { path: &project, query: "", home: "/h", env: &env };
+    assert_eq!(t("{dir}").expand(&ctx, false).unwrap(), project.display().to_string());
+    let file = project.join("main.rs");
+    let ctx = ExpandCtx { path: &file, query: "", home: "/h", env: &env };
+    assert_eq!(t("{dir}").expand(&ctx, false).unwrap(), project.display().to_string());
+    // A selection that vanished is not a directory; its parent is the
+    // nearest place a command can still run.
+    let gone = project.join("gone");
+    let ctx = ExpandCtx { path: &gone, query: "", home: "/h", env: &env };
+    assert_eq!(t("{dir}").expand(&ctx, false).unwrap(), project.display().to_string());
+
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn repo_root_resolves_through_a_git_file_or_directory_and_is_undefined_otherwise() {
     let dir = temp_dir("reporoot");
     let repo = dir.join("repo");

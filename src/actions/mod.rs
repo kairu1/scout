@@ -22,7 +22,7 @@ pub use builtin::compiled_defaults;
 pub use exec::{execute, sanitized_process_env, ActionCtx, ExecOutcome};
 pub use failure::{FailureKind, Hint};
 pub use template::Template;
-pub use when::{Applicability, Kind, When};
+pub use when::{Applicability, Kind, Mode, When, WHEN_KEYS};
 pub use PaneOp as Pane;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +115,26 @@ impl Action {
     /// applicability.
     pub fn applies(&self, a: &Applicability) -> bool {
         self.when.as_ref().is_none_or(|w| w.applies(a))
+    }
+
+    /// The mode the action is limited to, if any.
+    pub fn mode(&self) -> Option<Mode> {
+        self.when.as_ref().and_then(|w| w.mode)
+    }
+
+    /// Whether a run in this mode offers the action at all.
+    pub fn offered_in(&self, session: bool) -> bool {
+        self.when.as_ref().is_none_or(|w| w.allows_mode(session))
+    }
+
+    /// Whether two actions can both be offered in some run: at least one
+    /// has no mode, or their modes agree. What makes a shared name or
+    /// chord ambiguous, or harmless.
+    pub fn modes_overlap(&self, other: &Action) -> bool {
+        match (self.mode(), other.mode()) {
+            (Some(a), Some(b)) => a == b,
+            _ => true,
+        }
     }
 
     /// An action with a `print` step only works after scout has gone (the

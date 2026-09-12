@@ -64,11 +64,22 @@ pub(super) fn config_section(home: Option<&Path>) -> Section {
     match loader::load(&chain, trust_store, false) {
         Ok(config) => {
             let from_user = config.source.is_some();
+            // Mode-gated actions are counted per run, so the user can see
+            // that a session and a one-shot offer different sets.
+            let per_mode = if config.actions.iter().any(|a| a.mode().is_some()) {
+                format!(
+                    "; {} in a session, {} one-shot",
+                    config.actions.iter().filter(|a| a.offered_in(true)).count(),
+                    config.actions.iter().filter(|a| a.offered_in(false)).count()
+                )
+            } else {
+                String::new()
+            };
             checks.push(Check::new(
                 "load",
                 Level::Ok,
                 format!(
-                    "{} action(s) active ({})",
+                    "{} action(s) active ({}{per_mode})",
                     config.actions.len(),
                     if from_user { "user config merged over defaults" } else { "defaults only" }
                 ),

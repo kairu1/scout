@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.3
+
+A session gets its own actions.
+
+### Added
+- `when = { mode = "session" | "one-shot" }`: an action offered only in
+  a session, or only in a one-shot `scout`. Two actions may share a name,
+  a chord or `enter` when their modes are disjoint. `scout doctor` counts
+  each mode's actions. Enters the trust hash; a config without the key
+  hashes as before.
+- A `spawn` step with `pane` may have an empty `argv`: the pane is a
+  shell at `cwd`. `{dir}`: the selection when it is a directory, else its
+  parent.
+- The reference config pairs every navigation, editing, git, search and
+  plumbing action with a session version on the same key: Enter opens a
+  shell pane at the selection, `alt-r` one at the repository root,
+  `alt-k` lists there, the git views and searches run and return, the
+  editor runs here (`alt-e`) or in a pane (`edit-here`), and `leave`
+  (`alt-c`) is the one action that ends the session with a `cd`. The
+  trust prompt appears once after copying it.
+
+### Changed
+- `sh -c` needs `unsafe_shell_template` only when a placeholder is inside
+  the `-c` text. `sh -c '… "$1"' sh {path}` passes it as a positional
+  parameter and loads without attestation.
+
 ## 0.4.2
 
 A hardening release from an independent review of everything since

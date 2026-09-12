@@ -25,8 +25,11 @@ every user re-approves once, on purpose.
 Steps run as argv. A shell parses a scout-templated string at exactly two
 seams: the `print` line the wrapper evals (every placeholder
 POSIX-single-quoted; NUL and newline refused), and an explicit
-`sh -c` in an action marked `unsafe_shell_template = true`. Unknown
-placeholders are load-time errors. `{env.X}` resolves only against `env`
+`sh -c` in an action marked `unsafe_shell_template = true`. The
+attestation covers the text after `-c`; an argv element after that text
+(`sh -c '… "$1"' sh {path}`) is a positional parameter the shell never
+parses as code, and is held to the single-slot rule like any other
+element. Unknown placeholders are load-time errors. `{env.X}` resolves only against `env`
 steps in the same action, never the process environment, and a missing
 binding fails the step rather than expanding to nothing. Children inherit
 the environment with `.` and empty entries stripped from `PATH`; secrets

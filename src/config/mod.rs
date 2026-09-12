@@ -60,6 +60,16 @@ impl Config {
         }
     }
 
+    /// The same config with only the actions a run in this mode offers.
+    /// Settled once, before the picker draws: after this, names and
+    /// chords are unique again (the loader allows sharing only across
+    /// disjoint modes), so the picker's tables need no mode of their own.
+    pub fn for_mode(&self, session: bool) -> Config {
+        let mut config = self.clone();
+        config.actions.retain(|a| a.offered_in(session));
+        config
+    }
+
     /// The action Enter dispatches: the unique `keybinding = "enter"`
     /// among user actions first, compiled defaults second.
     pub fn enter_action(&self) -> Option<&Action> {

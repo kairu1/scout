@@ -110,6 +110,7 @@ fn the_canonical_projection_is_byte_stable_for_the_documented_example() {
             vec![],
             Some("~/w/**".into()),
             None,
+            Some(scout::actions::Mode::Session),
             "/home/u",
         )
         .unwrap(),
@@ -118,7 +119,7 @@ fn the_canonical_projection_is_byte_stable_for_the_documented_example() {
     let projected = canonical::projection(&scoped, &keys);
     assert!(
         projected.contains(
-            "\"when\":{\"glob\":\"~/w/**\",\"kind\":\"repo\",\"marker\":[\"Cargo.toml\"]}"
+            "\"when\":{\"glob\":\"~/w/**\",\"kind\":\"repo\",\"marker\":[\"Cargo.toml\"],\"mode\":\"session\"}"
         ),
         "{projected}"
     );
@@ -157,6 +158,15 @@ fn the_loader_refuses_each_invalid_shape_and_names_it() {
         (
             "schema_version = 2\n[[action]]\nname = \"a\"\nwhen = { kind = \"symlink\" }\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
             "repo|dir|file",
+        ),
+        (
+            "schema_version = 2\n[[action]]\nname = \"a\"\nwhen = { mode = \"tmux\" }\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
+            "session|one-shot",
+        ),
+        // an empty argv is a shell only in a pane
+        (
+            "schema_version = 2\n[[action]]\nname = \"a\"\nsteps = [ { kind = \"spawn\", argv = [] } ]\n",
+            "with `pane`",
         ),
         (
             "schema_version = 2\n[[action]]\nname = \"a\"\nwhen = { marker = \"src/Cargo.toml\" }\nsteps = [ { kind = \"print\", format = \"x\" } ]\n",
@@ -262,6 +272,29 @@ fn the_loader_refuses_each_invalid_shape_and_names_it() {
     fs::remove_dir_all(&dir).unwrap();
 }
 
+/// `sh -c '<text>' sh {path}`: the placeholder is a positional parameter
+/// the text reads as `"$1"`. The shell parses the text, which is fixed,
+/// and never the parameter, so this needs no attestation; a placeholder
+/// inside the text still does.
+#[test]
+fn a_placeholder_as_a_positional_parameter_of_sh_c_needs_no_attestation() {
+    let dir = temp_dir("positional");
+    let config = load_pretrusted(
+        &dir,
+        "schema_version = 2\n[[action]]\nname = \"files\"\nsteps = [ { kind = \"spawn\", argv = [\"sh\", \"-c\", \"find . -type f | grep -i \\\"$1\\\"\", \"sh\", \"{query}\"] } ]\n",
+    )
+    .unwrap();
+    assert!(config.actions.iter().any(|a| a.name == "files" && !a.unsafe_shell_template));
+    let message = load_pretrusted(
+        &dir,
+        "schema_version = 2\n[[action]]\nname = \"files\"\nsteps = [ { kind = \"spawn\", argv = [\"sh\", \"-c\", \"find . | grep {query}\", \"sh\"] } ]\n",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(message.contains("unsafe_shell_template"), "{message}");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn an_attested_sh_c_loads() {
     let dir = temp_dir("attested");
@@ -317,6 +350,72 @@ fn an_unknown_keybinding_warns() {
     )
     .unwrap();
     assert!(config.warnings.iter().any(|w| w.contains("f7")), "{:?}", config.warnings);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The session set: an action may reuse a name, a chord or `enter` when
+/// the two never meet in one run. `for_mode` is what keeps them apart.
+#[test]
+fn a_name_and_a_chord_are_shared_across_disjoint_modes_only() {
+    let dir = temp_dir("mode-share");
+    let twins = "schema_version = 2\n\
+        [[action]]\nname = \"go\"\nkeybinding = \"enter\"\nwhen = { mode = \"one-shot\" }\n\
+        steps = [ { kind = \"print\", format = \"cd {path}\" } ]\n\
+        [[action]]\nname = \"go\"\nkeybinding = \"enter\"\nwhen = { mode = \"session\" }\n\
+        steps = [ { kind = \"spawn\", argv = [], cwd = \"{dir}\", pane = \"split-right\" } ]\n\
+        [[action]]\nname = \"status\"\nkeybinding = \"alt-s\"\nwhen = { marker = \".git\", mode = \"one-shot\" }\n\
+        steps = [ { kind = \"print\", format = \"git status\" } ]\n\
+        [[action]]\nname = \"status\"\nkeybinding = \"alt-s\"\nwhen = { marker = \".git\", mode = \"session\" }\n\
+        steps = [ { kind = \"spawn\", argv = [\"git\", \"status\"], cwd = \"{repo_root}\" } ]\n\
+        [[action]]\nname = \"both\"\nkeybinding = \"alt-b\"\n\
+        steps = [ { kind = \"spawn\", argv = [\"true\"] } ]\n";
+    let config = load_pretrusted(&dir, twins).unwrap();
+    let user = |c: &scout::config::Config| -> Vec<String> {
+        c.actions.iter().filter(|a| a.from_user_config).map(|a| a.name.clone()).collect()
+    };
+    assert_eq!(user(&config), ["go", "go", "status", "status", "both"]);
+
+    let session = config.for_mode(true);
+    assert_eq!(user(&session), ["go", "status", "both"]);
+    let go = session.enter_action().expect("enter is bound in a session");
+    assert!(
+        matches!(go.steps.as_slice(), [scout::actions::Step::Spawn { argv, pane: Some(_), .. }] if argv.is_empty()),
+        "the session `go` is the pane one"
+    );
+    let one_shot = config.for_mode(false);
+    assert_eq!(user(&one_shot), ["go", "status", "both"]);
+    assert!(matches!(
+        one_shot.enter_action().unwrap().steps.as_slice(),
+        [scout::actions::Step::Print { .. }]
+    ));
+    // The projection carries the mode after marker, and an empty argv.
+    let user_actions: Vec<_> =
+        config.actions.iter().filter(|a| a.from_user_config).cloned().collect();
+    let projected = canonical::projection(&user_actions, &BTreeMap::new());
+    assert!(
+        projected.contains("\"when\":{\"marker\":[\".git\"],\"mode\":\"session\"}"),
+        "{projected}"
+    );
+    assert!(projected.contains("\"argv\":[],\"wait\":true,\"cwd\":\"{dir}\""), "{projected}");
+
+    // The same name with one side unmoded meets in a session: refused.
+    let clash = twins.replace(
+        "name = \"go\"\nkeybinding = \"enter\"\nwhen = { mode = \"session\" }\n",
+        "name = \"go\"\nkeybinding = \"alt-g\"\n",
+    );
+    let message = load_pretrusted(&dir, &clash).unwrap_err().to_string();
+    assert!(message.contains("duplicate action name `go`"), "{message}");
+    // Two session actions on one chord: refused.
+    let clash = twins.replace(
+        "keybinding = \"alt-b\"\n",
+        "keybinding = \"alt-s\"\nwhen = { mode = \"session\" }\n",
+    );
+    let message = load_pretrusted(&dir, &clash).unwrap_err().to_string();
+    assert!(message.contains("alt-s") && message.contains("more than one action"), "{message}");
+    // `enter` shared with an unmoded action: refused.
+    let clash = twins.replace("keybinding = \"alt-b\"\n", "keybinding = \"enter\"\n");
+    let message = load_pretrusted(&dir, &clash).unwrap_err().to_string();
+    assert!(message.contains("more than one action binds `enter`"), "{message}");
     fs::remove_dir_all(&dir).unwrap();
 }
 
