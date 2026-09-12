@@ -221,6 +221,11 @@ fn the_wrapper_marker_in_the_installer_and_readme_is_the_one_recon_scans_for() {
     let marker = scout::recon::checks::WRAPPER_MARKER;
     let installer = include_str!("../install.sh");
     assert!(installer.contains(marker), "install.sh must write the marker recon scans for");
+    let release_installer = include_str!("../install-release.sh");
+    assert!(
+        release_installer.contains(&format!("marker='{marker}'")),
+        "install-release.sh must write the marker recon scans for"
+    );
     assert!(README.contains(marker), "README must show the marker recon scans for");
 }
 

@@ -13,15 +13,29 @@ dotfiles.
 
 ## Install
 
+From a release (Linux x86_64 or aarch64, static musl binary, no build):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/kairu1/scout/main/install-release.sh | sh
+```
+
+That fetches the latest release tarball, verifies its checksum, installs
+the binary to `~/.local/bin`, the shell snippet and reference config to
+`~/.local/share/scout`, and adds the shell integration to `~/.bashrc`
+once. Updating is the same command; it never writes or replaces your
+config. `sh -s -- 0.4.3` pins a version, `PREFIX=/opt/tools` moves the
+install, `SCOUT_RC=~/.zshrc` picks the rc file, `SCOUT_NO_RC=1` leaves
+every rc file alone. Read the script first if piping to `sh` is not your
+habit: `curl -fsSLO …/install-release.sh && sh install-release.sh`.
+
+From source:
+
 ```sh
 git clone <this-repo> && cd scout
 ./install.sh                                       # builds, installs to ~/.local/bin
 printf '\n# >>> scout shell integration >>>\nsource %s\n# <<< scout shell integration <<<\n' \
   "$PWD/shell/scout.bash" >> ~/.bashrc              # guarded eval wrapper, marked so recon can find it
 ```
-
-Or take a musl release tarball (x86_64 / aarch64): binary, shell snippet,
-reference config.
 
 Then index a tree and run the picker:
 
